@@ -164,14 +164,14 @@ export default function IngresosList({ soloMios = false }) {
       {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg p-3">{error}</p>}
 
       {/* Table */}
-      {loading ? <TableSkeleton cols={isAdmin ? 10 : 9} rows={6} /> : (
+      {loading ? <TableSkeleton cols={isAdmin ? 11 : 10} rows={6} /> : (
         <div className="card p-0 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-100">
                   {['Fecha','Tipo','Modalidad','Concepto','Cliente','Método','Estado',
-                    ...(isAdmin ? ['Registrado por'] : []),'Monto',''].map(h => (
+                    ...(isAdmin ? ['Registrado por'] : []),'Referencia','Monto',''].map(h => (
                     <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -179,7 +179,7 @@ export default function IngresosList({ soloMios = false }) {
               <tbody>
                 {data.length === 0 ? (
                   <tr>
-                    <td colSpan={isAdmin ? 10 : 9} className="text-center py-10 text-gray-400">
+                    <td colSpan={isAdmin ? 11 : 10} className="text-center py-10 text-gray-400">
                       Sin ingresos registrados
                     </td>
                   </tr>
@@ -199,6 +199,9 @@ export default function IngresosList({ soloMios = false }) {
                     {isAdmin && (
                       <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-500">{i.CreadoPor || '—'}</td>
                     )}
+                    <td className="px-4 py-3 max-w-[160px] truncate text-xs text-gray-500 font-mono" title={i.Notas || ''}>
+                      {i.Notas || '—'}
+                    </td>
                     <td className="px-4 py-3 font-semibold text-emerald-600 whitespace-nowrap">{fmt.usd(i.Monto)}</td>
                     <td className="px-4 py-3">
                       <div className="flex gap-1">
@@ -238,7 +241,7 @@ export default function IngresosList({ soloMios = false }) {
               {data.length > 0 && (
                 <tfoot>
                   <tr className="bg-emerald-50">
-                    <td colSpan={isAdmin ? 8 : 7} className="px-4 py-2 text-sm font-semibold text-emerald-800">TOTAL</td>
+                    <td colSpan={isAdmin ? 9 : 8} className="px-4 py-2 text-sm font-semibold text-emerald-800">TOTAL</td>
                     <td className="px-4 py-2 font-bold text-emerald-700">{fmt.usd(total)}</td>
                     <td />
                   </tr>

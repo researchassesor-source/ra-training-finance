@@ -19,12 +19,13 @@ function getToken() {
 const _cache = new Map()
 const _TTL   = 45_000
 
-function _key(action, params) {
-  return action + ':' + JSON.stringify(params ?? {})
+function _key(action, params, token) {
+  // Include token tail so different users never share cached data
+  return action + ':' + (token ? token.slice(-12) : 'anon') + ':' + JSON.stringify(params ?? {})
 }
 
 async function callCached(action, params, token) {
-  const k   = _key(action, params)
+  const k   = _key(action, params, token)
   const hit = _cache.get(k)
   if (hit) {
     const age = Date.now() - hit.ts
@@ -41,8 +42,10 @@ async function callCached(action, params, token) {
 }
 
 function bust(...prefixes) {
+  const tok = getToken()
+  const tail = tok ? tok.slice(-12) : 'anon'
   for (const k of _cache.keys()) {
-    if (prefixes.some(p => k.startsWith(p))) _cache.delete(k)
+    if (prefixes.some(p => k.startsWith(p + ':' + tail))) _cache.delete(k)
   }
 }
 
@@ -51,7 +54,7 @@ export const api = {
     call('login', { username, password }),
 
   logout: () => {
-    bust()  // clear all cache on logout
+    _cache.clear()  // clear all cache on logout
     return call('logout', {}, getToken())
   },
 
