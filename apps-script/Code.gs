@@ -97,7 +97,7 @@ function respond(data) {
 
 const SHEET_HEADERS = {
   Usuarios:      ['ID','Nombre','Email','Username','PasswordHash','Rol','Activo','FechaCreacion'],
-  Ingresos:      ['ID','Fecha','Tipo','Modalidad','Concepto','Cliente','ContratoID','Monto','MetodoPago','Estado','Notas','CreadoPor','FechaCreacion'],
+  Ingresos:      ['ID','Fecha','Tipo','Modalidad','Concepto','Cliente','ContratoID','Monto','MetodoPago','Estado','Notas','CreadoPor','FechaCreacion','ClienteTelefono'],
   Egresos:       ['ID','Fecha','Categoria','Concepto','Proveedor','Monto','Estado','AprobadoPor','FechaAprobacion','Notas','CreadoPor','FechaCreacion'],
   Pagos:         ['ID','Fecha','Tipo','Beneficiario','Concepto','Referencia','Monto','MetodoPago','EgresoID','ContratoID','Estado','Notas','CreadoPor','FechaCreacion'],
   Contratos:     ['ID','Tipo','Nombre','Concepto','ValorTotal','FechaInicio','FechaFin','Estado','Notas','CreadoPor','FechaCreacion'],
@@ -123,6 +123,18 @@ function getSheet(name) {
       hRange.setFontColor('#ffffff');
       sheet.setFrozenRows(1);
     }
+  } else if (SHEET_HEADERS[name]) {
+    // Auto-add any columns that exist in SHEET_HEADERS but not in the actual sheet
+    const lastCol = sheet.getLastColumn();
+    const existing = lastCol > 0 ? sheet.getRange(1, 1, 1, lastCol).getValues()[0] : [];
+    SHEET_HEADERS[name].forEach(function(h) {
+      if (existing.indexOf(h) === -1) {
+        const col = sheet.getLastColumn() + 1;
+        var cell = sheet.getRange(1, col);
+        cell.setValue(h);
+        cell.setFontWeight('bold').setBackground('#3730a3').setFontColor('#ffffff');
+      }
+    });
   }
   return sheet;
 }
@@ -316,6 +328,7 @@ function addIngreso(user, { ingreso }) {
     ingreso.concepto, ingreso.cliente || '', ingreso.contratoId || '',
     Number(ingreso.monto) || 0, ingreso.metodoPago,
     estado, ingreso.notas || '', user.Username, now,
+    ingreso.clienteTelefono || '',
   ]);
   return { success: true, id };
 }
@@ -332,6 +345,7 @@ function updateIngreso(user, { id, ingreso }) {
     Monto: Number(ingreso.monto) || 0, MetodoPago: ingreso.metodoPago,
     Estado: isAdmin(user) ? ingreso.estado : row.Estado,
     Notas: ingreso.notas,
+    ClienteTelefono: ingreso.clienteTelefono || '',
   });
   return { success: true };
 }
