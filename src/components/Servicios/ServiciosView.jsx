@@ -8,8 +8,21 @@ import { Plus, Pencil, ToggleLeft, ToggleRight, MessageCircle } from 'lucide-rea
 
 const EMPTY = { nombre: '', tipo: '', modalidad: 'N/A', precio: '', duracion: '', descripcion: '', activo: true }
 
+function mapInitial(initial) {
+  if (!initial) return EMPTY
+  return {
+    nombre:      initial.Nombre      || initial.nombre      || '',
+    tipo:        initial.Tipo        || initial.tipo        || '',
+    modalidad:   initial.Modalidad   || initial.modalidad   || 'N/A',
+    precio:      initial.Precio      || initial.precio      || '',
+    duracion:    initial.Duracion    || initial.duracion    || '',
+    descripcion: initial.Descripcion || initial.descripcion || '',
+    activo:      initial.Activo === true || initial.Activo === 'TRUE' || initial.activo === true,
+  }
+}
+
 function ServicioForm({ initial, onSave, onCancel }) {
-  const [form, setForm]   = useState(initial ? { ...EMPTY, ...initial } : EMPTY)
+  const [form, setForm]   = useState(() => mapInitial(initial))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))

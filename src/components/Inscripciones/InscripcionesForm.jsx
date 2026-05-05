@@ -11,13 +11,34 @@ const EMPTY = {
   estadoPago: 'pendiente', notas: '',
 }
 
+function mapInitial(initial) {
+  if (!initial) return EMPTY
+  return {
+    clienteNombre:   initial.ClienteNombre   || initial.clienteNombre   || '',
+    clienteID:       initial.ClienteID       || initial.clienteID       || '',
+    clienteEmail:    initial.ClienteEmail    || initial.clienteEmail    || '',
+    clienteTelefono: initial.ClienteTelefono || initial.clienteTelefono || '',
+    servicioId:      initial.ServicioID      || initial.servicioId      || '',
+    servicioNombre:  initial.ServicioNombre  || initial.servicioNombre  || '',
+    modalidad:       initial.Modalidad       || initial.modalidad       || 'Virtual',
+    fechaInicio:     initial.FechaInicio     || initial.fechaInicio     || '',
+    monto:           initial.Monto           || initial.monto           || '',
+    metodoPago:      initial.MetodoPago      || initial.metodoPago      || '',
+    razonSocial:     initial.RazonSocial     || initial.razonSocial     || '',
+    ruc:             initial.RUC             || initial.ruc             || '',
+    direccionFactura:initial.DireccionFactura|| initial.direccionFactura|| '',
+    estadoPago:      initial.EstadoPago      || initial.estadoPago      || 'pendiente',
+    notas:           initial.Notas           || initial.notas           || '',
+  }
+}
+
 export default function InscripcionesForm({ initial, onSave, onCancel }) {
   const { isAdmin } = useAuth()
-  const [form, setForm]       = useState(initial ? { ...EMPTY, ...initial } : EMPTY)
+  const [form, setForm]       = useState(() => mapInitial(initial))
   const [servicios, setServicios] = useState([])
   const [saving, setSaving]   = useState(false)
   const [error, setError]     = useState('')
-  const [facturaIgual, setFacturaIgual] = useState(true)
+  const [facturaIgual, setFacturaIgual] = useState(!initial)
 
   useEffect(() => {
     api.getServicios()

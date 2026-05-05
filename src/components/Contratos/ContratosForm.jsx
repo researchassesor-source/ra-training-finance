@@ -6,8 +6,22 @@ const EMPTY = {
   fechaInicio: '', fechaFin: '', estado: 'activo', notas: '',
 }
 
+function mapInitial(initial) {
+  if (!initial) return EMPTY
+  return {
+    tipo:        initial.Tipo        || initial.tipo        || 'cliente',
+    nombre:      initial.Nombre      || initial.nombre      || '',
+    concepto:    initial.Concepto    || initial.concepto    || '',
+    valorTotal:  initial.ValorTotal  || initial.valorTotal  || '',
+    fechaInicio: initial.FechaInicio || initial.fechaInicio || '',
+    fechaFin:    initial.FechaFin    || initial.fechaFin    || '',
+    estado:      initial.Estado      || initial.estado      || 'activo',
+    notas:       initial.Notas       || initial.notas       || '',
+  }
+}
+
 export default function ContratosForm({ initial, onSave, onCancel }) {
-  const [form, setForm]   = useState(initial ? { ...EMPTY, ...initial } : EMPTY)
+  const [form, setForm]   = useState(() => mapInitial(initial))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))

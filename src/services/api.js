@@ -98,4 +98,13 @@ export const api = {
     call('addConfigPago', { configPago }, getToken()),
   updateConfigPago: (id, configPago) =>
     call('updateConfigPago', { id, configPago }, getToken()),
+
+  getConvenios: (filtros = {}) =>
+    call('getConvenios', { filtros }, getToken()),
+  addConvenio: (convenio) =>
+    call('addConvenio', { convenio }, getToken()),
+  updateConvenio: (id, convenio) =>
+    call('updateConvenio', { id, convenio }, getToken()),
+  deleteConvenio: (id) =>
+    call('deleteConvenio', { id }, getToken()),
 }

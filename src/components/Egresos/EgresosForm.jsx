@@ -7,9 +7,22 @@ const EMPTY = {
   monto: '', estado: 'pendiente', notas: '',
 }
 
+function mapInitial(initial) {
+  if (!initial) return { ...EMPTY, fecha: new Date().toISOString().slice(0,10) }
+  return {
+    fecha:     initial.Fecha     || initial.fecha     || new Date().toISOString().slice(0,10),
+    categoria: initial.Categoria || initial.categoria || '',
+    concepto:  initial.Concepto  || initial.concepto  || '',
+    proveedor: initial.Proveedor || initial.proveedor || '',
+    monto:     initial.Monto     || initial.monto     || '',
+    estado:    initial.Estado    || initial.estado    || 'pendiente',
+    notas:     initial.Notas     || initial.notas     || '',
+  }
+}
+
 export default function EgresosForm({ initial, onSave, onCancel }) {
   const { isAdmin } = useAuth()
-  const [form, setForm]   = useState(initial ? { ...EMPTY, ...initial } : { ...EMPTY, fecha: new Date().toISOString().slice(0,10) })
+  const [form, setForm]   = useState(() => mapInitial(initial))
   const [cats, setCats]   = useState([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')

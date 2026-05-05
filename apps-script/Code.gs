@@ -75,6 +75,10 @@ function processRequest(data) {
     getConfigPagos:     () => getConfigPagos(user, params),
     addConfigPago:      () => addConfigPago(user, params),
     updateConfigPago:   () => updateConfigPago(user, params),
+    getConvenios:       () => getConvenios(user, params),
+    addConvenio:        () => addConvenio(user, params),
+    updateConvenio:     () => updateConvenio(user, params),
+    deleteConvenio:     () => deleteRecord(user, 'Convenios', params, true),
   };
 
   if (!handlers[action]) return { success: false, error: 'Acción no reconocida: ' + action };
@@ -103,6 +107,7 @@ const SHEET_HEADERS = {
   Inscripciones: ['ID','ClienteNombre','ClienteID','ClienteEmail','ClienteTelefono','ServicioID','ServicioNombre','Modalidad','FechaInicio','Monto','MetodoPago','RazonSocial','RUC','DireccionFactura','EstadoPago','EstadoCertificado','IngresoID','Notas','CreadoPor','FechaCreacion'],
   Sesiones:      ['Token','Username','UserID','Rol','Nombre','Expira'],
   ConfigPagos:   ['ID','Nombre','Tipo','Detalles','Instrucciones','Activo','FechaCreacion'],
+  Convenios:     ['ID','Organizacion','Representante','Cargo','Objeto','ObligacionesRA','ObligacionesAliado','Vigencia','FechaInicio','FechaFin','Estado','Notas','CreadoPor','FechaCreacion'],
 };
 
 function getSheet(name) {
@@ -681,6 +686,50 @@ function updateConfigPago(user, { id, configPago }) {
     Nombre: configPago.nombre, Tipo: configPago.tipo,
     Detalles: configPago.detalles, Instrucciones: configPago.instrucciones,
     Activo: configPago.activo,
+  });
+  return { success: true };
+}
+
+// ─────────────────────────────────────────────
+// CONVENIOS
+// ─────────────────────────────────────────────
+
+function getConvenios(user, { filtros = {} } = {}) {
+  requireAdmin(user);
+  let data = sheetToObjects(getSheet('Convenios'));
+  if (filtros.estado) data = data.filter(c => c.Estado === filtros.estado);
+  if (filtros.desde)  data = data.filter(c => new Date(c.FechaInicio) >= new Date(filtros.desde));
+  if (filtros.hasta)  data = data.filter(c => new Date(c.FechaInicio) <= new Date(filtros.hasta));
+  return { success: true, data };
+}
+
+function addConvenio(user, { convenio }) {
+  requireAdmin(user);
+  const sheet = getSheet('Convenios');
+  const id    = generateId('CVN');
+  const now   = new Date().toISOString();
+  sheet.appendRow([
+    id,
+    convenio.organizacion, convenio.representante || '', convenio.cargo || '',
+    convenio.objeto, convenio.obligacionesRA || '', convenio.obligacionesAliado || '',
+    convenio.vigencia || '', convenio.fechaInicio || '', convenio.fechaFin || '',
+    convenio.estado || 'activo', convenio.notas || '',
+    user.Username, now,
+  ]);
+  return { success: true, id };
+}
+
+function updateConvenio(user, { id, convenio }) {
+  requireAdmin(user);
+  const sheet = getSheet('Convenios');
+  const row   = sheetToObjects(sheet).find(r => r.ID === id);
+  if (!row) return { success: false, error: 'Convenio no encontrado.' };
+  updateRow(sheet, row, {
+    Organizacion: convenio.organizacion, Representante: convenio.representante,
+    Cargo: convenio.cargo, Objeto: convenio.objeto,
+    ObligacionesRA: convenio.obligacionesRA, ObligacionesAliado: convenio.obligacionesAliado,
+    Vigencia: convenio.vigencia, FechaInicio: convenio.fechaInicio,
+    FechaFin: convenio.fechaFin, Estado: convenio.estado, Notas: convenio.notas,
   });
   return { success: true };
 }

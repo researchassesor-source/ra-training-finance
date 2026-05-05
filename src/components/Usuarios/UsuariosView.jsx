@@ -7,8 +7,20 @@ import { Plus, Pencil, UserCheck, UserX } from 'lucide-react'
 
 const EMPTY = { nombre: '', email: '', username: '', password: '', rol: 'usuario', activo: true }
 
+function mapInitial(initial) {
+  if (!initial) return EMPTY
+  return {
+    nombre:   initial.Nombre   || initial.nombre   || '',
+    email:    initial.Email    || initial.email    || '',
+    username: initial.Username || initial.username || '',
+    password: '',
+    rol:      initial.Rol      || initial.rol      || 'usuario',
+    activo:   initial.Activo === true || initial.Activo === 'TRUE' || initial.activo === true,
+  }
+}
+
 function UsuarioForm({ initial, onSave, onCancel }) {
-  const [form, setForm]   = useState(initial ? { ...EMPTY, ...initial, password: '' } : EMPTY)
+  const [form, setForm]   = useState(() => mapInitial(initial))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))

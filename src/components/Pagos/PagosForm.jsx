@@ -7,9 +7,25 @@ const EMPTY = {
   monto: '', metodoPago: '', egresoId: '', contratoId: '', estado: 'completado', notas: '',
 }
 
+function mapInitial(initial) {
+  return {
+    fecha:       initial.Fecha       || initial.fecha       || new Date().toISOString().slice(0,10),
+    tipo:        initial.Tipo        || initial.tipo        || '',
+    beneficiario:initial.Beneficiario|| initial.beneficiario|| '',
+    concepto:    initial.Concepto    || initial.concepto    || '',
+    referencia:  initial.Referencia  || initial.referencia  || '',
+    monto:       initial.Monto       || initial.monto       || '',
+    metodoPago:  initial.MetodoPago  || initial.metodoPago  || '',
+    egresoId:    initial.EgresoID    || initial.egresoId    || '',
+    contratoId:  initial.ContratoID  || initial.contratoId  || '',
+    estado:      initial.Estado      || initial.estado      || 'completado',
+    notas:       initial.Notas       || initial.notas       || '',
+  }
+}
+
 export default function PagosForm({ initial, prefill, onSave, onCancel }) {
   const [form, setForm]       = useState(() => {
-    if (initial) return { ...EMPTY, ...initial }
+    if (initial) return mapInitial(initial)
     const base = { ...EMPTY, fecha: new Date().toISOString().slice(0,10) }
     return prefill ? { ...base, ...prefill } : base
   })

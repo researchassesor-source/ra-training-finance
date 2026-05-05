@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext'
 import {
   LayoutDashboard, TrendingUp, TrendingDown, CreditCard,
   FileText, BarChart2, BookOpen, Users, X, TrendingUp as Logo,
-  GraduationCap, Briefcase, Settings,
+  GraduationCap, Briefcase, Settings, HeartHandshake,
 } from 'lucide-react'
 
 const adminLinks = [
@@ -14,6 +14,7 @@ const adminLinks = [
   { to: '/servicios',      icon: Briefcase,       label: 'Servicios' },
   { to: '/pagos',          icon: CreditCard,      label: 'Pagos' },
   { to: '/contratos',      icon: FileText,        label: 'Contratos' },
+  { to: '/convenios',      icon: HeartHandshake,  label: 'Convenios' },
   { to: '/proyecciones',   icon: BarChart2,       label: 'Proyecciones' },
   { to: '/reportes',       icon: BookOpen,        label: 'Reportes' },
   { to: '/usuarios',       icon: Users,           label: 'Usuarios' },

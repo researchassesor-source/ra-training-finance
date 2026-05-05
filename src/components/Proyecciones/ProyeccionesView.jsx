@@ -14,8 +14,21 @@ const EMPTY = {
   montoReal: '', estado: 'proyectado', notas: '',
 }
 
+function mapInitial(initial) {
+  if (!initial) return EMPTY
+  return {
+    evento:          initial.Evento          || initial.evento          || '',
+    tipo:            initial.Tipo            || initial.tipo            || '',
+    fechaEstimada:   initial.FechaEstimada   || initial.fechaEstimada   || '',
+    montoProyectado: initial.MontoProyectado || initial.montoProyectado || '',
+    montoReal:       initial.MontoReal       || initial.montoReal       || '',
+    estado:          initial.Estado          || initial.estado          || 'proyectado',
+    notas:           initial.Notas           || initial.notas           || '',
+  }
+}
+
 function ProyeccionForm({ initial, onSave, onCancel }) {
-  const [form, setForm]   = useState(initial ? { ...EMPTY, ...initial } : EMPTY)
+  const [form, setForm]   = useState(() => mapInitial(initial))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))

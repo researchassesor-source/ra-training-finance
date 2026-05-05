@@ -467,6 +467,179 @@ export function exportInscripcionPDF(ins) {
   doc.save(`inscripcion_${ins.ID}_ra_training.pdf`)
 }
 
+export function exportConvenioPDF(convenio) {
+  const doc = new jsPDF()
+  const fecha = fmt.date(convenio.FechaCreacion || new Date())
+
+  // Header
+  doc.setFillColor(...BRAND_COLOR)
+  doc.rect(0, 0, 210, 30, 'F')
+  doc.setTextColor(255, 255, 255)
+  doc.setFontSize(15)
+  doc.setFont('helvetica', 'bold')
+  doc.text('R.A. TRAINING', 105, 12, { align: 'center' })
+  doc.setFontSize(9)
+  doc.setFont('helvetica', 'normal')
+  doc.text('Empresa de Capacitación y Formación Profesional', 105, 19, { align: 'center' })
+  doc.text('contacto@ratraining.com', 105, 25, { align: 'center' })
+
+  doc.setTextColor(30, 30, 30)
+  doc.setFontSize(13)
+  doc.setFont('helvetica', 'bold')
+  doc.text('CONVENIO DE COOPERACIÓN Y ALIANZA ESTRATÉGICA', 105, 44, { align: 'center' })
+
+  doc.setFontSize(8.5)
+  doc.setFont('helvetica', 'normal')
+  doc.setTextColor(80, 80, 80)
+  doc.text(`Número: ${convenio.ID}`, 14, 52)
+  doc.text(`Fecha de suscripción: ${fecha}`, 196, 52, { align: 'right' })
+
+  doc.setDrawColor(...BRAND_COLOR)
+  doc.setLineWidth(0.8)
+  doc.line(14, 55, 196, 55)
+  doc.setLineWidth(0.3)
+  doc.line(14, 56.5, 196, 56.5)
+
+  let y = 64
+  const W = 182
+
+  function clausulaTitle(text) {
+    y += 3
+    if (y > 265) { doc.addPage(); y = 20 }
+    doc.setFontSize(9.5)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(...BRAND_COLOR)
+    doc.text(text, 14, y)
+    doc.setTextColor(30, 30, 30)
+    y += 6
+  }
+
+  function paragraph(text, indent = 14) {
+    doc.setFontSize(9)
+    doc.setFont('helvetica', 'normal')
+    doc.setTextColor(30, 30, 30)
+    const lines = doc.splitTextToSize(text, W - (indent - 14))
+    if (y + lines.length * 5 > 272) { doc.addPage(); y = 20 }
+    doc.text(lines, indent, y)
+    y += lines.length * 5 + 2
+  }
+
+  // COMPARECIENTES
+  clausulaTitle('COMPARECIENTES')
+  paragraph(
+    `En la ciudad de Quito, República del Ecuador, a ${fecha}, comparecen a la celebración del presente Convenio de Cooperación y Alianza Estratégica, por una parte, R.A. TRAINING, empresa de capacitación y formación profesional, debidamente constituida, representada para este acto por su representante legal, a quien en adelante se denominará "R.A. TRAINING"; y, por otra parte, ${convenio.Organizacion || '—'}, representada por ${convenio.Representante || '—'}${convenio.Cargo ? `, en calidad de ${convenio.Cargo}` : ''}, a quien en adelante se denominará "EL ALIADO ESTRATÉGICO". Las partes, de común acuerdo, convienen en celebrar el presente instrumento al tenor de las siguientes cláusulas:`
+  )
+
+  // CLÁUSULA PRIMERA
+  clausulaTitle('CLÁUSULA PRIMERA — OBJETO DEL CONVENIO')
+  paragraph(
+    convenio.Objeto ||
+    'El presente Convenio tiene por objeto establecer un marco de cooperación y colaboración mutua entre R.A. TRAINING y EL ALIADO ESTRATÉGICO, orientado al desarrollo conjunto de actividades de capacitación, formación profesional, intercambio de conocimientos y fortalecimiento institucional de ambas organizaciones.'
+  )
+
+  // CLÁUSULA SEGUNDA
+  clausulaTitle('CLÁUSULA SEGUNDA — COMPROMISOS DE R.A. TRAINING')
+  if (convenio.ObligacionesRA) {
+    const items = convenio.ObligacionesRA.split('\n').filter(Boolean)
+    if (items.length > 1) {
+      items.forEach((item, idx) => paragraph(`${String.fromCharCode(97 + idx)}) ${item.trim()}`, 19))
+    } else {
+      paragraph(convenio.ObligacionesRA)
+    }
+  } else {
+    paragraph('a) Poner a disposición su infraestructura académica y recursos pedagógicos para el desarrollo de las actividades conjuntas acordadas.', 19)
+    paragraph('b) Otorgar condiciones preferenciales en la prestación de sus servicios de capacitación a los miembros o colaboradores de EL ALIADO ESTRATÉGICO.', 19)
+    paragraph('c) Emitir los certificados, constancias y documentos habilitantes derivados de las actividades realizadas en el marco del presente Convenio.', 19)
+    paragraph('d) Mantener comunicación permanente con EL ALIADO ESTRATÉGICO para asegurar el cumplimiento de los compromisos asumidos.', 19)
+  }
+
+  // CLÁUSULA TERCERA
+  clausulaTitle('CLÁUSULA TERCERA — COMPROMISOS DE EL ALIADO ESTRATÉGICO')
+  if (convenio.ObligacionesAliado) {
+    const items = convenio.ObligacionesAliado.split('\n').filter(Boolean)
+    if (items.length > 1) {
+      items.forEach((item, idx) => paragraph(`${String.fromCharCode(97 + idx)}) ${item.trim()}`, 19))
+    } else {
+      paragraph(convenio.ObligacionesAliado)
+    }
+  } else {
+    paragraph('a) Difundir y promover los servicios y programas de R.A. TRAINING entre su comunidad, colaboradores y redes de contacto.', 19)
+    paragraph('b) Designar un enlace institucional responsable de la coordinación y seguimiento de las actividades contempladas en el presente Convenio.', 19)
+    paragraph('c) Facilitar los espacios, recursos o información que sean requeridos para el adecuado cumplimiento de los compromisos mutuamente acordados.', 19)
+    paragraph('d) Informar oportunamente a R.A. TRAINING sobre cualquier circunstancia que pudiera afectar el desarrollo de las actividades conjuntas.', 19)
+  }
+
+  // CLÁUSULA CUARTA — VIGENCIA
+  clausulaTitle('CLÁUSULA CUARTA — VIGENCIA')
+  const inicio = convenio.FechaInicio ? fmt.date(convenio.FechaInicio) : 'la fecha de suscripción'
+  const fin    = convenio.FechaFin    ? fmt.date(convenio.FechaFin)    : 'el término acordado'
+  const vigencia = convenio.Vigencia  ? ` (${convenio.Vigencia})` : ''
+  paragraph(
+    `El presente Convenio entrará en vigor a partir de ${inicio} y tendrá una vigencia hasta ${fin}${vigencia}. Concluido dicho plazo, podrá renovarse mediante acuerdo expreso y escrito entre las partes, suscrito con no menos de treinta (30) días de anticipación a su vencimiento. Cualquiera de las partes podrá dar por terminado el presente instrumento en forma anticipada, mediante comunicación escrita dirigida a la otra parte con al menos treinta (30) días de antelación.`
+  )
+
+  // CLÁUSULA QUINTA — CONFIDENCIALIDAD
+  clausulaTitle('CLÁUSULA QUINTA — CONFIDENCIALIDAD Y PROPIEDAD INTELECTUAL')
+  paragraph(
+    'Las partes acuerdan guardar absoluta reserva sobre la información confidencial, datos estratégicos, metodologías y materiales pedagógicos que lleguen a su conocimiento con motivo de la ejecución del presente Convenio. Esta obligación se extenderá por un período de dos (2) años contados desde la terminación del presente instrumento, por cualquier causa que fuere. Los materiales, contenidos y herramientas desarrollados conjuntamente en el marco de este Convenio serán de propiedad compartida, salvo acuerdo expreso en contrario suscrito por las partes.'
+  )
+
+  // CLÁUSULA SEXTA — NATURALEZA NO COMERCIAL
+  clausulaTitle('CLÁUSULA SEXTA — NATURALEZA DEL CONVENIO')
+  paragraph(
+    'El presente Convenio es de naturaleza institucional y de cooperación mutua. No genera relación de dependencia, sociedad, ni obligación económica directa entre las partes, salvo que expresamente se establezca en un acuerdo complementario debidamente suscrito. Las actividades o proyectos específicos que impliquen compromisos económicos deberán formalizarse mediante acuerdos adicionales que constituirán anexos al presente instrumento.'
+  )
+
+  // CLÁUSULA SÉPTIMA — RESOLUCIÓN DE CONFLICTOS
+  clausulaTitle('CLÁUSULA SÉPTIMA — RESOLUCIÓN DE CONFLICTOS')
+  paragraph(
+    'Las partes se comprometen a resolver cualquier desacuerdo o controversia derivada de la interpretación o cumplimiento del presente Convenio, en primera instancia, mediante diálogo y negociación directa de buena fe. De no alcanzarse acuerdo en el plazo de quince (15) días desde la notificación del conflicto, las partes acuerdan someterse a los mecanismos de mediación disponibles en los centros de mediación legalmente autorizados, conforme a la legislación ecuatoriana vigente.'
+  )
+
+  if (convenio.Notas) {
+    clausulaTitle('DISPOSICIÓN ESPECIAL')
+    paragraph(convenio.Notas)
+  }
+
+  // CLÁUSULA FINAL
+  clausulaTitle('EN FE DE LO CUAL')
+  paragraph(
+    'Las partes declaran haber leído y comprendido íntegramente el contenido del presente Convenio de Cooperación y Alianza Estratégica, manifestando su plena conformidad y aceptación con todos sus términos, y lo suscriben en señal de acuerdo, en dos ejemplares de igual valor y tenor, en la ciudad y fecha antes indicadas.'
+  )
+
+  // Firmas
+  y = Math.max(y + 12, 238)
+  if (y > 255) { doc.addPage(); y = 30 }
+
+  doc.setFontSize(9)
+  doc.setFont('helvetica', 'normal')
+  doc.setTextColor(30, 30, 30)
+  doc.setDrawColor(80, 80, 80)
+  doc.setLineWidth(0.3)
+
+  doc.line(14, y, 92, y)
+  doc.line(118, y, 196, y)
+  y += 5
+  doc.setFont('helvetica', 'bold')
+  doc.text('R.A. TRAINING', 53, y, { align: 'center' })
+  doc.text((convenio.Organizacion || 'EL ALIADO').toUpperCase(), 157, y, { align: 'center' })
+  y += 4
+  doc.setFont('helvetica', 'normal')
+  doc.setTextColor(100, 100, 100)
+  doc.setFontSize(8)
+  doc.text('Representante Legal', 53, y, { align: 'center' })
+  doc.text(`${convenio.Representante || 'Representante'}${convenio.Cargo ? ` / ${convenio.Cargo}` : ''}`, 157, y, { align: 'center' })
+  y += 5
+  doc.text('C.I. / RUC: _______________________', 53, y, { align: 'center' })
+  doc.text('C.I. / RUC: _______________________', 157, y, { align: 'center' })
+  y += 5
+  doc.text('Fecha: _______ / _______ / _______', 53, y, { align: 'center' })
+  doc.text('Fecha: _______ / _______ / _______', 157, y, { align: 'center' })
+
+  addFooter(doc)
+  doc.save(`convenio_${convenio.ID}_ra_training.pdf`)
+}
+
 function makeWordRow(cells, isHeader = false) {
   return new TableRow({
     tableHeader: isHeader,
