@@ -250,7 +250,7 @@ export default function IngresosList({ soloMios = false }) {
       )}
 
       {/* Modal: nuevo / editar */}
-      <Modal open={!!modal} onClose={() => setModal(null)}
+      <Modal open={!!modal} onClose={() => { setModal(null); load() }}
         title={modal === 'edit' ? 'Editar Ingreso' : 'Nuevo Ingreso'} size="lg">
         <IngresosForm
           initial={modal === 'edit' ? selected : null}
