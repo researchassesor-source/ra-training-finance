@@ -97,7 +97,7 @@ function respond(data) {
 
 const SHEET_HEADERS = {
   Usuarios:      ['ID','Nombre','Email','Username','PasswordHash','Rol','Activo','FechaCreacion'],
-  Ingresos:      ['ID','Fecha','Tipo','Modalidad','Concepto','Cliente','ContratoID','InscripcionID','Monto','MetodoPago','Estado','Notas','CreadoPor','FechaCreacion'],
+  Ingresos:      ['ID','Fecha','Tipo','Modalidad','Concepto','Cliente','ContratoID','Monto','MetodoPago','Estado','Notas','CreadoPor','FechaCreacion'],
   Egresos:       ['ID','Fecha','Categoria','Concepto','Proveedor','Monto','Estado','AprobadoPor','FechaAprobacion','Notas','CreadoPor','FechaCreacion'],
   Pagos:         ['ID','Fecha','Tipo','Beneficiario','Concepto','Referencia','Monto','MetodoPago','EgresoID','ContratoID','Estado','Notas','CreadoPor','FechaCreacion'],
   Contratos:     ['ID','Tipo','Nombre','Concepto','ValorTotal','FechaInicio','FechaFin','Estado','Notas','CreadoPor','FechaCreacion'],
@@ -314,7 +314,7 @@ function addIngreso(user, { ingreso }) {
   sheet.appendRow([
     id, ingreso.fecha, ingreso.tipo, ingreso.modalidad || 'N/A',
     ingreso.concepto, ingreso.cliente || '', ingreso.contratoId || '',
-    ingreso.inscripcionId || '', Number(ingreso.monto) || 0, ingreso.metodoPago,
+    Number(ingreso.monto) || 0, ingreso.metodoPago,
     estado, ingreso.notas || '', user.Username, now,
   ]);
   return { success: true, id };
