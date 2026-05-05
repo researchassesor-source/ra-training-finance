@@ -7,7 +7,8 @@ import Modal from '../UI/Modal'
 import ConfirmDialog from '../UI/ConfirmDialog'
 import Spinner from '../UI/Spinner'
 import EgresosForm from './EgresosForm'
-import { Plus, Pencil, Trash2, CheckCircle, XCircle, Download } from 'lucide-react'
+import { Plus, Pencil, Trash2, CheckCircle, XCircle, Download, CreditCard } from 'lucide-react'
+import PagosForm from '../Pagos/PagosForm'
 
 export default function EgresosList({ soloMios = false }) {
   const { isAdmin } = useAuth()
@@ -20,6 +21,8 @@ export default function EgresosList({ soloMios = false }) {
   const [confirm, setConfirm]   = useState(null)
   const [deleting, setDeleting] = useState(false)
   const [filtros, setFiltros]   = useState({ categoria: '', estado: '', desde: '', hasta: '' })
+  const [payModal, setPayModal] = useState(false)
+  const [payTarget, setPayTarget] = useState(null)
 
   const load = useCallback(() => {
     setLoading(true)
@@ -158,6 +161,13 @@ export default function EgresosList({ soloMios = false }) {
                             <Pencil size={14} />
                           </button>
                         )}
+                        {isAdmin && e.Estado === 'aprobado' && (
+                          <button onClick={() => { setPayTarget(e); setPayModal(true) }}
+                            title="Registrar pago"
+                            className="p-1.5 hover:bg-brand-50 rounded text-gray-400 hover:text-brand-600 transition-colors">
+                            <CreditCard size={14} />
+                          </button>
+                        )}
                         {isAdmin && (
                           <button onClick={() => setConfirm(e)}
                             className="p-1.5 hover:bg-red-50 rounded text-gray-400 hover:text-red-600 transition-colors">
@@ -197,6 +207,20 @@ export default function EgresosList({ soloMios = false }) {
         loading={deleting} title="Eliminar Egreso"
         message={`¿Eliminar el egreso "${confirm?.Concepto}"? Esta acción no se puede deshacer.`}
       />
+
+      <Modal open={payModal} onClose={() => setPayModal(false)} title="Registrar Pago del Egreso" size="lg">
+        <PagosForm
+          prefill={payTarget ? {
+            tipo: 'Pago a Proveedor',
+            beneficiario: payTarget.Proveedor || '',
+            concepto: payTarget.Concepto,
+            monto: payTarget.Monto,
+            egresoId: payTarget.ID,
+          } : undefined}
+          onSave={() => { setPayModal(false); load() }}
+          onCancel={() => setPayModal(false)}
+        />
+      </Modal>
     </div>
   )
 }

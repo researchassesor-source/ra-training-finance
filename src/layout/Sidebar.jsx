@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext'
 import {
   LayoutDashboard, TrendingUp, TrendingDown, CreditCard,
   FileText, BarChart2, BookOpen, Users, X, TrendingUp as Logo,
-  GraduationCap, Briefcase,
+  GraduationCap, Briefcase, Settings,
 } from 'lucide-react'
 
 const adminLinks = [
@@ -17,6 +17,7 @@ const adminLinks = [
   { to: '/proyecciones',   icon: BarChart2,       label: 'Proyecciones' },
   { to: '/reportes',       icon: BookOpen,        label: 'Reportes' },
   { to: '/usuarios',       icon: Users,           label: 'Usuarios' },
+  { to: '/config-pagos',   icon: Settings,        label: 'Cuentas de Pago' },
 ]
 
 const vendedorLinks = [

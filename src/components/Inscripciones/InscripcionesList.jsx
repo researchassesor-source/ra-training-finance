@@ -6,7 +6,7 @@ import { exportInscripcionPDF } from '../../utils/exporters'
 import Modal from '../UI/Modal'
 import Spinner from '../UI/Spinner'
 import InscripcionesForm from './InscripcionesForm'
-import { Plus, Pencil, Download, Award, CheckCircle } from 'lucide-react'
+import { Plus, Pencil, Download, Award, CheckCircle, MessageCircle } from 'lucide-react'
 
 export default function InscripcionesList() {
   const { isAdmin } = useAuth()
@@ -16,6 +16,9 @@ export default function InscripcionesList() {
   const [modal, setModal]       = useState(null)
   const [selected, setSelected] = useState(null)
   const [filtros, setFiltros]   = useState({ estadoPago: '', estadoCertificado: '' })
+  const [waIns, setWaIns]       = useState(null)
+  const [cuentas, setCuentas]   = useState([])
+  const [waSelected, setWaSelected] = useState('')
 
   const load = useCallback(() => {
     setLoading(true)
@@ -54,6 +57,34 @@ export default function InscripcionesList() {
       await api.updateInscripcion(ins.ID, insToForm(ins, { estadoPago: 'verificado' }))
       load()
     } catch (e) { setError(e.message) }
+  }
+
+  function openWhatsApp(ins) {
+    setWaIns(ins)
+    setWaSelected('')
+    api.getConfigPagos()
+      .then(r => setCuentas((r.data || []).filter(c => c.Activo === true || c.Activo === 'TRUE')))
+      .catch(() => {})
+  }
+
+  function buildWaMessage(ins, cuenta) {
+    const lineas = [
+      `*R.A. Training — Datos de Pago*`,
+      ``,
+      `Estimado/a *${ins.ClienteNombre}*,`,
+      `A continuación los datos para realizar el pago de su inscripción:`,
+      ``,
+      `📚 *Servicio:* ${ins.ServicioNombre}`,
+      `💵 *Monto:* $${Number(ins.Monto).toFixed(2)} USD`,
+      ``,
+    ]
+    if (cuenta) {
+      lineas.push(`*${cuenta.Nombre}*`)
+      lineas.push(cuenta.Detalles || '')
+      if (cuenta.Instrucciones) { lineas.push(''); lineas.push(`ℹ️ ${cuenta.Instrucciones}`) }
+    }
+    lineas.push('', '¡Gracias por su preferencia! 🙏')
+    return lineas.join('\n')
   }
 
   const totalMonto    = data.reduce((s, i) => s + (Number(i.Monto) || 0), 0)
@@ -147,6 +178,11 @@ export default function InscripcionesList() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex gap-1">
+                        <button onClick={() => openWhatsApp(i)}
+                          title="Enviar datos de pago por WhatsApp"
+                          className="p-1.5 hover:bg-emerald-50 rounded text-gray-400 hover:text-emerald-600 transition-colors">
+                          <MessageCircle size={14} />
+                        </button>
                         <button onClick={() => exportInscripcionPDF(i)}
                           title="Descargar comprobante"
                           className="p-1.5 hover:bg-brand-50 rounded text-gray-400 hover:text-brand-600 transition-colors">
@@ -187,6 +223,46 @@ export default function InscripcionesList() {
           onSave={() => { setModal(null); load() }}
           onCancel={() => setModal(null)}
         />
+      </Modal>
+
+      <Modal open={!!waIns} onClose={() => setWaIns(null)} title="Enviar Datos de Pago por WhatsApp" size="md">
+        {waIns && (
+          <div className="space-y-4">
+            <div className="text-sm text-gray-600">
+              <p><span className="font-medium">Cliente:</span> {waIns.ClienteNombre}</p>
+              <p><span className="font-medium">Teléfono:</span> {waIns.ClienteTelefono || 'No registrado'}</p>
+              <p><span className="font-medium">Servicio:</span> {waIns.ServicioNombre}</p>
+            </div>
+            <div>
+              <label className="label">Cuenta de pago a compartir</label>
+              <select className="input" value={waSelected} onChange={e => setWaSelected(e.target.value)}>
+                <option value="">Solo información del servicio</option>
+                {cuentas.map(c => <option key={c.ID} value={c.ID}>{c.Nombre} ({c.Tipo})</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="label">Vista previa del mensaje</label>
+              <pre className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-xs whitespace-pre-wrap text-gray-700 max-h-48 overflow-y-auto">
+                {buildWaMessage(waIns, cuentas.find(c => c.ID === waSelected))}
+              </pre>
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button onClick={() => setWaIns(null)} className="btn-secondary flex-1">Cancelar</button>
+              <button
+                onClick={() => {
+                  const msg = buildWaMessage(waIns, cuentas.find(c => c.ID === waSelected))
+                  const phone = waIns.ClienteTelefono?.replace(/\D/g, '') || ''
+                  const url = phone
+                    ? `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`
+                    : `https://wa.me/?text=${encodeURIComponent(msg)}`
+                  window.open(url, '_blank')
+                }}
+                className="btn-primary flex-1">
+                <MessageCircle size={15} /> Abrir WhatsApp
+              </button>
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   )

@@ -253,119 +253,162 @@ export function exportContratoPDF(contrato) {
   const doc = new jsPDF()
   const esCliente = contrato.Tipo === 'cliente'
   const titulo = esCliente
-    ? 'CONTRATO DE PRESTACIÓN DE SERVICIOS'
-    : 'CONTRATO CON PROVEEDOR DE SERVICIOS'
+    ? 'CONTRATO DE PRESTACIÓN DE SERVICIOS DE CAPACITACIÓN'
+    : 'CONTRATO DE PROVISIÓN DE SERVICIOS'
+
+  const fechaDoc = fmt.date(contrato.FechaCreacion || new Date())
 
   // Header
   doc.setFillColor(...BRAND_COLOR)
-  doc.rect(0, 0, 210, 28, 'F')
+  doc.rect(0, 0, 210, 30, 'F')
   doc.setTextColor(255, 255, 255)
   doc.setFontSize(15)
   doc.setFont('helvetica', 'bold')
-  doc.text('R.A. TRAINING', 105, 11, { align: 'center' })
+  doc.text('R.A. TRAINING', 105, 12, { align: 'center' })
   doc.setFontSize(9)
   doc.setFont('helvetica', 'normal')
-  doc.text('Empresa de Capacitación y Formación Profesional', 105, 17, { align: 'center' })
-  doc.setFontSize(8)
-  doc.text('contacto@ratraining.com', 105, 23, { align: 'center' })
+  doc.text('Empresa de Capacitación y Formación Profesional', 105, 19, { align: 'center' })
+  doc.text('contacto@ratraining.com', 105, 25, { align: 'center' })
 
-  // Title
   doc.setTextColor(30, 30, 30)
-  doc.setFontSize(13)
+  doc.setFontSize(12)
   doc.setFont('helvetica', 'bold')
-  doc.text(titulo, 105, 40, { align: 'center' })
+  doc.text(titulo, 105, 44, { align: 'center' })
 
-  doc.setFontSize(9)
+  doc.setFontSize(8.5)
   doc.setFont('helvetica', 'normal')
-  doc.setTextColor(100, 100, 100)
-  doc.text(`Contrato No. ${contrato.ID}`, 14, 48)
-  doc.text(`Fecha: ${fmt.date(contrato.FechaCreacion || new Date())}`, 196, 48, { align: 'right' })
+  doc.setTextColor(80, 80, 80)
+  doc.text(`Número de Contrato: ${contrato.ID}`, 14, 52)
+  doc.text(`Ciudad y Fecha: ${fechaDoc}`, 196, 52, { align: 'right' })
 
-  // Divider
   doc.setDrawColor(...BRAND_COLOR)
-  doc.setLineWidth(0.5)
-  doc.line(14, 51, 196, 51)
+  doc.setLineWidth(0.8)
+  doc.line(14, 55, 196, 55)
+  doc.setLineWidth(0.3)
+  doc.line(14, 56.5, 196, 56.5)
 
-  let y = 58
-  doc.setTextColor(30, 30, 30)
+  let y = 64
+  doc.setTextColor(20, 20, 20)
 
-  function section(title) {
-    doc.setFontSize(10)
+  const W = 182
+
+  function paragraph(text, indent = 14) {
+    doc.setFontSize(9)
+    doc.setFont('helvetica', 'normal')
+    doc.setTextColor(30, 30, 30)
+    const lines = doc.splitTextToSize(text, W - (indent - 14))
+    if (y + lines.length * 5 > 272) { doc.addPage(); y = 20 }
+    doc.text(lines, indent, y)
+    y += lines.length * 5 + 2
+  }
+
+  function clausulaTitle(text) {
+    y += 3
+    if (y > 268) { doc.addPage(); y = 20 }
+    doc.setFontSize(9.5)
     doc.setFont('helvetica', 'bold')
     doc.setTextColor(...BRAND_COLOR)
-    doc.text(title, 14, y)
+    doc.text(text, 14, y)
     doc.setTextColor(30, 30, 30)
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(9)
     y += 6
   }
 
-  function line(text, indent = 14) {
-    const lines = doc.splitTextToSize(text, 196 - indent)
-    doc.text(lines, indent, y)
-    y += lines.length * 5 + 1
-  }
+  // COMPARECIENTES
+  clausulaTitle('COMPARECIENTES')
+  paragraph(
+    `En la ciudad de Quito, República del Ecuador, a ${fechaDoc}, comparecen a la celebración del presente contrato, por una parte, R.A. TRAINING, empresa dedicada a la capacitación y formación profesional, debidamente constituida y en pleno ejercicio de sus actividades, a quien en adelante se denominará "LA EMPRESA"; y, por otra parte, ${contrato.Nombre}, a quien en adelante se denominará "${esCliente ? 'EL CLIENTE' : 'EL PROVEEDOR'}". Las partes comparecientes declaran ser mayores de edad, hábiles para contratar y obligarse, y libre y voluntariamente convienen en celebrar el presente contrato, al tenor de las siguientes cláusulas:`
+  )
 
-  // PARTES
-  section('PRIMERA PARTE (CONTRATANTE):')
-  line('R.A. Training — Empresa de Capacitación y Formación Profesional')
-  line('En adelante denominada "R.A. TRAINING"')
-  y += 3
+  // CLÁUSULA PRIMERA
+  clausulaTitle('CLÁUSULA PRIMERA — OBJETO DEL CONTRATO')
+  paragraph(
+    `LA EMPRESA se obliga a prestar a ${esCliente ? 'EL CLIENTE' : 'EL PROVEEDOR'} los siguientes servicios: ${contrato.Concepto || 'Servicios de capacitación y formación profesional conforme a lo acordado entre las partes.'}. La prestación de los servicios se llevará a cabo de conformidad con los términos y condiciones establecidos en el presente instrumento y sus anexos.`
+  )
 
-  section(`SEGUNDA PARTE (${esCliente ? 'CONTRATADO / CLIENTE' : 'PROVEEDOR'}):`)
-  line(`Nombre / Razón Social: ${contrato.Nombre}`)
-  line(`En adelante denominado "${esCliente ? 'EL CLIENTE' : 'EL PROVEEDOR'}"`)
-  y += 3
+  // CLÁUSULA SEGUNDA
+  clausulaTitle('CLÁUSULA SEGUNDA — VIGENCIA')
+  paragraph(
+    `El presente contrato tendrá una vigencia comprendida entre el ${fmt.date(contrato.FechaInicio) || 'la fecha de suscripción'} y el ${fmt.date(contrato.FechaFin) || 'término acordado entre las partes'}. Concluido dicho plazo, el contrato podrá renovarse mediante acuerdo expreso y escrito entre las partes, suscrito con no menos de quince (15) días de anticipación a la fecha de vencimiento.`
+  )
 
-  section('OBJETO DEL CONTRATO:')
-  line(contrato.Concepto || '—')
-  y += 3
+  // CLÁUSULA TERCERA
+  clausulaTitle('CLÁUSULA TERCERA — VALOR Y FORMA DE PAGO')
+  paragraph(
+    `Las partes acuerdan que el valor total del presente contrato asciende a la suma de ${fmt.usd(contrato.ValorTotal)} (${contrato.ValorTotal ? 'dólares de los Estados Unidos de América' : 'monto a convenir'}). La forma de pago, periodicidad y condiciones específicas serán las acordadas por las partes en el respectivo anexo financiero que forma parte integrante de este instrumento. El incumplimiento en los pagos facultará a LA EMPRESA para suspender la prestación de los servicios hasta que la obligación sea regularizada.`
+  )
 
-  section('VALOR Y CONDICIONES ECONÓMICAS:')
-  line(`Valor Total del Contrato: ${fmt.usd(contrato.ValorTotal)} (Dólares Americanos)`)
-  line('Forma de pago: Según acuerdo entre las partes detallado en anexo.')
-  y += 3
+  // CLÁUSULA CUARTA
+  clausulaTitle('CLÁUSULA CUARTA — OBLIGACIONES DE LA EMPRESA')
+  paragraph('LA EMPRESA se compromete a:')
+  paragraph('a) Prestar los servicios contratados con la calidad, oportunidad y profesionalismo que la naturaleza de los mismos requiere.', 19)
+  paragraph('b) Mantener informada a la contraparte sobre el avance y desarrollo de los servicios acordados.', 19)
+  paragraph('c) Resguardar la confidencialidad de la información que le sea proporcionada con motivo de la ejecución del presente contrato.', 19)
+  paragraph('d) Designar el personal idóneo para la ejecución de los servicios contratados.', 19)
 
-  section('VIGENCIA:')
-  line(`Fecha de Inicio: ${fmt.date(contrato.FechaInicio) || 'Por definir'}`)
-  line(`Fecha de Finalización: ${fmt.date(contrato.FechaFin) || 'Por definir'}`)
-  y += 3
+  // CLÁUSULA QUINTA
+  clausulaTitle(`CLÁUSULA QUINTA — OBLIGACIONES DE ${esCliente ? 'EL CLIENTE' : 'EL PROVEEDOR'}`)
+  paragraph(`${esCliente ? 'EL CLIENTE' : 'EL PROVEEDOR'} se compromete a:`)
+  paragraph('a) Cancelar oportunamente los valores acordados en la Cláusula Tercera del presente instrumento.', 19)
+  paragraph('b) Proporcionar a LA EMPRESA la información y documentación necesaria para el cabal cumplimiento de los servicios contratados.', 19)
+  paragraph('c) Comunicar a LA EMPRESA con la debida antelación cualquier inconveniente que pudiera afectar el normal desarrollo de las actividades contratadas.', 19)
 
-  section('CLÁUSULAS GENERALES:')
-  const clausulas = [
-    '1. Las partes se comprometen a cumplir con las obligaciones establecidas en el presente contrato de buena fe.',
-    '2. Cualquier modificación al presente contrato deberá realizarse mediante acuerdo escrito firmado por ambas partes.',
-    '3. En caso de incumplimiento, la parte afectada podrá solicitar la resolución del contrato con previo aviso de 15 días.',
-    '4. Las controversias que surjan del presente contrato serán resueltas mediante acuerdo amigable o mediación.',
-    '5. El presente contrato se rige por las leyes vigentes de la República.',
-  ]
-  clausulas.forEach(c => { line(c, 16); y += 1 })
+  // CLÁUSULA SEXTA
+  clausulaTitle('CLÁUSULA SEXTA — CONFIDENCIALIDAD')
+  paragraph(
+    'Las partes se obligan mutuamente a guardar absoluta reserva y confidencialidad respecto de la información que, con motivo de la ejecución del presente contrato, llegue a su conocimiento. Esta obligación de confidencialidad subsistirá incluso después de la terminación del presente contrato por el plazo de dos (2) años.'
+  )
+
+  // CLÁUSULA SÉPTIMA
+  clausulaTitle('CLÁUSULA SÉPTIMA — MODIFICACIONES Y TERMINACIÓN')
+  paragraph(
+    'Toda modificación al presente contrato deberá constar por escrito y ser suscrita por ambas partes. Cualquiera de ellas podrá darlo por terminado anticipadamente mediante notificación escrita con un mínimo de quince (15) días de anticipación. En caso de incumplimiento grave de las obligaciones por cualquiera de las partes, la parte afectada podrá resolver el contrato de manera inmediata, reservándose el derecho de reclamar los daños y perjuicios a que hubiere lugar.'
+  )
+
+  // CLÁUSULA OCTAVA
+  clausulaTitle('CLÁUSULA OCTAVA — RESOLUCIÓN DE CONTROVERSIAS')
+  paragraph(
+    'Las partes acuerdan que cualquier divergencia, controversia o reclamación que surja de la interpretación, ejecución o terminación del presente contrato será resuelta, en primera instancia, mediante negociación directa y de buena fe entre las partes. De no alcanzarse acuerdo en el plazo de quince (15) días desde la comunicación del conflicto, las partes se someterán a los mecanismos de mediación disponibles en los centros de mediación autorizados por el Consejo de la Judicatura, conforme a la legislación ecuatoriana vigente.'
+  )
 
   if (contrato.Notas) {
-    y += 2
-    section('NOTAS ADICIONALES:')
-    line(contrato.Notas)
+    clausulaTitle('CLÁUSULA ADICIONAL — DISPOSICIONES ESPECIALES')
+    paragraph(contrato.Notas)
   }
 
-  // Signature block
-  y = Math.max(y + 15, 230)
+  // CLÁUSULA FINAL
+  clausulaTitle('CLÁUSULA FINAL — ACEPTACIÓN')
+  paragraph(
+    'Las partes declaran haber leído íntegramente el presente contrato, estar de acuerdo con su contenido y suscribirlo libre y voluntariamente, en señal de aceptación y conformidad con todos y cada uno de sus términos y condiciones. En fe de lo cual, firman el presente instrumento en la ciudad y fecha indicadas en el encabezamiento.'
+  )
+
+  // Firma
+  y = Math.max(y + 12, 240)
+  if (y > 255) { doc.addPage(); y = 30 }
+
   doc.setFontSize(9)
   doc.setFont('helvetica', 'normal')
-  doc.setDrawColor(100, 100, 100)
+  doc.setTextColor(30, 30, 30)
+  doc.setDrawColor(80, 80, 80)
   doc.setLineWidth(0.3)
 
-  doc.line(14, y, 90, y)
-  doc.line(120, y, 196, y)
+  doc.line(14, y, 92, y)
+  doc.line(118, y, 196, y)
   y += 5
-  doc.text('R.A. TRAINING', 52, y, { align: 'center' })
-  doc.text(contrato.Nombre.toUpperCase(), 158, y, { align: 'center' })
+  doc.setFont('helvetica', 'bold')
+  doc.text('R.A. TRAINING', 53, y, { align: 'center' })
+  doc.text(contrato.Nombre.toUpperCase(), 157, y, { align: 'center' })
   y += 4
-  doc.setTextColor(130, 130, 130)
-  doc.text('Firma y Sello', 52, y, { align: 'center' })
-  doc.text(esCliente ? 'Firma del Cliente' : 'Firma del Proveedor', 158, y, { align: 'center' })
-  y += 10
-  doc.text(`Fecha: _____ / _____ / _______`, 52, y, { align: 'center' })
-  doc.text(`Fecha: _____ / _____ / _______`, 158, y, { align: 'center' })
+  doc.setFont('helvetica', 'normal')
+  doc.setTextColor(100, 100, 100)
+  doc.setFontSize(8)
+  doc.text('Representante Legal / Firma y Sello', 53, y, { align: 'center' })
+  doc.text(esCliente ? 'Firma del Cliente / Representante' : 'Firma del Proveedor', 157, y, { align: 'center' })
+  y += 5
+  doc.text('C.I. / RUC: _______________________', 53, y, { align: 'center' })
+  doc.text('C.I. / RUC: _______________________', 157, y, { align: 'center' })
+  y += 5
+  doc.text('Fecha: _______ / _______ / _______', 53, y, { align: 'center' })
+  doc.text('Fecha: _______ / _______ / _______', 157, y, { align: 'center' })
 
   addFooter(doc)
   doc.save(`contrato_${contrato.ID}_ra_training.pdf`)

@@ -120,9 +120,9 @@ export default function IngresosForm({ initial, onSave, onCancel }) {
           </div>
         )}
         <div className="sm:col-span-2">
-          <label className="label">Notas</label>
+          <label className="label">Referencia / Notas</label>
           <textarea className="input" rows={2} value={form.notas}
-            onChange={e => set('notas', e.target.value)} placeholder="Observaciones adicionales..." />
+            onChange={e => set('notas', e.target.value)} placeholder="N° de transferencia, comprobante o referencia del pago..." />
         </div>
       </div>
 

@@ -72,6 +72,9 @@ function processRequest(data) {
     getInscripciones:   () => getInscripciones(user, params),
     addInscripcion:     () => addInscripcion(user, params),
     updateInscripcion:  () => updateInscripcion(user, params),
+    getConfigPagos:     () => getConfigPagos(user, params),
+    addConfigPago:      () => addConfigPago(user, params),
+    updateConfigPago:   () => updateConfigPago(user, params),
   };
 
   if (!handlers[action]) return { success: false, error: 'Acción no reconocida: ' + action };
@@ -99,6 +102,7 @@ const SHEET_HEADERS = {
   Servicios:     ['ID','Nombre','Tipo','Modalidad','Precio','Duracion','Descripcion','Activo','FechaCreacion'],
   Inscripciones: ['ID','ClienteNombre','ClienteID','ClienteEmail','ClienteTelefono','ServicioID','ServicioNombre','Modalidad','FechaInicio','Monto','MetodoPago','RazonSocial','RUC','DireccionFactura','EstadoPago','EstadoCertificado','IngresoID','Notas','CreadoPor','FechaCreacion'],
   Sesiones:      ['Token','Username','UserID','Rol','Nombre','Expira'],
+  ConfigPagos:   ['ID','Nombre','Tipo','Detalles','Instrucciones','Activo','FechaCreacion'],
 };
 
 function getSheet(name) {
@@ -651,11 +655,43 @@ function deleteRecord(user, sheetName, { id }, adminOnly = true) {
 }
 
 // ─────────────────────────────────────────────
+// CONFIG PAGOS
+// ─────────────────────────────────────────────
+
+function getConfigPagos(user) {
+  if (!isVendedor(user)) throw new Error('Acceso denegado.');
+  return { success: true, data: sheetToObjects(getSheet('ConfigPagos')) };
+}
+
+function addConfigPago(user, { configPago }) {
+  requireAdmin(user);
+  const sheet = getSheet('ConfigPagos');
+  const id    = generateId('CPG');
+  const now   = new Date().toISOString();
+  sheet.appendRow([id, configPago.nombre, configPago.tipo, configPago.detalles || '', configPago.instrucciones || '', true, now]);
+  return { success: true, id };
+}
+
+function updateConfigPago(user, { id, configPago }) {
+  requireAdmin(user);
+  const sheet = getSheet('ConfigPagos');
+  const row   = sheetToObjects(sheet).find(r => r.ID === id);
+  if (!row) return { success: false, error: 'Configuración no encontrada.' };
+  updateRow(sheet, row, {
+    Nombre: configPago.nombre, Tipo: configPago.tipo,
+    Detalles: configPago.detalles, Instrucciones: configPago.instrucciones,
+    Activo: configPago.activo,
+  });
+  return { success: true };
+}
+
+// ─────────────────────────────────────────────
 // SETUP INICIAL — Ejecutar una sola vez
 // ─────────────────────────────────────────────
 
 function setupInicial() {
   Object.keys(SHEET_HEADERS).forEach(name => getSheet(name));
+  getSheet('ConfigPagos'); // inicializa hoja de cuentas de cobro
 
   // Servicios por defecto
   const srvSheet    = getSheet('Servicios');

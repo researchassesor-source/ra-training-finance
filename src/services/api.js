@@ -91,4 +91,11 @@ export const api = {
     call('addInscripcion', { inscripcion }, getToken()),
   updateInscripcion: (id, inscripcion) =>
     call('updateInscripcion', { id, inscripcion }, getToken()),
+
+  getConfigPagos: () =>
+    call('getConfigPagos', {}, getToken()),
+  addConfigPago: (configPago) =>
+    call('addConfigPago', { configPago }, getToken()),
+  updateConfigPago: (id, configPago) =>
+    call('updateConfigPago', { id, configPago }, getToken()),
 }

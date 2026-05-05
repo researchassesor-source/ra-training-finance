@@ -7,8 +7,12 @@ const EMPTY = {
   monto: '', metodoPago: '', egresoId: '', contratoId: '', estado: 'completado', notas: '',
 }
 
-export default function PagosForm({ initial, onSave, onCancel }) {
-  const [form, setForm]       = useState(initial ? { ...EMPTY, ...initial } : { ...EMPTY, fecha: new Date().toISOString().slice(0,10) })
+export default function PagosForm({ initial, prefill, onSave, onCancel }) {
+  const [form, setForm]       = useState(() => {
+    if (initial) return { ...EMPTY, ...initial }
+    const base = { ...EMPTY, fecha: new Date().toISOString().slice(0,10) }
+    return prefill ? { ...base, ...prefill } : base
+  })
   const [egresos, setEgresos] = useState([])
   const [contratos, setContratos] = useState([])
   const [saving, setSaving]   = useState(false)

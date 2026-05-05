@@ -4,7 +4,7 @@ import { fmt, MODALIDADES, TIPOS_SERVICIO } from '../../utils/formatters'
 import { useAuth } from '../../context/AuthContext'
 import Modal from '../UI/Modal'
 import Spinner from '../UI/Spinner'
-import { Plus, Pencil, ToggleLeft, ToggleRight } from 'lucide-react'
+import { Plus, Pencil, ToggleLeft, ToggleRight, MessageCircle } from 'lucide-react'
 
 const EMPTY = { nombre: '', tipo: '', modalidad: 'N/A', precio: '', duracion: '', descripcion: '', activo: true }
 
@@ -103,6 +103,27 @@ export default function ServiciosView() {
   const filtered = filtro ? data.filter(s => s.Tipo === filtro) : data
   const activos  = data.filter(s => s.Activo === true || s.Activo === 'TRUE').length
 
+  function handleShareCatalogo() {
+    const activosList = data.filter(s => s.Activo === true || s.Activo === 'TRUE')
+    const lineas = [
+      '*R.A. Training — Catálogo de Servicios*',
+      '',
+      'Estos son nuestros servicios disponibles:',
+      '',
+      ...activosList.map(s => {
+        const precio = Number(s.Precio) > 0 ? `$${Number(s.Precio).toFixed(2)} USD` : 'Precio a consultar'
+        const partes = [`📌 *${s.Nombre}*`, `   Tipo: ${s.Tipo} | Modalidad: ${s.Modalidad}`, `   💵 ${precio}`]
+        if (s.Duracion) partes.push(`   ⏱ ${s.Duracion}`)
+        if (s.Descripcion) partes.push(`   ${s.Descripcion}`)
+        return partes.join('\n')
+      }),
+      '',
+      '¡Contáctanos para más información! 🎓',
+    ]
+    const msg = lineas.join('\n')
+    window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank')
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -112,11 +133,16 @@ export default function ServiciosView() {
             {TIPOS_SERVICIO.map(t => <option key={t}>{t}</option>)}
           </select>
         </div>
-        {isAdmin && (
-          <button onClick={() => { setSelected(null); setModal('new') }} className="btn-primary text-sm">
-            <Plus size={15} /> Nuevo Servicio
+        <div className="flex gap-2">
+          <button onClick={handleShareCatalogo} className="btn-secondary text-sm">
+            <MessageCircle size={15} /> Catálogo WhatsApp
           </button>
-        )}
+          {isAdmin && (
+            <button onClick={() => { setSelected(null); setModal('new') }} className="btn-primary text-sm">
+              <Plus size={15} /> Nuevo Servicio
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
