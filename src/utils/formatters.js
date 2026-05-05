@@ -47,10 +47,30 @@ export const ESTADOS_EGRESO = {
 }
 
 export const ESTADOS_INGRESO = {
-  confirmado: { label: 'Confirmado', css: 'badge-green'  },
+  confirmado:              { label: 'Confirmado',    css: 'badge-green'  },
+  pendiente:               { label: 'Pendiente',     css: 'badge-yellow' },
+  pendiente_verificacion:  { label: 'Por verificar', css: 'badge-blue'   },
+  cancelado:               { label: 'Cancelado',     css: 'badge-red'    },
+}
+
+export const ESTADOS_CERTIFICADO = {
+  pendiente:   { label: 'Pendiente',   css: 'badge-yellow' },
+  en_proceso:  { label: 'En proceso',  css: 'badge-blue'   },
+  emitido:     { label: 'Emitido',     css: 'badge-green'  },
+  cancelado:   { label: 'Cancelado',   css: 'badge-red'    },
+}
+
+export const ESTADOS_PAGO_INS = {
   pendiente:  { label: 'Pendiente',  css: 'badge-yellow' },
+  pagado:     { label: 'Pagado',     css: 'badge-green'  },
+  verificado: { label: 'Verificado', css: 'badge-blue'   },
   cancelado:  { label: 'Cancelado',  css: 'badge-red'    },
 }
+
+export const TIPOS_SERVICIO = [
+  'Curso','Certificación','Taller','Evento','Podcast',
+  'Suscripción LMS','Certificado LMS','Consultoría','Capacitación','Otro',
+]
 
 export const ESTADOS_CONTRATO = {
   activo:    { label: 'Activo',    css: 'badge-green'  },

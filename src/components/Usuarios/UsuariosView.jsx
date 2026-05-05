@@ -53,8 +53,9 @@ function UsuarioForm({ initial, onSave, onCancel }) {
         <div>
           <label className="label">Rol</label>
           <select className="input" value={form.rol} onChange={e => set('rol', e.target.value)}>
-            <option value="usuario">Usuario</option>
-            <option value="admin">Administrador</option>
+            <option value="usuario">Usuario (solo gastos)</option>
+            <option value="vendedor">Vendedor (ingresos + gastos + inscripciones)</option>
+            <option value="admin">Administrador (acceso total)</option>
           </select>
         </div>
         {initial && (

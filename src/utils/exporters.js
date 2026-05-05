@@ -249,6 +249,181 @@ export async function exportResumenWord({ kpis, year, ingresos, egresos }) {
   saveAs(blob, `informe_financiero_${year}_ra_training.docx`)
 }
 
+export function exportContratoPDF(contrato) {
+  const doc = new jsPDF()
+  const esCliente = contrato.Tipo === 'cliente'
+  const titulo = esCliente
+    ? 'CONTRATO DE PRESTACIÓN DE SERVICIOS'
+    : 'CONTRATO CON PROVEEDOR DE SERVICIOS'
+
+  // Header
+  doc.setFillColor(...BRAND_COLOR)
+  doc.rect(0, 0, 210, 28, 'F')
+  doc.setTextColor(255, 255, 255)
+  doc.setFontSize(15)
+  doc.setFont('helvetica', 'bold')
+  doc.text('R.A. TRAINING', 105, 11, { align: 'center' })
+  doc.setFontSize(9)
+  doc.setFont('helvetica', 'normal')
+  doc.text('Empresa de Capacitación y Formación Profesional', 105, 17, { align: 'center' })
+  doc.setFontSize(8)
+  doc.text('contacto@ratraining.com', 105, 23, { align: 'center' })
+
+  // Title
+  doc.setTextColor(30, 30, 30)
+  doc.setFontSize(13)
+  doc.setFont('helvetica', 'bold')
+  doc.text(titulo, 105, 40, { align: 'center' })
+
+  doc.setFontSize(9)
+  doc.setFont('helvetica', 'normal')
+  doc.setTextColor(100, 100, 100)
+  doc.text(`Contrato No. ${contrato.ID}`, 14, 48)
+  doc.text(`Fecha: ${fmt.date(contrato.FechaCreacion || new Date())}`, 196, 48, { align: 'right' })
+
+  // Divider
+  doc.setDrawColor(...BRAND_COLOR)
+  doc.setLineWidth(0.5)
+  doc.line(14, 51, 196, 51)
+
+  let y = 58
+  doc.setTextColor(30, 30, 30)
+
+  function section(title) {
+    doc.setFontSize(10)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(...BRAND_COLOR)
+    doc.text(title, 14, y)
+    doc.setTextColor(30, 30, 30)
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(9)
+    y += 6
+  }
+
+  function line(text, indent = 14) {
+    const lines = doc.splitTextToSize(text, 196 - indent)
+    doc.text(lines, indent, y)
+    y += lines.length * 5 + 1
+  }
+
+  // PARTES
+  section('PRIMERA PARTE (CONTRATANTE):')
+  line('R.A. Training — Empresa de Capacitación y Formación Profesional')
+  line('En adelante denominada "R.A. TRAINING"')
+  y += 3
+
+  section(`SEGUNDA PARTE (${esCliente ? 'CONTRATADO / CLIENTE' : 'PROVEEDOR'}):`)
+  line(`Nombre / Razón Social: ${contrato.Nombre}`)
+  line(`En adelante denominado "${esCliente ? 'EL CLIENTE' : 'EL PROVEEDOR'}"`)
+  y += 3
+
+  section('OBJETO DEL CONTRATO:')
+  line(contrato.Concepto || '—')
+  y += 3
+
+  section('VALOR Y CONDICIONES ECONÓMICAS:')
+  line(`Valor Total del Contrato: ${fmt.usd(contrato.ValorTotal)} (Dólares Americanos)`)
+  line('Forma de pago: Según acuerdo entre las partes detallado en anexo.')
+  y += 3
+
+  section('VIGENCIA:')
+  line(`Fecha de Inicio: ${fmt.date(contrato.FechaInicio) || 'Por definir'}`)
+  line(`Fecha de Finalización: ${fmt.date(contrato.FechaFin) || 'Por definir'}`)
+  y += 3
+
+  section('CLÁUSULAS GENERALES:')
+  const clausulas = [
+    '1. Las partes se comprometen a cumplir con las obligaciones establecidas en el presente contrato de buena fe.',
+    '2. Cualquier modificación al presente contrato deberá realizarse mediante acuerdo escrito firmado por ambas partes.',
+    '3. En caso de incumplimiento, la parte afectada podrá solicitar la resolución del contrato con previo aviso de 15 días.',
+    '4. Las controversias que surjan del presente contrato serán resueltas mediante acuerdo amigable o mediación.',
+    '5. El presente contrato se rige por las leyes vigentes de la República.',
+  ]
+  clausulas.forEach(c => { line(c, 16); y += 1 })
+
+  if (contrato.Notas) {
+    y += 2
+    section('NOTAS ADICIONALES:')
+    line(contrato.Notas)
+  }
+
+  // Signature block
+  y = Math.max(y + 15, 230)
+  doc.setFontSize(9)
+  doc.setFont('helvetica', 'normal')
+  doc.setDrawColor(100, 100, 100)
+  doc.setLineWidth(0.3)
+
+  doc.line(14, y, 90, y)
+  doc.line(120, y, 196, y)
+  y += 5
+  doc.text('R.A. TRAINING', 52, y, { align: 'center' })
+  doc.text(contrato.Nombre.toUpperCase(), 158, y, { align: 'center' })
+  y += 4
+  doc.setTextColor(130, 130, 130)
+  doc.text('Firma y Sello', 52, y, { align: 'center' })
+  doc.text(esCliente ? 'Firma del Cliente' : 'Firma del Proveedor', 158, y, { align: 'center' })
+  y += 10
+  doc.text(`Fecha: _____ / _____ / _______`, 52, y, { align: 'center' })
+  doc.text(`Fecha: _____ / _____ / _______`, 158, y, { align: 'center' })
+
+  addFooter(doc)
+  doc.save(`contrato_${contrato.ID}_ra_training.pdf`)
+}
+
+export function exportInscripcionPDF(ins) {
+  const doc = new jsPDF()
+  const y0  = addHeader(doc, 'Comprobante de Inscripción', `No. ${ins.ID}`)
+
+  autoTable(doc, {
+    startY: y0,
+    body: [
+      ['Servicio', ins.ServicioNombre],
+      ['Modalidad', ins.Modalidad],
+      ['Fecha de Inicio', fmt.date(ins.FechaInicio) || 'Por confirmar'],
+      ['', ''],
+      ['DATOS DEL PARTICIPANTE', ''],
+      ['Nombre', ins.ClienteNombre],
+      ['Identificación', ins.ClienteID || '—'],
+      ['Email', ins.ClienteEmail || '—'],
+      ['Teléfono', ins.ClienteTelefono || '—'],
+      ['', ''],
+      ['DATOS DE FACTURACIÓN', ''],
+      ['Razón Social', ins.RazonSocial || ins.ClienteNombre],
+      ['RUC / NIT', ins.RUC || ins.ClienteID || '—'],
+      ['Dirección', ins.DireccionFactura || '—'],
+      ['', ''],
+      ['PAGO', ''],
+      ['Monto', fmt.usd(ins.Monto)],
+      ['Método de Pago', ins.MetodoPago || '—'],
+      ['Estado de Pago', ins.EstadoPago],
+      ['Estado del Certificado', ins.EstadoCertificado],
+    ],
+    theme: 'plain',
+    columnStyles: { 0: { fontStyle: 'bold', cellWidth: 60 }, 1: {} },
+    bodyStyles: { fontSize: 9 },
+    didParseCell: (data) => {
+      if (data.row.raw[0] && ['DATOS DEL PARTICIPANTE','DATOS DE FACTURACIÓN','PAGO'].includes(data.row.raw[0])) {
+        data.cell.styles.fillColor = BRAND_COLOR
+        data.cell.styles.textColor = [255,255,255]
+        data.cell.styles.fontStyle = 'bold'
+      }
+    },
+  })
+
+  if (ins.Notas) {
+    const finalY = doc.lastAutoTable.finalY + 8
+    doc.setFontSize(9)
+    doc.setFont('helvetica', 'bold')
+    doc.text('Notas:', 14, finalY)
+    doc.setFont('helvetica', 'normal')
+    doc.text(ins.Notas, 14, finalY + 5)
+  }
+
+  addFooter(doc)
+  doc.save(`inscripcion_${ins.ID}_ra_training.pdf`)
+}
+
 function makeWordRow(cells, isHeader = false) {
   return new TableRow({
     tableHeader: isHeader,

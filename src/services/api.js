@@ -77,4 +77,18 @@ export const api = {
     call('addUsuario', { usuario }, getToken()),
   updateUsuario: (id, usuario) =>
     call('updateUsuario', { id, usuario }, getToken()),
+
+  getServicios: () =>
+    call('getServicios', {}, getToken()),
+  addServicio: (servicio) =>
+    call('addServicio', { servicio }, getToken()),
+  updateServicio: (id, servicio) =>
+    call('updateServicio', { id, servicio }, getToken()),
+
+  getInscripciones: (filtros = {}) =>
+    call('getInscripciones', { filtros }, getToken()),
+  addInscripcion: (inscripcion) =>
+    call('addInscripcion', { inscripcion }, getToken()),
+  updateInscripcion: (id, inscripcion) =>
+    call('updateInscripcion', { id, inscripcion }, getToken()),
 }

@@ -63,9 +63,15 @@ function processRequest(data) {
     updateProyeccion: () => updateProyeccion(user, params),
     getCategorias:    () => getCategorias(user, params),
     addCategoria:     () => addCategoria(user, params),
-    getUsuarios:      () => getUsuarios(user, params),
-    addUsuario:       () => addUsuario(user, params),
-    updateUsuario:    () => updateUsuario(user, params),
+    getUsuarios:        () => getUsuarios(user, params),
+    addUsuario:         () => addUsuario(user, params),
+    updateUsuario:      () => updateUsuario(user, params),
+    getServicios:       () => getServicios(user, params),
+    addServicio:        () => addServicio(user, params),
+    updateServicio:     () => updateServicio(user, params),
+    getInscripciones:   () => getInscripciones(user, params),
+    addInscripcion:     () => addInscripcion(user, params),
+    updateInscripcion:  () => updateInscripcion(user, params),
   };
 
   if (!handlers[action]) return { success: false, error: 'Acción no reconocida: ' + action };
@@ -83,14 +89,16 @@ function respond(data) {
 // ─────────────────────────────────────────────
 
 const SHEET_HEADERS = {
-  Usuarios:    ['ID','Nombre','Email','Username','PasswordHash','Rol','Activo','FechaCreacion'],
-  Ingresos:    ['ID','Fecha','Tipo','Modalidad','Concepto','Cliente','ContratoID','Monto','MetodoPago','Estado','Notas','CreadoPor','FechaCreacion'],
-  Egresos:     ['ID','Fecha','Categoria','Concepto','Proveedor','Monto','Estado','AprobadoPor','FechaAprobacion','Notas','CreadoPor','FechaCreacion'],
-  Pagos:       ['ID','Fecha','Tipo','Beneficiario','Concepto','Referencia','Monto','MetodoPago','EgresoID','ContratoID','Estado','Notas','CreadoPor','FechaCreacion'],
-  Contratos:   ['ID','Tipo','Nombre','Concepto','ValorTotal','FechaInicio','FechaFin','Estado','Notas','CreadoPor','FechaCreacion'],
-  Proyecciones:['ID','Evento','Tipo','FechaEstimada','MontoProyectado','MontoReal','Estado','Notas','CreadoPor','FechaCreacion'],
-  Categorias:  ['ID','Nombre','Tipo','Activo'],
-  Sesiones:    ['Token','Username','UserID','Rol','Nombre','Expira'],
+  Usuarios:      ['ID','Nombre','Email','Username','PasswordHash','Rol','Activo','FechaCreacion'],
+  Ingresos:      ['ID','Fecha','Tipo','Modalidad','Concepto','Cliente','ContratoID','InscripcionID','Monto','MetodoPago','Estado','Notas','CreadoPor','FechaCreacion'],
+  Egresos:       ['ID','Fecha','Categoria','Concepto','Proveedor','Monto','Estado','AprobadoPor','FechaAprobacion','Notas','CreadoPor','FechaCreacion'],
+  Pagos:         ['ID','Fecha','Tipo','Beneficiario','Concepto','Referencia','Monto','MetodoPago','EgresoID','ContratoID','Estado','Notas','CreadoPor','FechaCreacion'],
+  Contratos:     ['ID','Tipo','Nombre','Concepto','ValorTotal','FechaInicio','FechaFin','Estado','Notas','CreadoPor','FechaCreacion'],
+  Proyecciones:  ['ID','Evento','Tipo','FechaEstimada','MontoProyectado','MontoReal','Estado','Notas','CreadoPor','FechaCreacion'],
+  Categorias:    ['ID','Nombre','Tipo','Activo'],
+  Servicios:     ['ID','Nombre','Tipo','Modalidad','Precio','Duracion','Descripcion','Activo','FechaCreacion'],
+  Inscripciones: ['ID','ClienteNombre','ClienteID','ClienteEmail','ClienteTelefono','ServicioID','ServicioNombre','Modalidad','FechaInicio','Monto','MetodoPago','RazonSocial','RUC','DireccionFactura','EstadoPago','EstadoCertificado','IngresoID','Notas','CreadoPor','FechaCreacion'],
+  Sesiones:      ['Token','Username','UserID','Rol','Nombre','Expira'],
 };
 
 function getSheet(name) {
@@ -148,7 +156,8 @@ function requireAdmin(user) {
   if (user.Rol !== 'admin') throw new Error('Acceso denegado: se requiere rol de administrador.');
 }
 
-function isAdmin(user) { return user.Rol === 'admin'; }
+function isAdmin(user)    { return user.Rol === 'admin'; }
+function isVendedor(user) { return user.Rol === 'vendedor' || user.Rol === 'admin'; }
 
 // ─────────────────────────────────────────────
 // AUTH
@@ -261,8 +270,8 @@ function getDashboard(user, { year } = {}) {
 // ─────────────────────────────────────────────
 
 function getIngresos(user, { filtros = {} } = {}) {
-  requireAdmin(user);
   let data = sheetToObjects(getSheet('Ingresos'));
+  if (!isAdmin(user)) data = data.filter(i => i.CreadoPor === user.Username);
   if (filtros.tipo)   data = data.filter(i => i.Tipo === filtros.tipo);
   if (filtros.estado) data = data.filter(i => i.Estado === filtros.estado);
   if (filtros.desde)  data = data.filter(i => new Date(i.Fecha) >= new Date(filtros.desde));
@@ -271,29 +280,32 @@ function getIngresos(user, { filtros = {} } = {}) {
 }
 
 function addIngreso(user, { ingreso }) {
-  requireAdmin(user);
-  const sheet = getSheet('Ingresos');
-  const id    = generateId('ING');
-  const now   = new Date().toISOString();
+  if (!isVendedor(user)) throw new Error('Acceso denegado.');
+  const sheet  = getSheet('Ingresos');
+  const id     = generateId('ING');
+  const now    = new Date().toISOString();
+  const estado = isAdmin(user) ? (ingreso.estado || 'confirmado') : 'pendiente_verificacion';
   sheet.appendRow([
     id, ingreso.fecha, ingreso.tipo, ingreso.modalidad || 'N/A',
     ingreso.concepto, ingreso.cliente || '', ingreso.contratoId || '',
-    Number(ingreso.monto) || 0, ingreso.metodoPago,
-    ingreso.estado || 'confirmado', ingreso.notas || '', user.Username, now,
+    ingreso.inscripcionId || '', Number(ingreso.monto) || 0, ingreso.metodoPago,
+    estado, ingreso.notas || '', user.Username, now,
   ]);
   return { success: true, id };
 }
 
 function updateIngreso(user, { id, ingreso }) {
-  requireAdmin(user);
+  if (!isVendedor(user)) throw new Error('Acceso denegado.');
   const sheet = getSheet('Ingresos');
   const row   = sheetToObjects(sheet).find(r => r.ID === id);
   if (!row) return { success: false, error: 'Ingreso no encontrado.' };
+  if (!isAdmin(user) && row.CreadoPor !== user.Username) return { success: false, error: 'No autorizado.' };
   updateRow(sheet, row, {
     Fecha: ingreso.fecha, Tipo: ingreso.tipo, Modalidad: ingreso.modalidad,
     Concepto: ingreso.concepto, Cliente: ingreso.cliente, ContratoID: ingreso.contratoId,
     Monto: Number(ingreso.monto) || 0, MetodoPago: ingreso.metodoPago,
-    Estado: ingreso.estado, Notas: ingreso.notas,
+    Estado: isAdmin(user) ? ingreso.estado : row.Estado,
+    Notas: ingreso.notas,
   });
   return { success: true };
 }
@@ -520,6 +532,111 @@ function updateUsuario(user, { id, usuario }) {
 }
 
 // ─────────────────────────────────────────────
+// SERVICIOS
+// ─────────────────────────────────────────────
+
+function getServicios(user, params) {
+  const data = sheetToObjects(getSheet('Servicios'));
+  return { success: true, data };
+}
+
+function addServicio(user, { servicio }) {
+  requireAdmin(user);
+  const sheet = getSheet('Servicios');
+  const id    = generateId('SRV');
+  const now   = new Date().toISOString();
+  sheet.appendRow([
+    id, servicio.nombre, servicio.tipo, servicio.modalidad || 'N/A',
+    Number(servicio.precio) || 0, servicio.duracion || '',
+    servicio.descripcion || '', true, now,
+  ]);
+  return { success: true, id };
+}
+
+function updateServicio(user, { id, servicio }) {
+  requireAdmin(user);
+  const sheet = getSheet('Servicios');
+  const row   = sheetToObjects(sheet).find(r => r.ID === id);
+  if (!row) return { success: false, error: 'Servicio no encontrado.' };
+  updateRow(sheet, row, {
+    Nombre: servicio.nombre, Tipo: servicio.tipo, Modalidad: servicio.modalidad,
+    Precio: Number(servicio.precio) || 0, Duracion: servicio.duracion,
+    Descripcion: servicio.descripcion, Activo: servicio.activo,
+  });
+  return { success: true };
+}
+
+// ─────────────────────────────────────────────
+// INSCRIPCIONES
+// ─────────────────────────────────────────────
+
+function getInscripciones(user, { filtros = {} } = {}) {
+  let data = sheetToObjects(getSheet('Inscripciones'));
+  if (!isAdmin(user)) data = data.filter(i => i.CreadoPor === user.Username);
+  if (filtros.estadoPago)        data = data.filter(i => i.EstadoPago === filtros.estadoPago);
+  if (filtros.estadoCertificado) data = data.filter(i => i.EstadoCertificado === filtros.estadoCertificado);
+  if (filtros.servicioId)        data = data.filter(i => i.ServicioID === filtros.servicioId);
+  if (filtros.desde)             data = data.filter(i => new Date(i.FechaCreacion) >= new Date(filtros.desde));
+  if (filtros.hasta)             data = data.filter(i => new Date(i.FechaCreacion) <= new Date(filtros.hasta));
+  return { success: true, data };
+}
+
+function addInscripcion(user, { inscripcion }) {
+  if (!isVendedor(user)) throw new Error('Acceso denegado.');
+  const sheet    = getSheet('Inscripciones');
+  const id       = generateId('INS');
+  const now      = new Date().toISOString();
+  const estadoPago = isAdmin(user) ? (inscripcion.estadoPago || 'pagado') : 'pendiente';
+
+  sheet.appendRow([
+    id,
+    inscripcion.clienteNombre, inscripcion.clienteID || '', inscripcion.clienteEmail || '',
+    inscripcion.clienteTelefono || '', inscripcion.servicioId || '', inscripcion.servicioNombre,
+    inscripcion.modalidad || 'N/A', inscripcion.fechaInicio || '',
+    Number(inscripcion.monto) || 0, inscripcion.metodoPago || '',
+    inscripcion.razonSocial || '', inscripcion.ruc || '', inscripcion.direccionFactura || '',
+    estadoPago, 'pendiente', '', inscripcion.notas || '', user.Username, now,
+  ]);
+
+  // Auto-crear ingreso vinculado
+  const ingresoId = generateId('ING');
+  const estadoIngreso = isAdmin(user) ? 'confirmado' : 'pendiente_verificacion';
+  getSheet('Ingresos').appendRow([
+    ingresoId, now.slice(0,10), inscripcion.servicioNombre, inscripcion.modalidad || 'N/A',
+    'Inscripción: ' + inscripcion.clienteNombre + ' — ' + inscripcion.servicioNombre,
+    inscripcion.clienteNombre, '', id,
+    Number(inscripcion.monto) || 0, inscripcion.metodoPago || '',
+    estadoIngreso, '', user.Username, now,
+  ]);
+
+  // Actualizar IngresoID en la inscripción
+  const inscRow = sheetToObjects(sheet).find(r => r.ID === id);
+  if (inscRow) updateRow(sheet, inscRow, { IngresoID: ingresoId });
+
+  return { success: true, id };
+}
+
+function updateInscripcion(user, { id, inscripcion }) {
+  if (!isVendedor(user)) throw new Error('Acceso denegado.');
+  const sheet = getSheet('Inscripciones');
+  const row   = sheetToObjects(sheet).find(r => r.ID === id);
+  if (!row) return { success: false, error: 'Inscripción no encontrada.' };
+  if (!isAdmin(user) && row.CreadoPor !== user.Username) return { success: false, error: 'No autorizado.' };
+
+  updateRow(sheet, row, {
+    ClienteNombre: inscripcion.clienteNombre, ClienteID: inscripcion.clienteID,
+    ClienteEmail: inscripcion.clienteEmail, ClienteTelefono: inscripcion.clienteTelefono,
+    ServicioNombre: inscripcion.servicioNombre, Modalidad: inscripcion.modalidad,
+    FechaInicio: inscripcion.fechaInicio, Monto: Number(inscripcion.monto) || 0,
+    MetodoPago: inscripcion.metodoPago, RazonSocial: inscripcion.razonSocial,
+    RUC: inscripcion.ruc, DireccionFactura: inscripcion.direccionFactura,
+    EstadoPago: inscripcion.estadoPago, EstadoCertificado: inscripcion.estadoCertificado,
+    Notas: inscripcion.notas,
+  });
+  return { success: true };
+}
+
+// ─────────────────────────────────────────────
 // GENERIC DELETE (solo admin)
 // ─────────────────────────────────────────────
 
@@ -538,8 +655,29 @@ function deleteRecord(user, sheetName, { id }, adminOnly = true) {
 // ─────────────────────────────────────────────
 
 function setupInicial() {
-  // Crear todas las hojas
   Object.keys(SHEET_HEADERS).forEach(name => getSheet(name));
+
+  // Servicios por defecto
+  const srvSheet    = getSheet('Servicios');
+  const existingSrv = sheetToObjects(srvSheet);
+  const defaultSrv  = [
+    ['Curso Virtual','Curso','Virtual',0,''],
+    ['Curso Presencial','Curso','Presencial',0,''],
+    ['Curso Híbrido','Curso','Híbrida',0,''],
+    ['Certificación Profesional','Certificación','N/A',0,''],
+    ['Taller Práctico','Taller','Presencial',0,''],
+    ['Evento de Capacitación','Evento','N/A',0,''],
+    ['Podcast — Patrocinio','Podcast','Virtual',0,''],
+    ['Suscripción LMS','Suscripción LMS','Virtual',0,'Acceso mensual a plataforma'],
+    ['Certificado LMS','Certificado LMS','Virtual',0,''],
+    ['Consultoría Empresarial','Consultoría','N/A',0,''],
+    ['Capacitación Presencial Corporativa','Capacitación','Presencial',0,''],
+    ['Otro Servicio','Otro','N/A',0,''],
+  ];
+  defaultSrv.forEach(([nombre, tipo, modalidad, precio, descripcion]) => {
+    if (!existingSrv.find(s => s.Nombre === nombre))
+      srvSheet.appendRow([generateId('SRV'), nombre, tipo, modalidad, precio, '', descripcion, true, new Date().toISOString()]);
+  });
 
   // Crear usuario admin por defecto si no existe
   const usersSheet = getSheet('Usuarios');

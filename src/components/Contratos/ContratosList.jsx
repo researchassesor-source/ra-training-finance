@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { api } from '../../services/api'
 import { fmt, ESTADOS_CONTRATO } from '../../utils/formatters'
-import { exportContratosPDF } from '../../utils/exporters'
+import { exportContratosPDF, exportContratoPDF } from '../../utils/exporters'
 import Modal from '../UI/Modal'
 import Spinner from '../UI/Spinner'
 import ContratosForm from './ContratosForm'
@@ -103,6 +103,11 @@ export default function ContratosList() {
                       </span>
                     </td>
                     <td className="px-4 py-3">
+                      <button onClick={() => exportContratoPDF(c)}
+                        title="Descargar contrato PDF"
+                        className="p-1.5 hover:bg-brand-50 rounded text-gray-400 hover:text-brand-600 transition-colors">
+                        <Download size={14} />
+                      </button>
                       <button onClick={() => { setSelected(c); setModal('edit') }}
                         className="p-1.5 hover:bg-brand-50 rounded text-gray-400 hover:text-brand-600 transition-colors">
                         <Pencil size={14} />

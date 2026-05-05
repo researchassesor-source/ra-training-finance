@@ -38,7 +38,15 @@ export default function EgresosList({ soloMios = false }) {
 
   async function handleApprove(egreso, estado) {
     try {
-      await api.updateEgreso(egreso.ID, { ...egreso, estado })
+      await api.updateEgreso(egreso.ID, {
+        fecha: egreso.Fecha,
+        categoria: egreso.Categoria,
+        concepto: egreso.Concepto,
+        proveedor: egreso.Proveedor,
+        monto: egreso.Monto,
+        estado,
+        notas: egreso.Notas,
+      })
       load()
     } catch (e) { setError(e.message) }
   }

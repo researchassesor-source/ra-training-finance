@@ -6,9 +6,10 @@ import Modal from '../UI/Modal'
 import ConfirmDialog from '../UI/ConfirmDialog'
 import Spinner from '../UI/Spinner'
 import IngresosForm from './IngresosForm'
-import { Plus, Pencil, Trash2, Download, Filter } from 'lucide-react'
+import { useAuth } from '../../context/AuthContext'
+import { Plus, Pencil, Trash2, Download, CheckCircle } from 'lucide-react'
 
-export default function IngresosList() {
+export default function IngresosList({ soloMios = false }) {
   const [data, setData]       = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError]     = useState('')
@@ -16,6 +17,7 @@ export default function IngresosList() {
   const [selected, setSelected] = useState(null)
   const [confirm, setConfirm] = useState(null)
   const [deleting, setDeleting] = useState(false)
+  const { isAdmin, isVendedor } = useAuth()
   const [filtros, setFiltros] = useState({ tipo: '', estado: '', desde: '', hasta: '' })
 
   const load = useCallback(() => {
@@ -64,9 +66,11 @@ export default function IngresosList() {
           <button onClick={() => exportIngresosPDF(data)} className="btn-secondary text-sm">
             <Download size={15} /> PDF
           </button>
-          <button onClick={() => { setSelected(null); setModal('new') }} className="btn-primary text-sm">
-            <Plus size={15} /> Nuevo Ingreso
-          </button>
+          {isVendedor && (
+            <button onClick={() => { setSelected(null); setModal('new') }} className="btn-primary text-sm">
+              <Plus size={15} /> {soloMios ? 'Reportar Ingreso' : 'Nuevo Ingreso'}
+            </button>
+          )}
         </div>
       </div>
 
