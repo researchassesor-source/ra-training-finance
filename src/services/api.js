@@ -10,8 +10,8 @@ async function call(action, params = {}, token = null) {
 
   const res = await fetch(API_URL, {
     method: 'POST',
-    headers: { 'Content-Type': 'text/plain' },
     body: JSON.stringify(body),
+    redirect: 'follow',
   })
 
   if (!res.ok) throw new Error(`Error HTTP ${res.status}`)
