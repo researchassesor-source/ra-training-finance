@@ -19,11 +19,13 @@ export default function IngresosList({ soloMios = false }) {
   const [deleting, setDeleting] = useState(false)
   const { user, isAdmin, isVendedor } = useAuth()
   const [filtros, setFiltros]   = useState({ tipo: '', estado: '', desde: '', hasta: '' })
-  const [detail, setDetail]     = useState(null)
-  const [waIns, setWaIns]       = useState(null)
-  const [cuentas, setCuentas]   = useState([])
+  const [detail, setDetail]         = useState(null)
+  const [detailCuentas, setDetailCuentas] = useState([])
+  const [confirming, setConfirming] = useState(false)
+  const [waIns, setWaIns]           = useState(null)
+  const [cuentas, setCuentas]       = useState([])
   const [waSelected, setWaSelected] = useState('')
-  const [waPhone, setWaPhone]   = useState('')
+  const [waPhone, setWaPhone]       = useState('')
 
   const load = useCallback(() => {
     setLoading(true)
@@ -43,6 +45,35 @@ export default function IngresosList({ soloMios = false }) {
       load()
     } catch (e) { setError(e.message) }
     finally { setDeleting(false) }
+  }
+
+  function openDetail(ing) {
+    setDetail(ing)
+    setDetailCuentas([])
+    api.getConfigPagos()
+      .then(r => setDetailCuentas((r.data || []).filter(c => c.Activo === true || c.Activo === 'TRUE')))
+      .catch(() => {})
+  }
+
+  async function handleQuickConfirm(ing) {
+    setConfirming(true)
+    try {
+      await api.updateIngreso(ing.ID, {
+        fecha:      ing.Fecha,
+        tipo:       ing.Tipo,
+        modalidad:  ing.Modalidad  || 'N/A',
+        concepto:   ing.Concepto,
+        cliente:    ing.Cliente    || '',
+        contratoId: ing.ContratoID || '',
+        monto:      ing.Monto,
+        metodoPago: ing.MetodoPago,
+        estado:     'confirmado',
+        notas:      ing.Notas      || '',
+      })
+      setDetail(null)
+      load()
+    } catch (e) { setError(e.message) }
+    finally { setConfirming(false) }
   }
 
   function openWa(ing) {
@@ -181,8 +212,8 @@ export default function IngresosList({ soloMios = false }) {
                         )}
                         {/* Eye: solo admin, para ingresos pendientes de verificar */}
                         {isAdmin && i.Estado === 'pendiente_verificacion' && (
-                          <button onClick={() => setDetail(i)}
-                            title="Ver referencia del vendedor"
+                          <button onClick={() => openDetail(i)}
+                            title="Verificar pago pendiente"
                             className="p-1.5 hover:bg-amber-50 rounded text-gray-400 hover:text-amber-600 transition-colors">
                             <Eye size={14} />
                           </button>
@@ -238,27 +269,62 @@ export default function IngresosList({ soloMios = false }) {
         message={`¿Eliminar el ingreso "${confirm?.Concepto}"? Esta acción no se puede deshacer.`}
       />
 
-      {/* Modal: ver referencia (admin, para pendiente_verificacion) */}
-      <Modal open={!!detail} onClose={() => setDetail(null)} title="Verificar Ingreso Pendiente" size="md">
+      {/* Modal: verificar pago pendiente */}
+      <Modal open={!!detail} onClose={() => setDetail(null)} title="Verificar Pago Pendiente" size="md">
         {detail && (
           <div className="space-y-4">
+            {/* Info del ingreso */}
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div><p className="text-xs text-gray-500">Registrado por</p><p className="font-medium">{detail.CreadoPor || '—'}</p></div>
               <div><p className="text-xs text-gray-500">Fecha</p><p className="font-medium">{fmt.date(detail.Fecha)}</p></div>
               <div><p className="text-xs text-gray-500">Tipo</p><p className="font-medium">{detail.Tipo}</p></div>
-              <div><p className="text-xs text-gray-500">Monto</p><p className="font-semibold text-emerald-600">{fmt.usd(detail.Monto)}</p></div>
+              <div><p className="text-xs text-gray-500">Monto</p><p className="font-semibold text-emerald-600 text-base">{fmt.usd(detail.Monto)}</p></div>
               <div className="col-span-2"><p className="text-xs text-gray-500">Concepto</p><p className="font-medium">{detail.Concepto}</p></div>
               <div><p className="text-xs text-gray-500">Cliente</p><p className="font-medium">{detail.Cliente || '—'}</p></div>
               <div><p className="text-xs text-gray-500">Método de Pago</p><p className="font-medium">{detail.MetodoPago}</p></div>
             </div>
+
+            {/* Referencia / Nº de transacción del vendedor */}
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
-              <p className="text-xs font-semibold text-amber-700 mb-1">Referencia / Comprobante del vendedor:</p>
-              <p className="text-sm text-amber-900 whitespace-pre-wrap">{detail.Notas || 'Sin referencia registrada'}</p>
+              <p className="text-xs font-semibold text-amber-700 mb-1 uppercase tracking-wide">
+                N° Referencia / Comprobante del vendedor
+              </p>
+              <p className="text-sm text-amber-900 whitespace-pre-wrap font-mono">
+                {detail.Notas || <span className="italic font-sans text-amber-600">Sin referencia registrada</span>}
+              </p>
             </div>
-            <div className="flex gap-3 pt-2">
-              <button onClick={() => setDetail(null)} className="btn-secondary flex-1">Cerrar</button>
-              <button onClick={() => { setDetail(null); setSelected(detail); setModal('edit') }} className="btn-primary flex-1">
-                <CheckCircle size={15} /> Verificar / Editar
+
+            {/* Cuentas de la empresa para cotejar */}
+            {detailCuentas.length > 0 && (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-3">
+                <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide">
+                  Cuentas de R.A. Training — coteje la referencia
+                </p>
+                {detailCuentas.map(c => (
+                  <div key={c.ID} className="text-xs border-t border-blue-100 pt-2 first:border-0 first:pt-0">
+                    <p className="font-semibold text-blue-800">{c.Nombre} <span className="font-normal text-blue-500">({c.Tipo})</span></p>
+                    <p className="text-blue-700 whitespace-pre-wrap mt-0.5">{c.Detalles}</p>
+                    {c.Instrucciones && <p className="text-blue-500 mt-1 italic">{c.Instrucciones}</p>}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Acciones */}
+            <div className="flex gap-2 pt-1">
+              <button onClick={() => setDetail(null)} className="btn-secondary flex-1">
+                Cerrar
+              </button>
+              <button
+                onClick={() => { setDetail(null); setSelected(detail); setModal('edit') }}
+                className="btn-secondary flex-1">
+                <Pencil size={15} /> Editar
+              </button>
+              <button
+                onClick={() => handleQuickConfirm(detail)}
+                disabled={confirming}
+                className="btn-primary flex-1 bg-emerald-600 hover:bg-emerald-700">
+                <CheckCircle size={15} /> {confirming ? 'Confirmando...' : 'Confirmar ✓'}
               </button>
             </div>
           </div>

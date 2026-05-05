@@ -228,10 +228,11 @@ export default function IngresosForm({ initial, onSave, onCancel }) {
           </div>
         )}
         <div className="sm:col-span-2">
-          <label className="label">Referencia / Notas</label>
+          <label className="label">N° de Referencia / Comprobante *</label>
           <textarea className="input" rows={2} value={form.notas}
             onChange={e => set('notas', e.target.value)}
-            placeholder="N° de transferencia, comprobante o referencia del pago..." />
+            placeholder="Ej: Transferencia #001234, Captura de pago adjunta, Nº comprobante Zelle..." />
+          <p className="text-xs text-gray-400 mt-1">Este dato es revisado por el administrador para verificar el pago.</p>
         </div>
       </div>
 
