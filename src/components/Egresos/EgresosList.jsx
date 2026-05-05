@@ -5,7 +5,7 @@ import { fmt, ESTADOS_EGRESO } from '../../utils/formatters'
 import { exportEgresosPDF } from '../../utils/exporters'
 import Modal from '../UI/Modal'
 import ConfirmDialog from '../UI/ConfirmDialog'
-import Spinner from '../UI/Spinner'
+import TableSkeleton from '../UI/TableSkeleton'
 import EgresosForm from './EgresosForm'
 import { Plus, Pencil, Trash2, CheckCircle, XCircle, Download, CreditCard } from 'lucide-react'
 import PagosForm from '../Pagos/PagosForm'
@@ -115,7 +115,7 @@ export default function EgresosList({ soloMios = false }) {
 
       {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg p-3">{error}</p>}
 
-      {loading ? <Spinner text="Cargando egresos..." /> : (
+      {loading ? <TableSkeleton cols={isAdmin ? 8 : 7} rows={6} /> : (
         <div className="card p-0 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">

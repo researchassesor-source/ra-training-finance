@@ -4,7 +4,7 @@ import { fmt, ESTADOS_INGRESO, TIPOS_INGRESO } from '../../utils/formatters'
 import { exportIngresosPDF } from '../../utils/exporters'
 import Modal from '../UI/Modal'
 import ConfirmDialog from '../UI/ConfirmDialog'
-import Spinner from '../UI/Spinner'
+import TableSkeleton from '../UI/TableSkeleton'
 import IngresosForm from './IngresosForm'
 import { useAuth } from '../../context/AuthContext'
 import { Plus, Pencil, Trash2, Download, CheckCircle, Eye, MessageCircle } from 'lucide-react'
@@ -164,7 +164,7 @@ export default function IngresosList({ soloMios = false }) {
       {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg p-3">{error}</p>}
 
       {/* Table */}
-      {loading ? <Spinner text="Cargando ingresos..." /> : (
+      {loading ? <TableSkeleton cols={isAdmin ? 10 : 9} rows={6} /> : (
         <div className="card p-0 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">

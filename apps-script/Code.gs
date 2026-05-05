@@ -153,6 +153,23 @@ function generateId(prefix) {
   return prefix + '_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5).toUpperCase();
 }
 
+// ─────────────────────────────────────────────
+// CACHE HELPERS
+// ─────────────────────────────────────────────
+
+function sheetCache(key, ttlSec, fn) {
+  const cache = CacheService.getScriptCache();
+  const hit = cache.get(key);
+  if (hit) { try { return JSON.parse(hit); } catch(e) {} }
+  const result = fn();
+  try { cache.put(key, JSON.stringify(result), ttlSec); } catch(e) {}
+  return result;
+}
+
+function bustSheet() {
+  try { CacheService.getScriptCache().removeAll(Array.prototype.slice.call(arguments)); } catch(e) {}
+}
+
 function hashPassword(password) {
   const bytes = Utilities.computeDigest(
     Utilities.DigestAlgorithm.SHA_256,
@@ -409,7 +426,9 @@ function updatePago(user, { id, pago }) {
 
 function getContratos(user, { filtros = {} } = {}) {
   requireAdmin(user);
-  let data = sheetToObjects(getSheet('Contratos'));
+  let data = sheetCache('contratos', 120, function() {
+    return sheetToObjects(getSheet('Contratos'));
+  });
   if (filtros.tipo)   data = data.filter(c => c.Tipo === filtros.tipo);
   if (filtros.estado) data = data.filter(c => c.Estado === filtros.estado);
   return { success: true, data };
@@ -425,6 +444,7 @@ function addContrato(user, { contrato }) {
     Number(contrato.valorTotal) || 0, contrato.fechaInicio || '', contrato.fechaFin || '',
     contrato.estado || 'activo', contrato.notas || '', user.Username, now,
   ]);
+  bustSheet('contratos');
   return { success: true, id };
 }
 
@@ -439,6 +459,7 @@ function updateContrato(user, { id, contrato }) {
     FechaInicio: contrato.fechaInicio, FechaFin: contrato.fechaFin,
     Estado: contrato.estado, Notas: contrato.notas,
   });
+  bustSheet('contratos');
   return { success: true };
 }
 
@@ -486,8 +507,9 @@ function updateProyeccion(user, { id, proyeccion }) {
 // ─────────────────────────────────────────────
 
 function getCategorias(user) {
-  const data = sheetToObjects(getSheet('Categorias'));
-  return { success: true, data };
+  return sheetCache('categorias', 300, function() {
+    return { success: true, data: sheetToObjects(getSheet('Categorias')) };
+  });
 }
 
 function addCategoria(user, { categoria }) {
@@ -495,6 +517,7 @@ function addCategoria(user, { categoria }) {
   const sheet = getSheet('Categorias');
   const id    = generateId('CAT');
   sheet.appendRow([id, categoria.nombre, categoria.tipo, true]);
+  bustSheet('categorias');
   return { success: true, id };
 }
 
@@ -545,8 +568,9 @@ function updateUsuario(user, { id, usuario }) {
 // ─────────────────────────────────────────────
 
 function getServicios(user, params) {
-  const data = sheetToObjects(getSheet('Servicios'));
-  return { success: true, data };
+  return sheetCache('servicios', 180, function() {
+    return { success: true, data: sheetToObjects(getSheet('Servicios')) };
+  });
 }
 
 function addServicio(user, { servicio }) {
@@ -559,6 +583,7 @@ function addServicio(user, { servicio }) {
     Number(servicio.precio) || 0, servicio.duracion || '',
     servicio.descripcion || '', true, now,
   ]);
+  bustSheet('servicios');
   return { success: true, id };
 }
 
@@ -572,6 +597,7 @@ function updateServicio(user, { id, servicio }) {
     Precio: Number(servicio.precio) || 0, Duracion: servicio.duracion,
     Descripcion: servicio.descripcion, Activo: servicio.activo,
   });
+  bustSheet('servicios');
   return { success: true };
 }
 
@@ -665,7 +691,9 @@ function deleteRecord(user, sheetName, { id }, adminOnly = true) {
 
 function getConfigPagos(user) {
   if (!isVendedor(user)) throw new Error('Acceso denegado.');
-  return { success: true, data: sheetToObjects(getSheet('ConfigPagos')) };
+  return sheetCache('configpagos', 300, function() {
+    return { success: true, data: sheetToObjects(getSheet('ConfigPagos')) };
+  });
 }
 
 function addConfigPago(user, { configPago }) {
@@ -674,6 +702,7 @@ function addConfigPago(user, { configPago }) {
   const id    = generateId('CPG');
   const now   = new Date().toISOString();
   sheet.appendRow([id, configPago.nombre, configPago.tipo, configPago.detalles || '', configPago.instrucciones || '', true, now]);
+  bustSheet('configpagos');
   return { success: true, id };
 }
 
@@ -687,6 +716,7 @@ function updateConfigPago(user, { id, configPago }) {
     Detalles: configPago.detalles, Instrucciones: configPago.instrucciones,
     Activo: configPago.activo,
   });
+  bustSheet('configpagos');
   return { success: true };
 }
 
@@ -696,7 +726,9 @@ function updateConfigPago(user, { id, configPago }) {
 
 function getConvenios(user, { filtros = {} } = {}) {
   requireAdmin(user);
-  let data = sheetToObjects(getSheet('Convenios'));
+  let data = sheetCache('convenios', 120, function() {
+    return sheetToObjects(getSheet('Convenios'));
+  });
   if (filtros.estado) data = data.filter(c => c.Estado === filtros.estado);
   if (filtros.desde)  data = data.filter(c => new Date(c.FechaInicio) >= new Date(filtros.desde));
   if (filtros.hasta)  data = data.filter(c => new Date(c.FechaInicio) <= new Date(filtros.hasta));
@@ -716,6 +748,7 @@ function addConvenio(user, { convenio }) {
     convenio.estado || 'activo', convenio.notas || '',
     user.Username, now,
   ]);
+  bustSheet('convenios');
   return { success: true, id };
 }
 
@@ -731,6 +764,7 @@ function updateConvenio(user, { id, convenio }) {
     Vigencia: convenio.vigencia, FechaInicio: convenio.fechaInicio,
     FechaFin: convenio.fechaFin, Estado: convenio.estado, Notas: convenio.notas,
   });
+  bustSheet('convenios');
   return { success: true };
 }
 

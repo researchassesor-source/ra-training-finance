@@ -15,96 +15,179 @@ function getToken() {
   return localStorage.getItem('rat_token')
 }
 
+// ── In-memory cache (stale-while-revalidate, 45 s TTL) ──────────────────────
+const _cache = new Map()
+const _TTL   = 45_000
+
+function _key(action, params) {
+  return action + ':' + JSON.stringify(params ?? {})
+}
+
+async function callCached(action, params, token) {
+  const k   = _key(action, params)
+  const hit = _cache.get(k)
+  if (hit) {
+    const age = Date.now() - hit.ts
+    if (age < _TTL) return hit.data
+    // stale — return immediately and refresh in background
+    call(action, params, token)
+      .then(d => _cache.set(k, { data: d, ts: Date.now() }))
+      .catch(() => {})
+    return hit.data
+  }
+  const data = await call(action, params, token)
+  _cache.set(k, { data, ts: Date.now() })
+  return data
+}
+
+function bust(...prefixes) {
+  for (const k of _cache.keys()) {
+    if (prefixes.some(p => k.startsWith(p))) _cache.delete(k)
+  }
+}
+
 export const api = {
   login: (username, password) =>
     call('login', { username, password }),
 
-  logout: () =>
-    call('logout', {}, getToken()),
+  logout: () => {
+    bust()  // clear all cache on logout
+    return call('logout', {}, getToken())
+  },
 
   getDashboard: (year, month) =>
-    call('getDashboard', { year, month }, getToken()),
+    callCached('getDashboard', { year, month }, getToken()),
 
   getIngresos: (filtros = {}) =>
-    call('getIngresos', { filtros }, getToken()),
-  addIngreso: (ingreso) =>
-    call('addIngreso', { ingreso }, getToken()),
-  updateIngreso: (id, ingreso) =>
-    call('updateIngreso', { id, ingreso }, getToken()),
-  deleteIngreso: (id) =>
-    call('deleteIngreso', { id }, getToken()),
+    callCached('getIngresos', { filtros }, getToken()),
+  addIngreso: (ingreso) => {
+    bust('getIngresos', 'getDashboard')
+    return call('addIngreso', { ingreso }, getToken())
+  },
+  updateIngreso: (id, ingreso) => {
+    bust('getIngresos', 'getDashboard')
+    return call('updateIngreso', { id, ingreso }, getToken())
+  },
+  deleteIngreso: (id) => {
+    bust('getIngresos', 'getDashboard')
+    return call('deleteIngreso', { id }, getToken())
+  },
 
   getEgresos: (filtros = {}) =>
-    call('getEgresos', { filtros }, getToken()),
-  addEgreso: (egreso) =>
-    call('addEgreso', { egreso }, getToken()),
-  updateEgreso: (id, egreso) =>
-    call('updateEgreso', { id, egreso }, getToken()),
-  deleteEgreso: (id) =>
-    call('deleteEgreso', { id }, getToken()),
+    callCached('getEgresos', { filtros }, getToken()),
+  addEgreso: (egreso) => {
+    bust('getEgresos', 'getDashboard')
+    return call('addEgreso', { egreso }, getToken())
+  },
+  updateEgreso: (id, egreso) => {
+    bust('getEgresos', 'getDashboard')
+    return call('updateEgreso', { id, egreso }, getToken())
+  },
+  deleteEgreso: (id) => {
+    bust('getEgresos', 'getDashboard')
+    return call('deleteEgreso', { id }, getToken())
+  },
 
   getPagos: (filtros = {}) =>
-    call('getPagos', { filtros }, getToken()),
-  addPago: (pago) =>
-    call('addPago', { pago }, getToken()),
-  updatePago: (id, pago) =>
-    call('updatePago', { id, pago }, getToken()),
-  deletePago: (id) =>
-    call('deletePago', { id }, getToken()),
+    callCached('getPagos', { filtros }, getToken()),
+  addPago: (pago) => {
+    bust('getPagos', 'getDashboard')
+    return call('addPago', { pago }, getToken())
+  },
+  updatePago: (id, pago) => {
+    bust('getPagos', 'getDashboard')
+    return call('updatePago', { id, pago }, getToken())
+  },
+  deletePago: (id) => {
+    bust('getPagos', 'getDashboard')
+    return call('deletePago', { id }, getToken())
+  },
 
   getContratos: (filtros = {}) =>
-    call('getContratos', { filtros }, getToken()),
-  addContrato: (contrato) =>
-    call('addContrato', { contrato }, getToken()),
-  updateContrato: (id, contrato) =>
-    call('updateContrato', { id, contrato }, getToken()),
+    callCached('getContratos', { filtros }, getToken()),
+  addContrato: (contrato) => {
+    bust('getContratos')
+    return call('addContrato', { contrato }, getToken())
+  },
+  updateContrato: (id, contrato) => {
+    bust('getContratos')
+    return call('updateContrato', { id, contrato }, getToken())
+  },
 
   getProyecciones: (filtros = {}) =>
-    call('getProyecciones', { filtros }, getToken()),
-  addProyeccion: (proyeccion) =>
-    call('addProyeccion', { proyeccion }, getToken()),
-  updateProyeccion: (id, proyeccion) =>
-    call('updateProyeccion', { id, proyeccion }, getToken()),
+    callCached('getProyecciones', { filtros }, getToken()),
+  addProyeccion: (proyeccion) => {
+    bust('getProyecciones', 'getDashboard')
+    return call('addProyeccion', { proyeccion }, getToken())
+  },
+  updateProyeccion: (id, proyeccion) => {
+    bust('getProyecciones', 'getDashboard')
+    return call('updateProyeccion', { id, proyeccion }, getToken())
+  },
 
   getCategorias: () =>
-    call('getCategorias', {}, getToken()),
-  addCategoria: (categoria) =>
-    call('addCategoria', { categoria }, getToken()),
+    callCached('getCategorias', {}, getToken()),
+  addCategoria: (categoria) => {
+    bust('getCategorias')
+    return call('addCategoria', { categoria }, getToken())
+  },
 
   getUsuarios: () =>
-    call('getUsuarios', {}, getToken()),
-  addUsuario: (usuario) =>
-    call('addUsuario', { usuario }, getToken()),
-  updateUsuario: (id, usuario) =>
-    call('updateUsuario', { id, usuario }, getToken()),
+    callCached('getUsuarios', {}, getToken()),
+  addUsuario: (usuario) => {
+    bust('getUsuarios')
+    return call('addUsuario', { usuario }, getToken())
+  },
+  updateUsuario: (id, usuario) => {
+    bust('getUsuarios')
+    return call('updateUsuario', { id, usuario }, getToken())
+  },
 
   getServicios: () =>
-    call('getServicios', {}, getToken()),
-  addServicio: (servicio) =>
-    call('addServicio', { servicio }, getToken()),
-  updateServicio: (id, servicio) =>
-    call('updateServicio', { id, servicio }, getToken()),
+    callCached('getServicios', {}, getToken()),
+  addServicio: (servicio) => {
+    bust('getServicios')
+    return call('addServicio', { servicio }, getToken())
+  },
+  updateServicio: (id, servicio) => {
+    bust('getServicios')
+    return call('updateServicio', { id, servicio }, getToken())
+  },
 
   getInscripciones: (filtros = {}) =>
-    call('getInscripciones', { filtros }, getToken()),
-  addInscripcion: (inscripcion) =>
-    call('addInscripcion', { inscripcion }, getToken()),
-  updateInscripcion: (id, inscripcion) =>
-    call('updateInscripcion', { id, inscripcion }, getToken()),
+    callCached('getInscripciones', { filtros }, getToken()),
+  addInscripcion: (inscripcion) => {
+    bust('getInscripciones', 'getDashboard')
+    return call('addInscripcion', { inscripcion }, getToken())
+  },
+  updateInscripcion: (id, inscripcion) => {
+    bust('getInscripciones', 'getDashboard')
+    return call('updateInscripcion', { id, inscripcion }, getToken())
+  },
 
   getConfigPagos: () =>
-    call('getConfigPagos', {}, getToken()),
-  addConfigPago: (configPago) =>
-    call('addConfigPago', { configPago }, getToken()),
-  updateConfigPago: (id, configPago) =>
-    call('updateConfigPago', { id, configPago }, getToken()),
+    callCached('getConfigPagos', {}, getToken()),
+  addConfigPago: (configPago) => {
+    bust('getConfigPagos')
+    return call('addConfigPago', { configPago }, getToken())
+  },
+  updateConfigPago: (id, configPago) => {
+    bust('getConfigPagos')
+    return call('updateConfigPago', { id, configPago }, getToken())
+  },
 
   getConvenios: (filtros = {}) =>
-    call('getConvenios', { filtros }, getToken()),
-  addConvenio: (convenio) =>
-    call('addConvenio', { convenio }, getToken()),
-  updateConvenio: (id, convenio) =>
-    call('updateConvenio', { id, convenio }, getToken()),
-  deleteConvenio: (id) =>
-    call('deleteConvenio', { id }, getToken()),
+    callCached('getConvenios', { filtros }, getToken()),
+  addConvenio: (convenio) => {
+    bust('getConvenios')
+    return call('addConvenio', { convenio }, getToken())
+  },
+  updateConvenio: (id, convenio) => {
+    bust('getConvenios')
+    return call('updateConvenio', { id, convenio }, getToken())
+  },
+  deleteConvenio: (id) => {
+    bust('getConvenios')
+    return call('deleteConvenio', { id }, getToken())
+  },
 }
