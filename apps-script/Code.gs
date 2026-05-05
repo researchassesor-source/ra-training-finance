@@ -15,51 +15,61 @@ const CONFIG = {
 function doPost(e) {
   try {
     const data = JSON.parse(e.postData.contents);
-    const { action, token, ...params } = data;
-
-    if (action === 'login') return respond(handleLogin(params));
-
-    const user = validateToken(token);
-    if (!user) return respond({ success: false, error: 'Sesión inválida o expirada. Por favor inicia sesión de nuevo.' });
-
-    const handlers = {
-      logout:           () => handleLogout(token),
-      getDashboard:     () => getDashboard(user, params),
-      getIngresos:      () => getIngresos(user, params),
-      addIngreso:       () => addIngreso(user, params),
-      updateIngreso:    () => updateIngreso(user, params),
-      deleteIngreso:    () => deleteRecord(user, 'Ingresos', params, true),
-      getEgresos:       () => getEgresos(user, params),
-      addEgreso:        () => addEgreso(user, params),
-      updateEgreso:     () => updateEgreso(user, params),
-      deleteEgreso:     () => deleteRecord(user, 'Egresos', params, true),
-      getPagos:         () => getPagos(user, params),
-      addPago:          () => addPago(user, params),
-      updatePago:       () => updatePago(user, params),
-      deletePago:       () => deleteRecord(user, 'Pagos', params, true),
-      getContratos:     () => getContratos(user, params),
-      addContrato:      () => addContrato(user, params),
-      updateContrato:   () => updateContrato(user, params),
-      getProyecciones:  () => getProyecciones(user, params),
-      addProyeccion:    () => addProyeccion(user, params),
-      updateProyeccion: () => updateProyeccion(user, params),
-      getCategorias:    () => getCategorias(user, params),
-      addCategoria:     () => addCategoria(user, params),
-      getUsuarios:      () => getUsuarios(user, params),
-      addUsuario:       () => addUsuario(user, params),
-      updateUsuario:    () => updateUsuario(user, params),
-    };
-
-    if (!handlers[action]) return respond({ success: false, error: 'Acción no reconocida: ' + action });
-    return respond(handlers[action]());
-
+    return respond(processRequest(data));
   } catch (err) {
     return respond({ success: false, error: 'Error interno: ' + err.toString() });
   }
 }
 
-function doGet() {
-  return respond({ success: true, message: 'R.A. Training Finance API v1.0 — Online' });
+function doGet(e) {
+  try {
+    const payload = e && e.parameter && e.parameter.payload;
+    if (!payload) return respond({ success: true, message: 'R.A. Training Finance API v1.0 — Online' });
+    const data = JSON.parse(payload);
+    return respond(processRequest(data));
+  } catch (err) {
+    return respond({ success: false, error: 'Error interno: ' + err.toString() });
+  }
+}
+
+function processRequest(data) {
+  const { action, token, ...params } = data;
+
+  if (action === 'login') return handleLogin(params);
+
+  const user = validateToken(token);
+  if (!user) return { success: false, error: 'Sesión inválida o expirada. Por favor inicia sesión de nuevo.' };
+
+  const handlers = {
+    logout:           () => handleLogout(token),
+    getDashboard:     () => getDashboard(user, params),
+    getIngresos:      () => getIngresos(user, params),
+    addIngreso:       () => addIngreso(user, params),
+    updateIngreso:    () => updateIngreso(user, params),
+    deleteIngreso:    () => deleteRecord(user, 'Ingresos', params, true),
+    getEgresos:       () => getEgresos(user, params),
+    addEgreso:        () => addEgreso(user, params),
+    updateEgreso:     () => updateEgreso(user, params),
+    deleteEgreso:     () => deleteRecord(user, 'Egresos', params, true),
+    getPagos:         () => getPagos(user, params),
+    addPago:          () => addPago(user, params),
+    updatePago:       () => updatePago(user, params),
+    deletePago:       () => deleteRecord(user, 'Pagos', params, true),
+    getContratos:     () => getContratos(user, params),
+    addContrato:      () => addContrato(user, params),
+    updateContrato:   () => updateContrato(user, params),
+    getProyecciones:  () => getProyecciones(user, params),
+    addProyeccion:    () => addProyeccion(user, params),
+    updateProyeccion: () => updateProyeccion(user, params),
+    getCategorias:    () => getCategorias(user, params),
+    addCategoria:     () => addCategoria(user, params),
+    getUsuarios:      () => getUsuarios(user, params),
+    addUsuario:       () => addUsuario(user, params),
+    updateUsuario:    () => updateUsuario(user, params),
+  };
+
+  if (!handlers[action]) return { success: false, error: 'Acción no reconocida: ' + action };
+  return handlers[action]();
 }
 
 function respond(data) {

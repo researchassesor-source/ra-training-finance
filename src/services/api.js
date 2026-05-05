@@ -8,11 +8,8 @@ async function call(action, params = {}, token = null) {
   const body = { action, ...params }
   if (token) body.token = token
 
-  const res = await fetch(API_URL, {
-    method: 'POST',
-    body: JSON.stringify(body),
-    redirect: 'follow',
-  })
+  const url = `${API_URL}?payload=${encodeURIComponent(JSON.stringify(body))}`
+  const res = await fetch(url)
 
   if (!res.ok) throw new Error(`Error HTTP ${res.status}`)
   const data = await res.json()
