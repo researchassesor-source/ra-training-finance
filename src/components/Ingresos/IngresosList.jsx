@@ -17,7 +17,7 @@ export default function IngresosList({ soloMios = false }) {
   const [selected, setSelected] = useState(null)
   const [confirm, setConfirm] = useState(null)
   const [deleting, setDeleting] = useState(false)
-  const { isAdmin, isVendedor } = useAuth()
+  const { user, isAdmin, isVendedor } = useAuth()
   const [filtros, setFiltros] = useState({ tipo: '', estado: '', desde: '', hasta: '' })
 
   const load = useCallback(() => {
@@ -124,14 +124,18 @@ export default function IngresosList({ soloMios = false }) {
                     <td className="px-4 py-3 font-semibold text-emerald-600 whitespace-nowrap">{fmt.usd(i.Monto)}</td>
                     <td className="px-4 py-3">
                       <div className="flex gap-1">
-                        <button onClick={() => { setSelected(i); setModal('edit') }}
-                          className="p-1.5 hover:bg-brand-50 rounded text-gray-400 hover:text-brand-600 transition-colors">
-                          <Pencil size={14} />
-                        </button>
-                        <button onClick={() => setConfirm(i)}
-                          className="p-1.5 hover:bg-red-50 rounded text-gray-400 hover:text-red-600 transition-colors">
-                          <Trash2 size={14} />
-                        </button>
+                        {(isAdmin || i.CreadoPor === user?.username) && (
+                          <button onClick={() => { setSelected(i); setModal('edit') }}
+                            className="p-1.5 hover:bg-brand-50 rounded text-gray-400 hover:text-brand-600 transition-colors">
+                            <Pencil size={14} />
+                          </button>
+                        )}
+                        {isAdmin && (
+                          <button onClick={() => setConfirm(i)}
+                            className="p-1.5 hover:bg-red-50 rounded text-gray-400 hover:text-red-600 transition-colors">
+                            <Trash2 size={14} />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
