@@ -118,14 +118,14 @@ export default function EgresosList({ soloMios = false }) {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-100">
-                  {['Fecha','Categoría','Concepto','Proveedor','Estado','Aprobado por','Monto','Acciones'].map(h => (
+                  {['Fecha','Categoría','Concepto','Proveedor','Estado','Registrado por','Aprobado por','Monto','Acciones'].map(h => (
                     <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {data.length === 0 ? (
-                  <tr><td colSpan={8} className="text-center py-10 text-gray-400">Sin egresos registrados</td></tr>
+                  <tr><td colSpan={9} className="text-center py-10 text-gray-400">Sin egresos registrados</td></tr>
                 ) : data.map(e => (
                   <tr key={e.ID} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
                     <td className="px-4 py-3 whitespace-nowrap">{fmt.date(e.Fecha)}</td>
@@ -137,6 +137,7 @@ export default function EgresosList({ soloMios = false }) {
                         {ESTADOS_EGRESO[e.Estado]?.label || e.Estado}
                       </span>
                     </td>
+                    <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-500">{e.CreadoPor || '—'}</td>
                     <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-500">{e.AprobadoPor || '—'}</td>
                     <td className="px-4 py-3 font-semibold text-red-600 whitespace-nowrap">{fmt.usd(e.Monto)}</td>
                     <td className="px-4 py-3">
@@ -171,7 +172,7 @@ export default function EgresosList({ soloMios = false }) {
               {data.length > 0 && (
                 <tfoot>
                   <tr className="bg-red-50">
-                    <td colSpan={6} className="px-4 py-2 text-sm font-semibold text-red-800">TOTAL</td>
+                    <td colSpan={7} className="px-4 py-2 text-sm font-semibold text-red-800">TOTAL</td>
                     <td className="px-4 py-2 font-bold text-red-700">{fmt.usd(total)}</td>
                     <td />
                   </tr>

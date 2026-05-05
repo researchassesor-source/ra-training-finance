@@ -99,14 +99,14 @@ export default function IngresosList({ soloMios = false }) {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-100">
-                  {['Fecha','Tipo','Modalidad','Concepto','Cliente','Método','Estado','Monto',''].map(h => (
+                  {['Fecha','Tipo','Modalidad','Concepto','Cliente','Método','Estado', ...(isAdmin ? ['Registrado por'] : []),'Monto',''].map(h => (
                     <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {data.length === 0 ? (
-                  <tr><td colSpan={9} className="text-center py-10 text-gray-400">Sin ingresos registrados</td></tr>
+                  <tr><td colSpan={isAdmin ? 10 : 9} className="text-center py-10 text-gray-400">Sin ingresos registrados</td></tr>
                 ) : data.map(i => (
                   <tr key={i.ID} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
                     <td className="px-4 py-3 whitespace-nowrap">{fmt.date(i.Fecha)}</td>
@@ -120,6 +120,7 @@ export default function IngresosList({ soloMios = false }) {
                         {ESTADOS_INGRESO[i.Estado]?.label || i.Estado}
                       </span>
                     </td>
+                    {isAdmin && <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-500">{i.CreadoPor || '—'}</td>}
                     <td className="px-4 py-3 font-semibold text-emerald-600 whitespace-nowrap">{fmt.usd(i.Monto)}</td>
                     <td className="px-4 py-3">
                       <div className="flex gap-1">
@@ -139,7 +140,7 @@ export default function IngresosList({ soloMios = false }) {
               {data.length > 0 && (
                 <tfoot>
                   <tr className="bg-emerald-50">
-                    <td colSpan={7} className="px-4 py-2 text-sm font-semibold text-emerald-800">TOTAL</td>
+                    <td colSpan={isAdmin ? 8 : 7} className="px-4 py-2 text-sm font-semibold text-emerald-800">TOTAL</td>
                     <td className="px-4 py-2 font-bold text-emerald-700">{fmt.usd(total)}</td>
                     <td />
                   </tr>
