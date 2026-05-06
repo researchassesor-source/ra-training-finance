@@ -15,6 +15,7 @@ import InscripcionesList from './components/Inscripciones/InscripcionesList'
 import ServiciosView from './components/Servicios/ServiciosView'
 import ConfigPagosView from './components/ConfigPagos/ConfigPagosView'
 import ConveniosList from './components/Convenios/ConveniosList'
+import CalendarView from './components/Calendario/CalendarView'
 
 function RequireAuth({ children }) {
   const { user } = useAuth()
@@ -66,6 +67,7 @@ function AppRoutes() {
         <Route path="/usuarios"      element={<RequireAdmin><UsuariosView /></RequireAdmin>} />
         <Route path="/config-pagos"  element={<RequireAdmin><ConfigPagosView /></RequireAdmin>} />
         <Route path="/convenios"     element={<RequireAdmin><ConveniosList /></RequireAdmin>} />
+        <Route path="/calendario"    element={<RequireVendedor><CalendarView /></RequireVendedor>} />
 
         {/* Vendedor + Admin routes */}
         <Route path="/mis-ingresos"  element={<RequireVendedor><IngresosList soloMios /></RequireVendedor>} />

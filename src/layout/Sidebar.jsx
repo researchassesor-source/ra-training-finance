@@ -3,11 +3,12 @@ import { useAuth } from '../context/AuthContext'
 import {
   LayoutDashboard, TrendingUp, TrendingDown, CreditCard,
   FileText, BarChart2, BookOpen, Users, X, TrendingUp as Logo,
-  GraduationCap, Briefcase, Settings, HeartHandshake,
+  GraduationCap, Briefcase, Settings, HeartHandshake, CalendarDays,
 } from 'lucide-react'
 
 const adminLinks = [
   { to: '/dashboard',      icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/calendario',     icon: CalendarDays,    label: 'Calendario' },
   { to: '/ingresos',       icon: TrendingUp,      label: 'Ingresos' },
   { to: '/egresos',        icon: TrendingDown,    label: 'Egresos' },
   { to: '/inscripciones',  icon: GraduationCap,   label: 'Inscripciones' },
@@ -26,6 +27,7 @@ const vendedorLinks = [
   { to: '/mis-egresos',    icon: TrendingDown,    label: 'Reportar Gasto' },
   { to: '/inscripciones',  icon: GraduationCap,   label: 'Inscripciones' },
   { to: '/servicios',      icon: Briefcase,       label: 'Catálogo Servicios' },
+  { to: '/calendario',     icon: CalendarDays,    label: 'Calendario' },
   { to: '/mis-reportes',   icon: BookOpen,        label: 'Mis Reportes' },
 ]
 

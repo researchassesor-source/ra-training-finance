@@ -8,7 +8,7 @@ import { fmt, MESES } from '../../utils/formatters'
 import Spinner from '../UI/Spinner'
 import {
   TrendingUp, TrendingDown, DollarSign, FileText,
-  Clock, BarChart2, AlertCircle,
+  Clock, BarChart2, AlertCircle, CreditCard,
 } from 'lucide-react'
 
 const PIE_COLORS = ['#4338ca','#0891b2','#059669','#d97706','#dc2626','#7c3aed','#db2777','#0284c7']
@@ -63,13 +63,14 @@ export default function AdminDashboard() {
   )
   if (!data)   return null
 
-  const { kpis, ingresosXMes, egresosXMes, categorias, recentIngresos, recentEgresos, proyeccionesFuturas } = data
+  const { kpis, ingresosXMes, egresosXMes, pagosXMes, categorias, recentIngresos, recentEgresos, recentPagos, proyeccionesFuturas } = data
 
   const monthlyChartData = MESES.map((mes, i) => ({
     mes,
     Ingresos: ingresosXMes[i]?.total || 0,
     Egresos:  egresosXMes[i]?.total  || 0,
-    Balance:  (ingresosXMes[i]?.total || 0) - (egresosXMes[i]?.total || 0),
+    Pagos:    pagosXMes?.[i]?.total  || 0,
+    Balance:  (ingresosXMes[i]?.total || 0) - (egresosXMes[i]?.total || 0) - (pagosXMes?.[i]?.total || 0),
   }))
 
   const years = Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i)
@@ -85,13 +86,14 @@ export default function AdminDashboard() {
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-        <KpiCard icon={TrendingUp}   label="Total Ingresos"     value={fmt.usd(kpis.totalIngresos)}    color="green"  />
-        <KpiCard icon={TrendingDown} label="Total Egresos"      value={fmt.usd(kpis.totalEgresos)}     color="red"    />
-        <KpiCard icon={DollarSign}   label="Balance Neto"       value={fmt.usd(kpis.balance)}          color={kpis.balance >= 0 ? 'brand' : 'red'} />
-        <KpiCard icon={FileText}     label="Contratos Activos"  value={kpis.contratosActivos}          color="blue"   />
-        <KpiCard icon={Clock}        label="Egresos Pendientes" value={kpis.egresosPendientes}         color="amber"  sub="Esperan aprobación" />
-        <KpiCard icon={BarChart2}    label="Ing. Proyectado"    value={fmt.usd(kpis.totalProyectado)}  color="purple" sub="Eventos futuros" />
+      <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-4">
+        <KpiCard icon={TrendingUp}   label="Total Ingresos"     value={fmt.usd(kpis.totalIngresos)}        color="green"  />
+        <KpiCard icon={TrendingDown} label="Total Egresos"      value={fmt.usd(kpis.totalEgresos)}         color="red"    />
+        <KpiCard icon={CreditCard}   label="Pagos Ejecutados"   value={fmt.usd(kpis.totalPagosEjecutados)} color="amber"  sub="Pagos completados" />
+        <KpiCard icon={DollarSign}   label="Balance Neto"       value={fmt.usd(kpis.balance)}              color={kpis.balance >= 0 ? 'brand' : 'red'} />
+        <KpiCard icon={FileText}     label="Contratos Activos"  value={kpis.contratosActivos}              color="blue"   />
+        <KpiCard icon={Clock}        label="Egresos Pendientes" value={kpis.egresosPendientes}             color="amber"  sub="Esperan aprobación" />
+        <KpiCard icon={BarChart2}    label="Ing. Proyectado"    value={fmt.usd(kpis.totalProyectado)}      color="purple" sub="Eventos futuros" />
       </div>
 
       {/* Charts row 1 */}
@@ -108,6 +110,7 @@ export default function AdminDashboard() {
               <Legend wrapperStyle={{ fontSize: 12 }} />
               <Bar dataKey="Ingresos" fill="#059669" radius={[4,4,0,0]} />
               <Bar dataKey="Egresos"  fill="#dc2626" radius={[4,4,0,0]} />
+              <Bar dataKey="Pagos"    fill="#d97706" radius={[4,4,0,0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -172,7 +175,7 @@ export default function AdminDashboard() {
       </div>
 
       {/* Recent activity */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
         <div className="card">
           <h3 className="font-semibold text-gray-900 mb-3 text-sm">Últimos Ingresos</h3>
           {recentIngresos.length === 0 ? (
@@ -210,6 +213,25 @@ export default function AdminDashboard() {
                       {e.Estado}
                     </span>
                   </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="card">
+          <h3 className="font-semibold text-gray-900 mb-3 text-sm">Últimos Pagos</h3>
+          {!recentPagos || recentPagos.length === 0 ? (
+            <p className="text-sm text-gray-400 text-center py-4">Sin pagos recientes</p>
+          ) : (
+            <div className="space-y-2">
+              {recentPagos.map(p => (
+                <div key={p.ID} className="flex items-center justify-between py-1.5 border-b border-gray-50 last:border-0">
+                  <div>
+                    <p className="text-sm text-gray-900">{p.Concepto}</p>
+                    <p className="text-xs text-gray-400">{p.Tipo} · {fmt.date(p.Fecha)}</p>
+                  </div>
+                  <span className="text-sm font-bold text-amber-600">{fmt.usd(p.Monto)}</span>
                 </div>
               ))}
             </div>

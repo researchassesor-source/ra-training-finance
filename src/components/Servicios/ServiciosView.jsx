@@ -4,20 +4,23 @@ import { fmt, MODALIDADES, TIPOS_SERVICIO } from '../../utils/formatters'
 import { useAuth } from '../../context/AuthContext'
 import Modal from '../UI/Modal'
 import Spinner from '../UI/Spinner'
-import { Plus, Pencil, ToggleLeft, ToggleRight, MessageCircle } from 'lucide-react'
+import { Plus, Pencil, ToggleLeft, ToggleRight, MessageCircle, Calendar } from 'lucide-react'
 
-const EMPTY = { nombre: '', tipo: '', modalidad: 'N/A', precio: '', duracion: '', descripcion: '', activo: true }
+const EMPTY = { nombre: '', tipo: '', modalidad: 'N/A', precio: '', duracion: '', descripcion: '', activo: true, fechaEvento: '', fechaFinEvento: '', lugarEvento: '' }
 
 function mapInitial(initial) {
   if (!initial) return EMPTY
   return {
-    nombre:      initial.Nombre      || initial.nombre      || '',
-    tipo:        initial.Tipo        || initial.tipo        || '',
-    modalidad:   initial.Modalidad   || initial.modalidad   || 'N/A',
-    precio:      initial.Precio      || initial.precio      || '',
-    duracion:    initial.Duracion    || initial.duracion    || '',
-    descripcion: initial.Descripcion || initial.descripcion || '',
-    activo:      initial.Activo === true || initial.Activo === 'TRUE' || initial.activo === true,
+    nombre:        initial.Nombre        || initial.nombre        || '',
+    tipo:          initial.Tipo          || initial.tipo          || '',
+    modalidad:     initial.Modalidad     || initial.modalidad     || 'N/A',
+    precio:        initial.Precio        || initial.precio        || '',
+    duracion:      initial.Duracion      || initial.duracion      || '',
+    descripcion:   initial.Descripcion   || initial.descripcion   || '',
+    activo:        initial.Activo === true || initial.Activo === 'TRUE' || initial.activo === true,
+    fechaEvento:   initial.FechaEvento   || initial.fechaEvento   || '',
+    fechaFinEvento:initial.FechaFinEvento|| initial.fechaFinEvento|| '',
+    lugarEvento:   initial.LugarEvento   || initial.lugarEvento   || '',
   }
 }
 
@@ -74,6 +77,26 @@ function ServicioForm({ initial, onSave, onCancel }) {
           <label className="label">Descripción</label>
           <textarea className="input" rows={3} value={form.descripcion}
             onChange={e => set('descripcion', e.target.value)} placeholder="Descripción del servicio..." />
+        </div>
+        <div className="sm:col-span-2 border-t border-gray-100 pt-3">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Fecha del Evento (opcional)</p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div>
+              <label className="label">Fecha inicio evento</label>
+              <input className="input" type="date" value={form.fechaEvento}
+                onChange={e => set('fechaEvento', e.target.value)} />
+            </div>
+            <div>
+              <label className="label">Fecha fin evento</label>
+              <input className="input" type="date" value={form.fechaFinEvento}
+                onChange={e => set('fechaFinEvento', e.target.value)} />
+            </div>
+            <div>
+              <label className="label">Lugar / Modalidad</label>
+              <input className="input" value={form.lugarEvento}
+                onChange={e => set('lugarEvento', e.target.value)} placeholder="Ej: Quito, Online" />
+            </div>
+          </div>
         </div>
         {initial && (
           <div className="flex items-center gap-2">
@@ -197,6 +220,13 @@ export default function ServiciosView() {
                   )}
                 </div>
                 {s.Descripcion && <p className="text-xs text-gray-500 line-clamp-2">{s.Descripcion}</p>}
+                {s.FechaEvento && (
+                  <div className="flex items-center gap-1.5 text-xs text-brand-700 bg-brand-50 rounded-lg px-2 py-1.5">
+                    <Calendar size={12} />
+                    <span>{fmt.date(s.FechaEvento)}{s.FechaFinEvento && s.FechaFinEvento !== s.FechaEvento ? ` → ${fmt.date(s.FechaFinEvento)}` : ''}</span>
+                    {s.LugarEvento && <span className="text-gray-400">· {s.LugarEvento}</span>}
+                  </div>
+                )}
                 <div className="flex items-center justify-between mt-auto pt-2 border-t border-gray-50">
                   <div>
                     {Number(s.Precio) > 0

@@ -79,6 +79,7 @@ function processRequest(data) {
     addConvenio:        () => addConvenio(user, params),
     updateConvenio:     () => updateConvenio(user, params),
     deleteConvenio:     () => deleteRecord(user, 'Convenios', params, true),
+    getCalendario:      () => getCalendario(user, params),
   };
 
   if (!handlers[action]) return { success: false, error: 'Acción no reconocida: ' + action };
@@ -103,7 +104,7 @@ const SHEET_HEADERS = {
   Contratos:     ['ID','Tipo','Nombre','Concepto','ValorTotal','FechaInicio','FechaFin','Estado','Notas','CreadoPor','FechaCreacion'],
   Proyecciones:  ['ID','Evento','Tipo','FechaEstimada','MontoProyectado','MontoReal','Estado','Notas','CreadoPor','FechaCreacion'],
   Categorias:    ['ID','Nombre','Tipo','Activo'],
-  Servicios:     ['ID','Nombre','Tipo','Modalidad','Precio','Duracion','Descripcion','Activo','FechaCreacion'],
+  Servicios:     ['ID','Nombre','Tipo','Modalidad','Precio','Duracion','Descripcion','Activo','FechaCreacion','FechaEvento','FechaFinEvento','LugarEvento'],
   Inscripciones: ['ID','ClienteNombre','ClienteID','ClienteEmail','ClienteTelefono','ServicioID','ServicioNombre','Modalidad','FechaInicio','Monto','MetodoPago','RazonSocial','RUC','DireccionFactura','EstadoPago','EstadoCertificado','IngresoID','Notas','CreadoPor','FechaCreacion'],
   Sesiones:      ['Token','Username','UserID','Rol','Nombre','Expira'],
   ConfigPagos:   ['ID','Nombre','Tipo','Detalles','Instrucciones','Activo','FechaCreacion'],
@@ -253,6 +254,7 @@ function getDashboard(user, { year } = {}) {
 
   const ingresos     = sheetToObjects(getSheet('Ingresos'));
   const egresos      = sheetToObjects(getSheet('Egresos'));
+  const pagos        = sheetToObjects(getSheet('Pagos'));
   const contratos    = sheetToObjects(getSheet('Contratos'));
   const proyecciones = sheetToObjects(getSheet('Proyecciones'));
 
@@ -261,6 +263,12 @@ function getDashboard(user, { year } = {}) {
     return d.getFullYear() === filterYear && i.Estado !== 'cancelado';
   });
   const egrAño = egresos.filter(e => new Date(e.Fecha).getFullYear() === filterYear);
+  const pagAño = pagos.filter(p => {
+    const d = new Date(p.Fecha);
+    return d.getFullYear() === filterYear && p.Estado === 'completado';
+  });
+  // Pagos not linked to an Egreso are standalone expenses (avoid double-counting)
+  const pagStandalone = pagAño.filter(p => !p.EgresoID);
 
   const sum = (arr, field) => arr.reduce((s, r) => s + (Number(r[field]) || 0), 0);
 
@@ -273,12 +281,19 @@ function getDashboard(user, { year } = {}) {
     mes: m + 1,
     total: sum(egrAño.filter(e => new Date(e.Fecha).getMonth() === m), 'Monto'),
   }));
+  const pagosXMes = months.map(m => ({
+    mes: m + 1,
+    total: sum(pagStandalone.filter(p => new Date(p.Fecha).getMonth() === m), 'Monto'),
+  }));
 
-  const totalIngresos = sum(ingAño, 'Monto');
-  const totalEgresos  = sum(egrAño, 'Monto');
+  const totalIngresos        = sum(ingAño, 'Monto');
+  const totalEgresos         = sum(egrAño, 'Monto');
+  const totalPagosEjecutados = sum(pagAño, 'Monto');
+  const totalPagosStandalone = sum(pagStandalone, 'Monto');
 
   const catMap = {};
   egrAño.forEach(e => { catMap[e.Categoria] = (catMap[e.Categoria] || 0) + (Number(e.Monto) || 0); });
+  if (totalPagosStandalone > 0) catMap['Pagos Directos'] = (catMap['Pagos Directos'] || 0) + totalPagosStandalone;
 
   const proyFuturas = proyecciones.filter(p => p.Estado === 'proyectado');
 
@@ -288,16 +303,19 @@ function getDashboard(user, { year } = {}) {
       kpis: {
         totalIngresos,
         totalEgresos,
-        balance: totalIngresos - totalEgresos,
+        totalPagosEjecutados,
+        balance: totalIngresos - totalEgresos - totalPagosStandalone,
         contratosActivos: contratos.filter(c => c.Estado === 'activo').length,
         egresosPendientes: egresos.filter(e => e.Estado === 'pendiente').length,
         totalProyectado: sum(proyFuturas, 'MontoProyectado'),
       },
       ingresosXMes,
       egresosXMes,
+      pagosXMes,
       categorias: Object.entries(catMap).map(([nombre, total]) => ({ nombre, total })),
       recentIngresos: ingAño.sort((a,b) => new Date(b.FechaCreacion) - new Date(a.FechaCreacion)).slice(0, 5),
       recentEgresos: egrAño.sort((a,b) => new Date(b.FechaCreacion) - new Date(a.FechaCreacion)).slice(0, 5),
+      recentPagos: pagAño.sort((a,b) => new Date(b.FechaCreacion) - new Date(a.FechaCreacion)).slice(0, 5),
       proyeccionesFuturas: proyFuturas.sort((a,b) => new Date(a.FechaEstimada) - new Date(b.FechaEstimada)).slice(0, 5),
     },
   };
@@ -596,6 +614,7 @@ function addServicio(user, { servicio }) {
     id, servicio.nombre, servicio.tipo, servicio.modalidad || 'N/A',
     Number(servicio.precio) || 0, servicio.duracion || '',
     servicio.descripcion || '', true, now,
+    servicio.fechaEvento || '', servicio.fechaFinEvento || '', servicio.lugarEvento || '',
   ]);
   bustSheet('servicios');
   return { success: true, id };
@@ -610,9 +629,76 @@ function updateServicio(user, { id, servicio }) {
     Nombre: servicio.nombre, Tipo: servicio.tipo, Modalidad: servicio.modalidad,
     Precio: Number(servicio.precio) || 0, Duracion: servicio.duracion,
     Descripcion: servicio.descripcion, Activo: servicio.activo,
+    FechaEvento: servicio.fechaEvento || '', FechaFinEvento: servicio.fechaFinEvento || '',
+    LugarEvento: servicio.lugarEvento || '',
   });
   bustSheet('servicios');
   return { success: true };
+}
+
+function getCalendario(user, { year, month } = {}) {
+  const now   = new Date();
+  const yr    = year  || now.getFullYear();
+  const mn    = month || null; // null = todo el año
+
+  function inRange(dateStr) {
+    if (!dateStr) return false;
+    const d = new Date(dateStr);
+    if (isNaN(d)) return false;
+    if (d.getFullYear() !== yr) return false;
+    if (mn !== null && d.getMonth() + 1 !== mn) return false;
+    return true;
+  }
+
+  const eventos = [];
+
+  // Servicios con fechaEvento programada
+  const servicios = sheetToObjects(getSheet('Servicios'));
+  servicios.forEach(function(s) {
+    if (!inRange(s.FechaEvento)) return;
+    eventos.push({
+      id:     s.ID,
+      fecha:  s.FechaEvento,
+      fechaFin: s.FechaFinEvento || s.FechaEvento,
+      titulo: s.Nombre,
+      tipo:   'Servicio',
+      sub:    s.Tipo + (s.LugarEvento ? ' · ' + s.LugarEvento : ''),
+      color:  'blue',
+    });
+  });
+
+  // Inscripciones (FechaInicio = evento del cliente)
+  const inscripciones = sheetToObjects(getSheet('Inscripciones'));
+  inscripciones.forEach(function(i) {
+    if (!inRange(i.FechaInicio)) return;
+    eventos.push({
+      id:     i.ID,
+      fecha:  i.FechaInicio,
+      fechaFin: i.FechaInicio,
+      titulo: i.ServicioNombre || i.ServicioID,
+      tipo:   'Inscripcion',
+      sub:    i.ClienteNombre,
+      color:  'green',
+    });
+  });
+
+  // Proyecciones futuras
+  const proyecciones = sheetToObjects(getSheet('Proyecciones'));
+  proyecciones.forEach(function(p) {
+    if (!inRange(p.FechaEstimada)) return;
+    eventos.push({
+      id:     p.ID,
+      fecha:  p.FechaEstimada,
+      fechaFin: p.FechaEstimada,
+      titulo: p.Evento,
+      tipo:   'Proyeccion',
+      sub:    p.Tipo,
+      color:  'purple',
+    });
+  });
+
+  eventos.sort(function(a, b) { return new Date(a.fecha) - new Date(b.fecha); });
+  return { success: true, data: eventos };
 }
 
 // ─────────────────────────────────────────────

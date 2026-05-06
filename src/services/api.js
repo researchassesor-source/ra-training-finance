@@ -179,6 +179,9 @@ export const api = {
     return call('updateConfigPago', { id, configPago }, getToken())
   },
 
+  getCalendario: (year, month) =>
+    callCached('getCalendario', { year, month }, getToken()),
+
   getConvenios: (filtros = {}) =>
     callCached('getConvenios', { filtros }, getToken()),
   addConvenio: (convenio) => {
