@@ -158,7 +158,7 @@ export default function EgresosList({ soloMios = false }) {
                             <XCircle size={14} />
                           </button>
                         </>}
-                        {isAdmin && (
+                        {(isAdmin || e.Estado === 'pendiente') && (
                           <button onClick={() => { setSelected(e); setModal('edit') }}
                             className="p-1.5 hover:bg-brand-50 rounded text-gray-400 hover:text-brand-600 transition-colors">
                             <Pencil size={14} />
@@ -171,7 +171,7 @@ export default function EgresosList({ soloMios = false }) {
                             <CreditCard size={14} />
                           </button>
                         )}
-                        {(isAdmin || (e.CreadoPor === user?.username && e.Estado === 'pendiente')) && (
+                        {(isAdmin || e.Estado === 'pendiente') && (
                           <button onClick={() => setConfirm(e)}
                             title="Eliminar"
                             className="p-1.5 hover:bg-red-50 rounded text-gray-400 hover:text-red-600 transition-colors">

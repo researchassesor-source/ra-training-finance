@@ -206,14 +206,11 @@ export default function IngresosList({ soloMios = false }) {
                     <td className="px-4 py-3">
                       <div className="flex gap-1">
                         {/* WhatsApp: visible para admin y vendedor dueño */}
-                        {(isAdmin || i.CreadoPor === user?.username) && (
-                          <button onClick={() => openWa(i)}
-                            title="Enviar datos de pago por WhatsApp"
-                            className="p-1.5 hover:bg-emerald-50 rounded text-gray-400 hover:text-emerald-600 transition-colors">
-                            <MessageCircle size={14} />
-                          </button>
-                        )}
-                        {/* Eye: solo admin, para ingresos pendientes de verificar */}
+                        <button onClick={() => openWa(i)}
+                          title="Enviar datos de pago por WhatsApp"
+                          className="p-1.5 hover:bg-emerald-50 rounded text-gray-400 hover:text-emerald-600 transition-colors">
+                          <MessageCircle size={14} />
+                        </button>
                         {isAdmin && i.Estado === 'pendiente_verificacion' && (
                           <button onClick={() => openDetail(i)}
                             title="Verificar pago pendiente"
@@ -221,13 +218,13 @@ export default function IngresosList({ soloMios = false }) {
                             <Eye size={14} />
                           </button>
                         )}
-                        {(isAdmin || i.CreadoPor === user?.username) && (
+                        {(isAdmin || i.Estado === 'pendiente' || i.Estado === 'pendiente_verificacion') && (
                           <button onClick={() => { setSelected(i); setModal('edit') }}
                             className="p-1.5 hover:bg-brand-50 rounded text-gray-400 hover:text-brand-600 transition-colors">
                             <Pencil size={14} />
                           </button>
                         )}
-                        {(isAdmin || (i.CreadoPor === user?.username && (i.Estado === 'pendiente' || i.Estado === 'pendiente_verificacion'))) && (
+                        {(isAdmin || i.Estado === 'pendiente' || i.Estado === 'pendiente_verificacion') && (
                           <button onClick={() => setConfirm(i)}
                             title="Eliminar"
                             className="p-1.5 hover:bg-red-50 rounded text-gray-400 hover:text-red-600 transition-colors">
