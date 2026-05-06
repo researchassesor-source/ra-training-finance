@@ -167,6 +167,10 @@ export const api = {
     bust('getInscripciones', 'getDashboard')
     return call('updateInscripcion', { id, inscripcion }, getToken())
   },
+  deleteInscripcion: (id) => {
+    bust('getInscripciones', 'getDashboard')
+    return call('deleteInscripcion', { id }, getToken())
+  },
 
   getConfigPagos: () =>
     callCached('getConfigPagos', {}, getToken()),

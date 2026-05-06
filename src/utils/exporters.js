@@ -640,6 +640,49 @@ export function exportConvenioPDF(convenio) {
   doc.save(`convenio_${convenio.ID}_ra_training.pdf`)
 }
 
+export function exportInscripcionesCSV(data) {
+  const headers = ['Nombre','Identificación','Email','Teléfono','Servicio','Modalidad','Fecha Inicio','Monto','Estado Pago','Estado Certificado']
+  const rows = data.map(i => [
+    i.ClienteNombre, i.ClienteID || '', i.ClienteEmail || '', i.ClienteTelefono || '',
+    i.ServicioNombre, i.Modalidad, fmt.date(i.FechaInicio), Number(i.Monto).toFixed(2),
+    i.EstadoPago, i.EstadoCertificado,
+  ])
+  const csv = [headers, ...rows]
+    .map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
+    .join('\n')
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
+  const url  = URL.createObjectURL(blob)
+  const a    = document.createElement('a')
+  a.href = url; a.download = 'inscripciones_certificados_ra_training.csv'; a.click()
+  URL.revokeObjectURL(url)
+}
+
+export function exportInscripcionesPDF(data, filtroLabel = '') {
+  const doc = new jsPDF('landscape')
+  const y = addHeader(doc, 'Listado de Participantes', filtroLabel || 'Para emisión de certificados')
+
+  const total = data.reduce((s, i) => s + (Number(i.Monto) || 0), 0)
+
+  autoTable(doc, {
+    startY: y,
+    head: [['Nombre','ID / Cédula','Email','Teléfono','Servicio','Modalidad','Inicio','Monto','Pago','Certificado']],
+    body: data.map(i => [
+      i.ClienteNombre, i.ClienteID || '—', i.ClienteEmail || '—', i.ClienteTelefono || '—',
+      i.ServicioNombre, i.Modalidad, fmt.date(i.FechaInicio),
+      fmt.usd(i.Monto), i.EstadoPago, i.EstadoCertificado,
+    ]),
+    foot: [['', '', '', '', '', '', 'TOTAL', fmt.usd(total), '', '']],
+    headStyles: { fillColor: BRAND_COLOR, fontSize: 7 },
+    footStyles: { fillColor: [240, 240, 255], fontStyle: 'bold', fontSize: 8 },
+    bodyStyles: { fontSize: 7 },
+    alternateRowStyles: { fillColor: [248, 249, 255] },
+    columnStyles: { 7: { halign: 'right' } },
+  })
+
+  addFooter(doc)
+  doc.save('inscripciones_certificados_ra_training.pdf')
+}
+
 function makeWordRow(cells, isHeader = false) {
   return new TableRow({
     tableHeader: isHeader,

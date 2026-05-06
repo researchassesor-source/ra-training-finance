@@ -8,10 +8,15 @@ import { fmt, MESES } from '../../utils/formatters'
 import Spinner from '../UI/Spinner'
 import {
   TrendingUp, TrendingDown, DollarSign, FileText,
-  Clock, BarChart2, AlertCircle, CreditCard,
+  Clock, BarChart2, AlertCircle, CreditCard, ArrowUpCircle, ArrowDownCircle, Scale,
 } from 'lucide-react'
 
 const PIE_COLORS = ['#4338ca','#0891b2','#059669','#d97706','#dc2626','#7c3aed','#db2777','#0284c7']
+
+const TOOLTIP_STYLE = {
+  contentStyle: { borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 12 },
+  labelStyle: { fontWeight: 600 },
+}
 
 function KpiCard({ icon: Icon, label, value, sub, color = 'brand' }) {
   const colors = {
@@ -36,16 +41,11 @@ function KpiCard({ icon: Icon, label, value, sub, color = 'brand' }) {
   )
 }
 
-const TOOLTIP_STYLE = {
-  contentStyle: { borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 12 },
-  labelStyle: { fontWeight: 600 },
-}
-
 export default function AdminDashboard() {
-  const [data, setData]     = useState(null)
+  const [data, setData]       = useState(null)
   const [loading, setLoading] = useState(true)
-  const [error, setError]   = useState('')
-  const [year, setYear]     = useState(new Date().getFullYear())
+  const [error, setError]     = useState('')
+  const [year, setYear]       = useState(new Date().getFullYear())
 
   useEffect(() => {
     setLoading(true)
@@ -65,12 +65,17 @@ export default function AdminDashboard() {
 
   const { kpis, ingresosXMes, egresosXMes, pagosXMes, categorias, recentIngresos, recentEgresos, recentPagos, proyeccionesFuturas } = data
 
+  // Para el dashboard contamos solo ingresos confirmados en el balance visual
+  const ingConfirmadosTotal = ingresosXMes.reduce((s, m) => s + m.total, 0)
+  const salidasTotal = kpis.totalEgresos + (kpis.totalPagosEjecutados || 0)
+  const balanceReal  = kpis.balance
+
   const monthlyChartData = MESES.map((mes, i) => ({
     mes,
-    Ingresos: ingresosXMes[i]?.total || 0,
-    Egresos:  egresosXMes[i]?.total  || 0,
-    Pagos:    pagosXMes?.[i]?.total  || 0,
-    Balance:  (ingresosXMes[i]?.total || 0) - (egresosXMes[i]?.total || 0) - (pagosXMes?.[i]?.total || 0),
+    'Ingresos': ingresosXMes[i]?.total || 0,
+    'Egresos':  egresosXMes[i]?.total  || 0,
+    'Pagos':    pagosXMes?.[i]?.total  || 0,
+    'Balance':  (ingresosXMes[i]?.total || 0) - (egresosXMes[i]?.total || 0) - (pagosXMes?.[i]?.total || 0),
   }))
 
   const years = Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i)
@@ -79,28 +84,95 @@ export default function AdminDashboard() {
     <div className="space-y-6">
       {/* Year selector */}
       <div className="flex items-center justify-between">
-        <p className="text-sm text-gray-500">Datos del año fiscal</p>
+        <p className="text-sm text-gray-500">Dashboard financiero — año fiscal</p>
         <select value={year} onChange={e => setYear(Number(e.target.value))} className="input w-32">
           {years.map(y => <option key={y}>{y}</option>)}
         </select>
       </div>
 
-      {/* KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-4">
-        <KpiCard icon={TrendingUp}   label="Total Ingresos"     value={fmt.usd(kpis.totalIngresos)}        color="green"  />
-        <KpiCard icon={TrendingDown} label="Total Egresos"      value={fmt.usd(kpis.totalEgresos)}         color="red"    />
-        <KpiCard icon={CreditCard}   label="Pagos Ejecutados"   value={fmt.usd(kpis.totalPagosEjecutados)} color="amber"  sub="Pagos completados" />
-        <KpiCard icon={DollarSign}   label="Balance Neto"       value={fmt.usd(kpis.balance)}              color={kpis.balance >= 0 ? 'brand' : 'red'} />
-        <KpiCard icon={FileText}     label="Contratos Activos"  value={kpis.contratosActivos}              color="blue"   />
-        <KpiCard icon={Clock}        label="Egresos Pendientes" value={kpis.egresosPendientes}             color="amber"  sub="Esperan aprobación" />
-        <KpiCard icon={BarChart2}    label="Ing. Proyectado"    value={fmt.usd(kpis.totalProyectado)}      color="purple" sub="Eventos futuros" />
+      {/* ── FLUJO FINANCIERO PRINCIPAL ── */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* ENTRADAS */}
+        <div className="card border-l-4 border-emerald-500">
+          <div className="flex items-center gap-2 mb-2">
+            <ArrowUpCircle size={20} className="text-emerald-600" />
+            <span className="text-sm font-bold text-emerald-700 uppercase tracking-wide">Entradas</span>
+          </div>
+          <p className="text-3xl font-bold text-emerald-700">{fmt.usd(kpis.totalIngresos)}</p>
+          <p className="text-xs text-gray-500 mt-1">Pagos confirmados de clientes</p>
+          {kpis.egresosPendientes > 0 && (
+            <div className="mt-3 text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-1.5">
+              ⚠ {kpis.egresosPendientes} ingreso{kpis.egresosPendientes > 1 ? 's' : ''} por verificar
+            </div>
+          )}
+          <div className="mt-3 pt-3 border-t border-gray-100 space-y-1 text-xs text-gray-500">
+            <p>Cursos / Talleres / Eventos</p>
+            <p>Certificaciones / Suscripciones</p>
+            <p>Contratos corporativos</p>
+          </div>
+        </div>
+
+        {/* SALIDAS */}
+        <div className="card border-l-4 border-red-500">
+          <div className="flex items-center gap-2 mb-2">
+            <ArrowDownCircle size={20} className="text-red-600" />
+            <span className="text-sm font-bold text-red-700 uppercase tracking-wide">Salidas</span>
+          </div>
+          <p className="text-3xl font-bold text-red-700">{fmt.usd(salidasTotal)}</p>
+          <p className="text-xs text-gray-500 mt-1">Egresos aprobados + pagos ejecutados</p>
+          <div className="mt-3 pt-3 border-t border-gray-100 space-y-1.5 text-xs">
+            <div className="flex justify-between text-gray-600">
+              <span>Egresos (gastos internos)</span>
+              <span className="font-medium text-red-600">{fmt.usd(kpis.totalEgresos)}</span>
+            </div>
+            <div className="flex justify-between text-gray-600">
+              <span>Pagos a proveedores</span>
+              <span className="font-medium text-red-600">{fmt.usd(kpis.totalPagosEjecutados || 0)}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* BALANCE */}
+        <div className={`card border-l-4 ${balanceReal >= 0 ? 'border-brand-500' : 'border-red-500'}`}>
+          <div className="flex items-center gap-2 mb-2">
+            <Scale size={20} className={balanceReal >= 0 ? 'text-brand-600' : 'text-red-600'} />
+            <span className={`text-sm font-bold uppercase tracking-wide ${balanceReal >= 0 ? 'text-brand-700' : 'text-red-700'}`}>
+              Balance Neto
+            </span>
+          </div>
+          <p className={`text-3xl font-bold ${balanceReal >= 0 ? 'text-brand-700' : 'text-red-700'}`}>
+            {fmt.usd(balanceReal)}
+          </p>
+          <p className="text-xs text-gray-500 mt-1">Entradas − Salidas</p>
+          <div className="mt-3 pt-3 border-t border-gray-100">
+            <div className="flex items-center gap-1.5">
+              <span className={`w-2 h-2 rounded-full ${balanceReal >= 0 ? 'bg-emerald-500' : 'bg-red-500'}`} />
+              <span className="text-xs text-gray-600">
+                {balanceReal >= 0
+                  ? `Margen: ${kpis.totalIngresos > 0 ? ((balanceReal / kpis.totalIngresos) * 100).toFixed(1) : 0}% sobre ingresos`
+                  : 'Déficit — egresos superan ingresos'}
+              </span>
+            </div>
+            <div className="mt-2">
+              <p className="text-xs text-gray-400">Ing. proyectado adicional</p>
+              <p className="text-sm font-semibold text-purple-700">{fmt.usd(kpis.totalProyectado)}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* KPIs secundarios */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <KpiCard icon={FileText}   label="Contratos Activos"  value={kpis.contratosActivos}          color="blue"   />
+        <KpiCard icon={Clock}      label="Egresos Pendientes" value={kpis.egresosPendientes}         color="amber"  sub="Esperan aprobación" />
+        <KpiCard icon={CreditCard} label="Pagos Ejecutados"   value={fmt.usd(kpis.totalPagosEjecutados || 0)} color="red" sub="A proveedores" />
+        <KpiCard icon={BarChart2}  label="Ing. Proyectado"    value={fmt.usd(kpis.totalProyectado)}  color="purple" sub="Eventos futuros" />
       </div>
 
       {/* Charts row 1 */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-        {/* Monthly bar chart */}
         <div className="card xl:col-span-2">
-          <h3 className="font-semibold text-gray-900 mb-4 text-sm">Ingresos vs Egresos por Mes</h3>
+          <h3 className="font-semibold text-gray-900 mb-4 text-sm">Entradas vs Salidas por Mes</h3>
           <ResponsiveContainer width="100%" height={250}>
             <BarChart data={monthlyChartData} margin={{ left: -10 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
@@ -108,28 +180,25 @@ export default function AdminDashboard() {
               <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `$${(v/1000).toFixed(0)}k`} />
               <Tooltip {...TOOLTIP_STYLE} formatter={v => fmt.usd(v)} />
               <Legend wrapperStyle={{ fontSize: 12 }} />
-              <Bar dataKey="Ingresos" fill="#059669" radius={[4,4,0,0]} />
-              <Bar dataKey="Egresos"  fill="#dc2626" radius={[4,4,0,0]} />
-              <Bar dataKey="Pagos"    fill="#d97706" radius={[4,4,0,0]} />
+              <Bar dataKey="Ingresos" fill="#059669" radius={[4,4,0,0]} name="Ingresos (clientes)" />
+              <Bar dataKey="Egresos"  fill="#dc2626" radius={[4,4,0,0]} name="Egresos (gastos)" />
+              <Bar dataKey="Pagos"    fill="#d97706" radius={[4,4,0,0]} name="Pagos (proveedores)" />
             </BarChart>
           </ResponsiveContainer>
         </div>
 
-        {/* Pie chart - egresos por categoría */}
         <div className="card">
-          <h3 className="font-semibold text-gray-900 mb-4 text-sm">Egresos por Categoría</h3>
+          <h3 className="font-semibold text-gray-900 mb-4 text-sm">Distribución de Salidas</h3>
           {categorias.length === 0 ? (
             <p className="text-sm text-gray-400 text-center py-8">Sin datos</p>
           ) : (
             <ResponsiveContainer width="100%" height={250}>
               <PieChart>
                 <Pie data={categorias} dataKey="total" nameKey="nombre"
-                  cx="50%" cy="50%" outerRadius={90} label={({ nombre, percent }) =>
-                    `${nombre} ${(percent*100).toFixed(0)}%`
-                  } labelLine={false}>
-                  {categorias.map((_, i) => (
-                    <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
-                  ))}
+                  cx="50%" cy="50%" outerRadius={85}
+                  label={({ nombre, percent }) => `${nombre.slice(0,10)} ${(percent*100).toFixed(0)}%`}
+                  labelLine={false}>
+                  {categorias.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
                 </Pie>
                 <Tooltip formatter={v => fmt.usd(v)} {...TOOLTIP_STYLE} />
               </PieChart>
@@ -153,7 +222,6 @@ export default function AdminDashboard() {
           </ResponsiveContainer>
         </div>
 
-        {/* Proyecciones */}
         <div className="card">
           <h3 className="font-semibold text-gray-900 mb-3 text-sm">Próximas Proyecciones</h3>
           {proyeccionesFuturas.length === 0 ? (
@@ -177,18 +245,20 @@ export default function AdminDashboard() {
       {/* Recent activity */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
         <div className="card">
-          <h3 className="font-semibold text-gray-900 mb-3 text-sm">Últimos Ingresos</h3>
+          <h3 className="font-semibold text-gray-900 mb-3 text-sm flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" /> Últimos Ingresos
+          </h3>
           {recentIngresos.length === 0 ? (
             <p className="text-sm text-gray-400 text-center py-4">Sin ingresos recientes</p>
           ) : (
             <div className="space-y-2">
               {recentIngresos.map(i => (
                 <div key={i.ID} className="flex items-center justify-between py-1.5 border-b border-gray-50 last:border-0">
-                  <div>
-                    <p className="text-sm text-gray-900">{i.Concepto}</p>
-                    <p className="text-xs text-gray-400">{i.Tipo} · {fmt.date(i.Fecha)}</p>
+                  <div className="min-w-0">
+                    <p className="text-sm text-gray-900 truncate">{i.Concepto}</p>
+                    <p className="text-xs text-gray-400">{i.CreadoPor} · {fmt.date(i.Fecha)}</p>
                   </div>
-                  <span className="text-sm font-bold text-emerald-600">{fmt.usd(i.Monto)}</span>
+                  <span className="text-sm font-bold text-emerald-600 ml-2 flex-shrink-0">{fmt.usd(i.Monto)}</span>
                 </div>
               ))}
             </div>
@@ -196,22 +266,22 @@ export default function AdminDashboard() {
         </div>
 
         <div className="card">
-          <h3 className="font-semibold text-gray-900 mb-3 text-sm">Últimos Egresos</h3>
+          <h3 className="font-semibold text-gray-900 mb-3 text-sm flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-red-500" /> Últimos Egresos
+          </h3>
           {recentEgresos.length === 0 ? (
             <p className="text-sm text-gray-400 text-center py-4">Sin egresos recientes</p>
           ) : (
             <div className="space-y-2">
               {recentEgresos.map(e => (
                 <div key={e.ID} className="flex items-center justify-between py-1.5 border-b border-gray-50 last:border-0">
-                  <div>
-                    <p className="text-sm text-gray-900">{e.Concepto}</p>
+                  <div className="min-w-0">
+                    <p className="text-sm text-gray-900 truncate">{e.Concepto}</p>
                     <p className="text-xs text-gray-400">{e.Categoria} · {fmt.date(e.Fecha)}</p>
                   </div>
-                  <div className="text-right">
+                  <div className="ml-2 text-right flex-shrink-0">
                     <p className="text-sm font-bold text-red-600">{fmt.usd(e.Monto)}</p>
-                    <span className={`text-xs ${e.Estado === 'aprobado' ? 'badge-green' : e.Estado === 'pendiente' ? 'badge-yellow' : 'badge-red'}`}>
-                      {e.Estado}
-                    </span>
+                    <span className={`text-xs ${e.Estado === 'aprobado' ? 'badge-green' : e.Estado === 'pendiente' ? 'badge-yellow' : 'badge-red'}`}>{e.Estado}</span>
                   </div>
                 </div>
               ))}
@@ -220,18 +290,20 @@ export default function AdminDashboard() {
         </div>
 
         <div className="card">
-          <h3 className="font-semibold text-gray-900 mb-3 text-sm">Últimos Pagos</h3>
+          <h3 className="font-semibold text-gray-900 mb-3 text-sm flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> Últimos Pagos a Proveedores
+          </h3>
           {!recentPagos || recentPagos.length === 0 ? (
             <p className="text-sm text-gray-400 text-center py-4">Sin pagos recientes</p>
           ) : (
             <div className="space-y-2">
               {recentPagos.map(p => (
                 <div key={p.ID} className="flex items-center justify-between py-1.5 border-b border-gray-50 last:border-0">
-                  <div>
-                    <p className="text-sm text-gray-900">{p.Concepto}</p>
-                    <p className="text-xs text-gray-400">{p.Tipo} · {fmt.date(p.Fecha)}</p>
+                  <div className="min-w-0">
+                    <p className="text-sm text-gray-900 truncate">{p.Concepto}</p>
+                    <p className="text-xs text-gray-400">{p.Beneficiario} · {fmt.date(p.Fecha)}</p>
                   </div>
-                  <span className="text-sm font-bold text-amber-600">{fmt.usd(p.Monto)}</span>
+                  <span className="text-sm font-bold text-amber-600 ml-2 flex-shrink-0">{fmt.usd(p.Monto)}</span>
                 </div>
               ))}
             </div>

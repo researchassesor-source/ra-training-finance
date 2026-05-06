@@ -227,8 +227,9 @@ export default function IngresosList({ soloMios = false }) {
                             <Pencil size={14} />
                           </button>
                         )}
-                        {isAdmin && (
+                        {(isAdmin || (i.CreadoPor === user?.username && (i.Estado === 'pendiente' || i.Estado === 'pendiente_verificacion'))) && (
                           <button onClick={() => setConfirm(i)}
+                            title="Eliminar"
                             className="p-1.5 hover:bg-red-50 rounded text-gray-400 hover:text-red-600 transition-colors">
                             <Trash2 size={14} />
                           </button>

@@ -46,11 +46,11 @@ function processRequest(data) {
     getIngresos:      () => getIngresos(user, params),
     addIngreso:       () => addIngreso(user, params),
     updateIngreso:    () => updateIngreso(user, params),
-    deleteIngreso:    () => deleteRecord(user, 'Ingresos', params, true),
+    deleteIngreso:    () => deleteIfOwner(user, 'Ingresos', params.id, 'Estado'),
     getEgresos:       () => getEgresos(user, params),
     addEgreso:        () => addEgreso(user, params),
     updateEgreso:     () => updateEgreso(user, params),
-    deleteEgreso:     () => deleteRecord(user, 'Egresos', params, true),
+    deleteEgreso:     () => deleteIfOwner(user, 'Egresos', params.id, 'Estado'),
     getPagos:         () => getPagos(user, params),
     addPago:          () => addPago(user, params),
     updatePago:       () => updatePago(user, params),
@@ -80,6 +80,7 @@ function processRequest(data) {
     updateConvenio:     () => updateConvenio(user, params),
     deleteConvenio:     () => deleteRecord(user, 'Convenios', params, true),
     getCalendario:      () => getCalendario(user, params),
+    deleteInscripcion:  () => deleteInscripcion(user, params),
   };
 
   if (!handlers[action]) return { success: false, error: 'Acción no reconocida: ' + action };
@@ -772,7 +773,7 @@ function updateInscripcion(user, { id, inscripcion }) {
 }
 
 // ─────────────────────────────────────────────
-// GENERIC DELETE (solo admin)
+// GENERIC DELETE
 // ─────────────────────────────────────────────
 
 function deleteRecord(user, sheetName, { id }, adminOnly = true) {
@@ -783,6 +784,28 @@ function deleteRecord(user, sheetName, { id }, adminOnly = true) {
   if (!row) return { success: false, error: 'Registro no encontrado.' };
   sheet.deleteRow(row._row);
   return { success: true };
+}
+
+// Permite eliminar si el usuario es admin O si es el propietario del registro (solo en estado pendiente)
+function deleteIfOwner(user, sheetName, id, estadoField) {
+  const sheet = getSheet(sheetName);
+  const data  = sheetToObjects(sheet);
+  const row   = data.find(function(r) { return r.ID === id; });
+  if (!row) return { success: false, error: 'Registro no encontrado.' };
+  if (!isAdmin(user)) {
+    if (row.CreadoPor !== user.Username) return { success: false, error: 'No autorizado.' };
+    var estado = row[estadoField] || '';
+    if (estado && estado !== 'pendiente' && estado !== 'pendiente_verificacion') {
+      return { success: false, error: 'Solo puede eliminar registros en estado pendiente.' };
+    }
+  }
+  sheet.deleteRow(row._row);
+  return { success: true };
+}
+
+function deleteInscripcion(user, { id }) {
+  if (!isVendedor(user)) throw new Error('Acceso denegado.');
+  return deleteIfOwner(user, 'Inscripciones', id, 'EstadoPago');
 }
 
 // ─────────────────────────────────────────────

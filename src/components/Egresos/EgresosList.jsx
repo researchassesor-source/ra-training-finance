@@ -11,7 +11,7 @@ import { Plus, Pencil, Trash2, CheckCircle, XCircle, Download, CreditCard } from
 import PagosForm from '../Pagos/PagosForm'
 
 export default function EgresosList({ soloMios = false }) {
-  const { isAdmin } = useAuth()
+  const { isAdmin, user } = useAuth()
   const [data, setData]         = useState([])
   const [cats, setCats]         = useState([])
   const [loading, setLoading]   = useState(true)
@@ -171,8 +171,9 @@ export default function EgresosList({ soloMios = false }) {
                             <CreditCard size={14} />
                           </button>
                         )}
-                        {isAdmin && (
+                        {(isAdmin || (e.CreadoPor === user?.username && e.Estado === 'pendiente')) && (
                           <button onClick={() => setConfirm(e)}
+                            title="Eliminar"
                             className="p-1.5 hover:bg-red-50 rounded text-gray-400 hover:text-red-600 transition-colors">
                             <Trash2 size={14} />
                           </button>

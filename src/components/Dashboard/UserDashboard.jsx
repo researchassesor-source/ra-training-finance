@@ -1,40 +1,199 @@
+import { useEffect, useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
-import { TrendingDown, FileText, Plus } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
+import { api } from '../../services/api'
+import { fmt, ESTADOS_INGRESO, ESTADOS_EGRESO } from '../../utils/formatters'
+import {
+  TrendingUp, TrendingDown, GraduationCap, Plus,
+  Clock, CheckCircle, AlertCircle, FileText,
+} from 'lucide-react'
+
+function StatCard({ icon: Icon, label, value, sub, color = 'brand' }) {
+  const colors = {
+    brand:   'bg-brand-50 text-brand-700',
+    green:   'bg-emerald-50 text-emerald-700',
+    red:     'bg-red-50 text-red-700',
+    amber:   'bg-amber-50 text-amber-700',
+    blue:    'bg-blue-50 text-blue-700',
+  }
+  return (
+    <div className="card flex items-center gap-4">
+      <div className={`w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 ${colors[color]}`}>
+        <Icon size={22} />
+      </div>
+      <div className="min-w-0">
+        <p className="text-xs text-gray-500 font-medium">{label}</p>
+        <p className="text-xl font-bold text-gray-900 truncate">{value}</p>
+        {sub && <p className="text-xs text-gray-400">{sub}</p>}
+      </div>
+    </div>
+  )
+}
 
 export default function UserDashboard() {
   const { user } = useAuth()
   const navigate = useNavigate()
+  const [ingresos, setIngresos]     = useState([])
+  const [egresos, setEgresos]       = useState([])
+  const [inscripciones, setInscrip] = useState([])
+  const [loading, setLoading]       = useState(true)
+
+  useEffect(() => {
+    setLoading(true)
+    Promise.all([
+      api.getIngresos({}),
+      api.getEgresos({}),
+      api.getInscripciones({}),
+    ])
+      .then(([i, e, ins]) => {
+        setIngresos(i.data || [])
+        setEgresos(e.data || [])
+        setInscrip(ins.data || [])
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [])
+
+  const sum = (arr, f) => arr.reduce((s, r) => s + (Number(r[f]) || 0), 0)
+
+  const ingConfirmados = ingresos.filter(i => i.Estado === 'confirmado')
+  const ingPendientes  = ingresos.filter(i => i.Estado === 'pendiente' || i.Estado === 'pendiente_verificacion')
+  const egrPendientes  = egresos.filter(e => e.Estado === 'pendiente')
+  const egrAprobados   = egresos.filter(e => e.Estado === 'aprobado')
+
+  const recentIngresos = [...ingresos]
+    .sort((a, b) => new Date(b.FechaCreacion) - new Date(a.FechaCreacion))
+    .slice(0, 5)
+  const recentEgresos = [...egresos]
+    .sort((a, b) => new Date(b.FechaCreacion) - new Date(a.FechaCreacion))
+    .slice(0, 5)
 
   return (
-    <div className="max-w-xl mx-auto space-y-6 pt-4">
-      <div className="card text-center">
-        <div className="w-14 h-14 bg-brand-100 rounded-2xl flex items-center justify-center mx-auto mb-3">
-          <TrendingDown size={28} className="text-brand-700" />
+    <div className="space-y-6">
+      {/* Welcome */}
+      <div className="card bg-gradient-to-r from-brand-600 to-brand-800 text-white">
+        <h2 className="text-lg font-bold">Bienvenido, {user?.nombre} 👋</h2>
+        <p className="text-brand-200 text-sm mt-1">Resumen de tu actividad registrada</p>
+      </div>
+
+      {loading ? (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {Array.from({length: 4}).map((_,i) => (
+            <div key={i} className="card animate-pulse h-20 bg-gray-50" />
+          ))}
         </div>
-        <h2 className="text-xl font-bold text-gray-900">Bienvenido, {user?.nombre}</h2>
-        <p className="text-gray-500 text-sm mt-1">Desde aquí puedes reportar gastos y revisar tus reportes anteriores.</p>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <button onClick={() => navigate('/mis-egresos')}
-          className="card hover:shadow-md transition-shadow text-left group">
-          <div className="w-10 h-10 bg-red-100 rounded-xl flex items-center justify-center mb-3 group-hover:bg-red-200 transition-colors">
-            <Plus size={20} className="text-red-600" />
+      ) : (
+        <>
+          {/* Stats */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <StatCard icon={TrendingUp}    label="Ingresos confirmados" value={fmt.usd(sum(ingConfirmados,'Monto'))} color="green" sub={`${ingConfirmados.length} registros`} />
+            <StatCard icon={Clock}         label="Por verificar"        value={ingPendientes.length}  color="amber" sub="Ingresos pendientes" />
+            <StatCard icon={TrendingDown}  label="Gastos reportados"    value={fmt.usd(sum(egresos,'Monto'))} color="red" sub={`${egresos.length} registros`} />
+            <StatCard icon={GraduationCap} label="Inscripciones"        value={inscripciones.length}  color="blue" sub="registradas" />
           </div>
-          <p className="font-semibold text-gray-900">Reportar Gasto</p>
-          <p className="text-xs text-gray-500 mt-1">Registra un nuevo egreso para aprobación</p>
-        </button>
 
-        <button onClick={() => navigate('/mis-reportes')}
-          className="card hover:shadow-md transition-shadow text-left group">
-          <div className="w-10 h-10 bg-brand-100 rounded-xl flex items-center justify-center mb-3 group-hover:bg-brand-200 transition-colors">
-            <FileText size={20} className="text-brand-600" />
+          {/* Alerts */}
+          {ingPendientes.length > 0 && (
+            <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl p-4">
+              <AlertCircle size={18} className="text-amber-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-semibold text-amber-800">
+                  {ingPendientes.length} ingreso{ingPendientes.length > 1 ? 's' : ''} pendiente{ingPendientes.length > 1 ? 's' : ''} de verificación
+                </p>
+                <p className="text-xs text-amber-600 mt-0.5">El administrador debe confirmar la transacción.</p>
+              </div>
+              <button onClick={() => navigate('/mis-ingresos')} className="ml-auto text-xs font-medium text-amber-700 hover:text-amber-900 whitespace-nowrap">Ver →</button>
+            </div>
+          )}
+          {egrPendientes.length > 0 && (
+            <div className="flex items-start gap-3 bg-blue-50 border border-blue-200 rounded-xl p-4">
+              <Clock size={18} className="text-blue-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-semibold text-blue-800">
+                  {egrPendientes.length} gasto{egrPendientes.length > 1 ? 's' : ''} esperando aprobación
+                </p>
+                <p className="text-xs text-blue-600 mt-0.5">Monto: {fmt.usd(sum(egrPendientes,'Monto'))}</p>
+              </div>
+              <button onClick={() => navigate('/mis-egresos')} className="ml-auto text-xs font-medium text-blue-700 hover:text-blue-900 whitespace-nowrap">Ver →</button>
+            </div>
+          )}
+
+          {/* Recent activity */}
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            <div className="card">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-semibold text-gray-900 text-sm">Últimos Ingresos</h3>
+                <button onClick={() => navigate('/mis-ingresos')} className="text-xs text-brand-600 hover:text-brand-800">Ver todos →</button>
+              </div>
+              {recentIngresos.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-4">Sin ingresos registrados</p>
+              ) : (
+                <div className="space-y-2">
+                  {recentIngresos.map(i => (
+                    <div key={i.ID} className="flex items-center justify-between py-1.5 border-b border-gray-50 last:border-0">
+                      <div className="min-w-0">
+                        <p className="text-sm text-gray-900 truncate">{i.Concepto}</p>
+                        <p className="text-xs text-gray-400">{i.Tipo} · {fmt.date(i.Fecha)}</p>
+                      </div>
+                      <div className="ml-2 text-right flex-shrink-0">
+                        <p className="text-sm font-bold text-emerald-600">{fmt.usd(i.Monto)}</p>
+                        <span className={`text-[10px] ${ESTADOS_INGRESO[i.Estado]?.css || 'badge-gray'}`}>
+                          {ESTADOS_INGRESO[i.Estado]?.label || i.Estado}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="card">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-semibold text-gray-900 text-sm">Últimos Gastos</h3>
+                <button onClick={() => navigate('/mis-egresos')} className="text-xs text-brand-600 hover:text-brand-800">Ver todos →</button>
+              </div>
+              {recentEgresos.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-4">Sin gastos registrados</p>
+              ) : (
+                <div className="space-y-2">
+                  {recentEgresos.map(e => (
+                    <div key={e.ID} className="flex items-center justify-between py-1.5 border-b border-gray-50 last:border-0">
+                      <div className="min-w-0">
+                        <p className="text-sm text-gray-900 truncate">{e.Concepto}</p>
+                        <p className="text-xs text-gray-400">{e.Categoria} · {fmt.date(e.Fecha)}</p>
+                      </div>
+                      <div className="ml-2 text-right flex-shrink-0">
+                        <p className="text-sm font-bold text-red-600">{fmt.usd(e.Monto)}</p>
+                        <span className={`text-[10px] ${ESTADOS_EGRESO[e.Estado]?.css || 'badge-gray'}`}>
+                          {ESTADOS_EGRESO[e.Estado]?.label || e.Estado}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
-          <p className="font-semibold text-gray-900">Mis Reportes</p>
-          <p className="text-xs text-gray-500 mt-1">Revisa el estado de tus gastos reportados</p>
-        </button>
-      </div>
+
+          {/* Quick actions */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {[
+              { label: 'Reportar Ingreso', sub: 'Registrar pago de cliente', icon: TrendingUp,    path: '/mis-ingresos', color: 'text-emerald-600', bg: 'bg-emerald-50 group-hover:bg-emerald-100' },
+              { label: 'Reportar Gasto',   sub: 'Enviar gasto a aprobación', icon: TrendingDown,  path: '/mis-egresos',  color: 'text-red-600',     bg: 'bg-red-50 group-hover:bg-red-100'         },
+              { label: 'Inscripciones',    sub: 'Registrar participantes',   icon: GraduationCap, path: '/inscripciones',color: 'text-brand-600',   bg: 'bg-brand-50 group-hover:bg-brand-100'     },
+            ].map(a => (
+              <button key={a.path} onClick={() => navigate(a.path)}
+                className="card hover:shadow-md transition-all text-left group">
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center mb-3 transition-colors ${a.bg}`}>
+                  <a.icon size={20} className={a.color} />
+                </div>
+                <p className="font-semibold text-gray-900 text-sm">{a.label}</p>
+                <p className="text-xs text-gray-500 mt-0.5">{a.sub}</p>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   )
 }
