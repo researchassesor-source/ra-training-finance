@@ -164,11 +164,11 @@ export const api = {
     return call('addInscripcion', { inscripcion }, getToken())
   },
   updateInscripcion: (id, inscripcion) => {
-    bust('getInscripciones', 'getDashboard')
+    bust('getInscripciones', 'getIngresos', 'getDashboard')
     return call('updateInscripcion', { id, inscripcion }, getToken())
   },
   deleteInscripcion: (id) => {
-    bust('getInscripciones', 'getDashboard')
+    bust('getInscripciones', 'getIngresos', 'getDashboard')
     return call('deleteInscripcion', { id }, getToken())
   },
 
