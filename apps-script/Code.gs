@@ -148,7 +148,10 @@ function sheetToObjects(sheet) {
   return data.slice(1)
     .map((row, i) => {
       const obj = { _row: i + 2 };
-      headers.forEach((h, j) => { obj[h] = row[j]; });
+      headers.forEach((h, j) => {
+        // Google Sheets returns Date objects for date-formatted cells; convert to ISO string
+        obj[h] = row[j] instanceof Date ? row[j].toISOString() : row[j];
+      });
       return obj;
     })
     .filter(obj => obj[headers[0]] !== '' && obj[headers[0]] !== null && obj[headers[0]] !== undefined);
@@ -259,65 +262,76 @@ function getDashboard(user, { year } = {}) {
   const contratos    = sheetToObjects(getSheet('Contratos'));
   const proyecciones = sheetToObjects(getSheet('Proyecciones'));
 
-  const ingAño = ingresos.filter(i => {
-    const d = new Date(i.Fecha);
-    return d.getFullYear() === filterYear && i.Estado !== 'cancelado';
+  // Solo ingresos CONFIRMADOS cuentan como dinero real recibido
+  const ingAño = ingresos.filter(function(i) {
+    var d = new Date(i.Fecha);
+    return d.getFullYear() === filterYear && i.Estado === 'confirmado';
   });
-  const egrAño = egresos.filter(e => new Date(e.Fecha).getFullYear() === filterYear);
-  const pagAño = pagos.filter(p => {
-    const d = new Date(p.Fecha);
+  // Egresos del año (referencia — pendientes/aprobados no son salidas aún)
+  const egrAño = egresos.filter(function(e) {
+    return new Date(e.Fecha).getFullYear() === filterYear;
+  });
+  // Solo pagos COMPLETADOS = dinero realmente salido de la empresa
+  const pagAño = pagos.filter(function(p) {
+    var d = new Date(p.Fecha);
     return d.getFullYear() === filterYear && p.Estado === 'completado';
   });
-  // Pagos not linked to an Egreso are standalone expenses (avoid double-counting)
-  const pagStandalone = pagAño.filter(p => !p.EgresoID);
 
-  const sum = (arr, field) => arr.reduce((s, r) => s + (Number(r[field]) || 0), 0);
+  const sum = function(arr, field) {
+    return arr.reduce(function(s, r) { return s + (Number(r[field]) || 0); }, 0);
+  };
 
-  const months = Array.from({ length: 12 }, (_, i) => i);
-  const ingresosXMes = months.map(m => ({
+  const months = Array.from({ length: 12 }, function(_, i) { return i; });
+  const ingresosXMes = months.map(function(m) { return {
     mes: m + 1,
-    total: sum(ingAño.filter(i => new Date(i.Fecha).getMonth() === m), 'Monto'),
-  }));
-  const egresosXMes = months.map(m => ({
+    total: sum(ingAño.filter(function(i) { return new Date(i.Fecha).getMonth() === m; }), 'Monto'),
+  }; });
+  const pagosXMes = months.map(function(m) { return {
     mes: m + 1,
-    total: sum(egrAño.filter(e => new Date(e.Fecha).getMonth() === m), 'Monto'),
-  }));
-  const pagosXMes = months.map(m => ({
-    mes: m + 1,
-    total: sum(pagStandalone.filter(p => new Date(p.Fecha).getMonth() === m), 'Monto'),
-  }));
+    total: sum(pagAño.filter(function(p) { return new Date(p.Fecha).getMonth() === m; }), 'Monto'),
+  }; });
 
   const totalIngresos        = sum(ingAño, 'Monto');
-  const totalEgresos         = sum(egrAño, 'Monto');
   const totalPagosEjecutados = sum(pagAño, 'Monto');
-  const totalPagosStandalone = sum(pagStandalone, 'Monto');
+  // Balance real = ingresos confirmados − pagos realmente ejecutados
+  const balance = totalIngresos - totalPagosEjecutados;
 
+  // Distribución de salidas reales (desde pagos ejecutados, enlazados a categoría de egreso si aplica)
   const catMap = {};
-  egrAño.forEach(e => { catMap[e.Categoria] = (catMap[e.Categoria] || 0) + (Number(e.Monto) || 0); });
-  if (totalPagosStandalone > 0) catMap['Pagos Directos'] = (catMap['Pagos Directos'] || 0) + totalPagosStandalone;
+  pagAño.forEach(function(p) {
+    var egreso = egrAño.find(function(e) { return e.ID === p.EgresoID; });
+    var cat = egreso ? (egreso.Categoria || 'Proveedor') : (p.Tipo || 'Pago Directo');
+    catMap[cat] = (catMap[cat] || 0) + (Number(p.Monto) || 0);
+  });
 
-  const proyFuturas = proyecciones.filter(p => p.Estado === 'proyectado');
+  const proyFuturas = proyecciones.filter(function(p) { return p.Estado === 'proyectado'; });
 
   return {
     success: true,
     data: {
       kpis: {
-        totalIngresos,
-        totalEgresos,
-        totalPagosEjecutados,
-        balance: totalIngresos - totalEgresos - totalPagosStandalone,
-        contratosActivos: contratos.filter(c => c.Estado === 'activo').length,
-        egresosPendientes: egresos.filter(e => e.Estado === 'pendiente').length,
-        totalProyectado: sum(proyFuturas, 'MontoProyectado'),
+        totalIngresos,           // Solo confirmados
+        totalPagosEjecutados,    // Dinero real salido
+        balance,                 // Balance real
+        contratosActivos:  contratos.filter(function(c) { return c.Estado === 'activo'; }).length,
+        egresosPendientes: egresos.filter(function(e) { return e.Estado === 'pendiente'; }).length,
+        egresosAprobados:  egresos.filter(function(e) { return e.Estado === 'aprobado'; }).length,
+        ingPendientes:     ingresos.filter(function(i) {
+          return i.Estado === 'pendiente' || i.Estado === 'pendiente_verificacion';
+        }).length,
+        totalProyectado:   sum(proyFuturas, 'MontoProyectado'),
       },
       ingresosXMes,
-      egresosXMes,
       pagosXMes,
-      categorias: Object.entries(catMap).map(([nombre, total]) => ({ nombre, total })),
-      recentIngresos: ingAño.sort((a,b) => new Date(b.FechaCreacion) - new Date(a.FechaCreacion)).slice(0, 5),
-      recentEgresos: egrAño.sort((a,b) => new Date(b.FechaCreacion) - new Date(a.FechaCreacion)).slice(0, 5),
-      recentPagos: pagAño.sort((a,b) => new Date(b.FechaCreacion) - new Date(a.FechaCreacion)).slice(0, 5),
-      proyeccionesFuturas: proyFuturas.sort((a,b) => new Date(a.FechaEstimada) - new Date(b.FechaEstimada)).slice(0, 5),
+      categorias: Object.entries(catMap).map(function(entry) { return { nombre: entry[0], total: entry[1] }; }),
+      recentIngresos: ingAño.sort(function(a,b) { return new Date(b.FechaCreacion) - new Date(a.FechaCreacion); }).slice(0, 5),
+      // recentEgresos: solo los que aún no se han pagado (pendiente / aprobado)
+      recentEgresos: egrAño
+        .filter(function(e) { return e.Estado !== 'pagado'; })
+        .sort(function(a,b) { return new Date(b.FechaCreacion) - new Date(a.FechaCreacion); })
+        .slice(0, 5),
+      recentPagos: pagAño.sort(function(a,b) { return new Date(b.FechaCreacion) - new Date(a.FechaCreacion); }).slice(0, 5),
+      proyeccionesFuturas: proyFuturas.sort(function(a,b) { return new Date(a.FechaEstimada) - new Date(b.FechaEstimada); }).slice(0, 5),
     },
   };
 }
@@ -585,12 +599,20 @@ function addUsuario(user, { usuario }) {
 function updateUsuario(user, { id, usuario }) {
   requireAdmin(user);
   const sheet = getSheet('Usuarios');
-  const row   = sheetToObjects(sheet).find(u => u.ID === id);
+  const rows  = sheetToObjects(sheet);
+  const row   = rows.find(function(u) { return u.ID === id; });
   if (!row) return { success: false, error: 'Usuario no encontrado.' };
   const fields = {
     Nombre: usuario.nombre, Email: usuario.email,
     Rol: usuario.rol, Activo: usuario.activo,
   };
+  // Permitir cambio de username con verificación de unicidad
+  if (usuario.username && usuario.username !== row.Username) {
+    if (rows.find(function(u) { return u.Username === usuario.username && u.ID !== id; })) {
+      return { success: false, error: 'El nombre de usuario ya está en uso.' };
+    }
+    fields.Username = usuario.username;
+  }
   if (usuario.password) fields.PasswordHash = hashPassword(usuario.password);
   updateRow(sheet, row, fields);
   return { success: true };
@@ -734,15 +756,30 @@ function addInscripcion(user, { inscripcion }) {
     estadoPago, 'pendiente', '', inscripcion.notas || '', user.Username, now,
   ]);
 
-  // Auto-crear ingreso vinculado
+  // Auto-crear ingreso vinculado — columnas deben coincidir exactamente con SHEET_HEADERS.Ingresos
   const ingresoId = generateId('ING');
   const estadoIngreso = isAdmin(user) ? 'confirmado' : 'pendiente_verificacion';
+  // Derivar Tipo de ingreso desde modalidad del servicio
+  var modLower = (inscripcion.modalidad || '').toLowerCase();
+  var tipoIngreso = modLower === 'virtual'     ? 'Curso virtual'
+                  : modLower === 'presencial'  ? 'Curso presencial'
+                  : modLower.indexOf('brid') > -1 ? 'Curso híbrido'
+                  : 'Otro';
   getSheet('Ingresos').appendRow([
-    ingresoId, now.slice(0,10), inscripcion.servicioNombre, inscripcion.modalidad || 'N/A',
-    'Inscripción: ' + inscripcion.clienteNombre + ' — ' + inscripcion.servicioNombre,
-    inscripcion.clienteNombre, '', id,
-    Number(inscripcion.monto) || 0, inscripcion.metodoPago || '',
-    estadoIngreso, '', user.Username, now,
+    ingresoId,                    // ID
+    now.slice(0, 10),             // Fecha (YYYY-MM-DD)
+    tipoIngreso,                  // Tipo (valor válido del dropdown)
+    inscripcion.modalidad || 'N/A', // Modalidad
+    'Inscripción: ' + inscripcion.clienteNombre + ' — ' + inscripcion.servicioNombre, // Concepto
+    inscripcion.clienteNombre,    // Cliente
+    '',                           // ContratoID
+    Number(inscripcion.monto) || 0,  // Monto
+    inscripcion.metodoPago || '', // MetodoPago
+    estadoIngreso,                // Estado
+    '',                           // Notas
+    user.Username,                // CreadoPor
+    now,                          // FechaCreacion
+    inscripcion.clienteTelefono || '', // ClienteTelefono
   ]);
 
   // Actualizar IngresoID en la inscripción
@@ -769,6 +806,29 @@ function updateInscripcion(user, { id, inscripcion }) {
     EstadoPago: inscripcion.estadoPago, EstadoCertificado: inscripcion.estadoCertificado,
     Notas: inscripcion.notas,
   });
+
+  // Sincronizar ingreso vinculado cuando cambia el estado de pago o el monto
+  var ingresoId = row.IngresoID;
+  var nuevoPago = inscripcion.estadoPago;
+  if (ingresoId && nuevoPago && nuevoPago !== row.EstadoPago) {
+    var estadoIngresoMap = {
+      'pagado':    'confirmado',
+      'verificado':'confirmado',
+      'pendiente': 'pendiente_verificacion',
+      'cancelado': 'cancelado',
+    };
+    var nuevoEstadoIngreso = estadoIngresoMap[nuevoPago] || 'pendiente_verificacion';
+    var ingSheet = getSheet('Ingresos');
+    var ingRow   = sheetToObjects(ingSheet).find(function(r) { return r.ID === ingresoId; });
+    if (ingRow) {
+      updateRow(ingSheet, ingRow, {
+        Estado: nuevoEstadoIngreso,
+        Monto:  Number(inscripcion.monto) || ingRow.Monto,
+        MetodoPago: inscripcion.metodoPago || ingRow.MetodoPago,
+      });
+    }
+  }
+
   return { success: true };
 }
 

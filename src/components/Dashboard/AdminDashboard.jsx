@@ -63,19 +63,17 @@ export default function AdminDashboard() {
   )
   if (!data)   return null
 
-  const { kpis, ingresosXMes, egresosXMes, pagosXMes, categorias, recentIngresos, recentEgresos, recentPagos, proyeccionesFuturas } = data
+  const { kpis, ingresosXMes, pagosXMes, categorias, recentIngresos, recentEgresos, recentPagos, proyeccionesFuturas } = data
 
-  // Para el dashboard contamos solo ingresos confirmados en el balance visual
-  const ingConfirmadosTotal = ingresosXMes.reduce((s, m) => s + m.total, 0)
-  const salidasTotal = kpis.totalEgresos + (kpis.totalPagosEjecutados || 0)
+  // Salidas = solo pagos completados (dinero real salido)
+  const salidasTotal = kpis.totalPagosEjecutados || 0
   const balanceReal  = kpis.balance
 
   const monthlyChartData = MESES.map((mes, i) => ({
     mes,
-    'Ingresos': ingresosXMes[i]?.total || 0,
-    'Egresos':  egresosXMes[i]?.total  || 0,
-    'Pagos':    pagosXMes?.[i]?.total  || 0,
-    'Balance':  (ingresosXMes[i]?.total || 0) - (egresosXMes[i]?.total || 0) - (pagosXMes?.[i]?.total || 0),
+    'Ingresos confirmados': ingresosXMes[i]?.total || 0,
+    'Pagos ejecutados':     pagosXMes?.[i]?.total  || 0,
+    'Balance':  (ingresosXMes[i]?.total || 0) - (pagosXMes?.[i]?.total || 0),
   }))
 
   const years = Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i)
@@ -100,9 +98,9 @@ export default function AdminDashboard() {
           </div>
           <p className="text-3xl font-bold text-emerald-700">{fmt.usd(kpis.totalIngresos)}</p>
           <p className="text-xs text-gray-500 mt-1">Pagos confirmados de clientes</p>
-          {kpis.egresosPendientes > 0 && (
+          {(kpis.ingPendientes || 0) > 0 && (
             <div className="mt-3 text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-1.5">
-              ⚠ {kpis.egresosPendientes} ingreso{kpis.egresosPendientes > 1 ? 's' : ''} por verificar
+              ⚠ {kpis.ingPendientes} ingreso{kpis.ingPendientes > 1 ? 's' : ''} por verificar
             </div>
           )}
           <div className="mt-3 pt-3 border-t border-gray-100 space-y-1 text-xs text-gray-500">
@@ -116,19 +114,26 @@ export default function AdminDashboard() {
         <div className="card border-l-4 border-red-500">
           <div className="flex items-center gap-2 mb-2">
             <ArrowDownCircle size={20} className="text-red-600" />
-            <span className="text-sm font-bold text-red-700 uppercase tracking-wide">Salidas</span>
+            <span className="text-sm font-bold text-red-700 uppercase tracking-wide">Salidas Ejecutadas</span>
           </div>
           <p className="text-3xl font-bold text-red-700">{fmt.usd(salidasTotal)}</p>
-          <p className="text-xs text-gray-500 mt-1">Egresos aprobados + pagos ejecutados</p>
+          <p className="text-xs text-gray-500 mt-1">Pagos efectivamente realizados</p>
           <div className="mt-3 pt-3 border-t border-gray-100 space-y-1.5 text-xs">
-            <div className="flex justify-between text-gray-600">
-              <span>Egresos (gastos internos)</span>
-              <span className="font-medium text-red-600">{fmt.usd(kpis.totalEgresos)}</span>
-            </div>
-            <div className="flex justify-between text-gray-600">
-              <span>Pagos a proveedores</span>
-              <span className="font-medium text-red-600">{fmt.usd(kpis.totalPagosEjecutados || 0)}</span>
-            </div>
+            {(kpis.egresosAprobados || 0) > 0 && (
+              <div className="flex justify-between text-amber-700 bg-amber-50 rounded px-2 py-1">
+                <span>Aprobados (pendientes de pago)</span>
+                <span className="font-medium">{kpis.egresosAprobados}</span>
+              </div>
+            )}
+            {(kpis.egresosPendientes || 0) > 0 && (
+              <div className="flex justify-between text-gray-500">
+                <span>En revisión / pendientes</span>
+                <span className="font-medium">{kpis.egresosPendientes}</span>
+              </div>
+            )}
+            {(kpis.egresosAprobados || 0) === 0 && (kpis.egresosPendientes || 0) === 0 && (
+              <p className="text-gray-400 italic">Sin egresos comprometidos</p>
+            )}
           </div>
         </div>
 
@@ -163,10 +168,10 @@ export default function AdminDashboard() {
 
       {/* KPIs secundarios */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <KpiCard icon={FileText}   label="Contratos Activos"  value={kpis.contratosActivos}          color="blue"   />
-        <KpiCard icon={Clock}      label="Egresos Pendientes" value={kpis.egresosPendientes}         color="amber"  sub="Esperan aprobación" />
-        <KpiCard icon={CreditCard} label="Pagos Ejecutados"   value={fmt.usd(kpis.totalPagosEjecutados || 0)} color="red" sub="A proveedores" />
-        <KpiCard icon={BarChart2}  label="Ing. Proyectado"    value={fmt.usd(kpis.totalProyectado)}  color="purple" sub="Eventos futuros" />
+        <KpiCard icon={FileText}   label="Contratos Activos"    value={kpis.contratosActivos}                  color="blue"   />
+        <KpiCard icon={Clock}      label="Egresos Pendientes"   value={kpis.egresosPendientes}                 color="amber"  sub="Esperan aprobación" />
+        <KpiCard icon={CreditCard} label="Egresos Aprobados"    value={kpis.egresosAprobados || 0}             color="red"    sub="Comprometidos, aún no pagados" />
+        <KpiCard icon={BarChart2}  label="Ing. Proyectado"      value={fmt.usd(kpis.totalProyectado)}          color="purple" sub="Eventos futuros" />
       </div>
 
       {/* Charts row 1 */}
@@ -180,9 +185,8 @@ export default function AdminDashboard() {
               <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `$${(v/1000).toFixed(0)}k`} />
               <Tooltip {...TOOLTIP_STYLE} formatter={v => fmt.usd(v)} />
               <Legend wrapperStyle={{ fontSize: 12 }} />
-              <Bar dataKey="Ingresos" fill="#059669" radius={[4,4,0,0]} name="Ingresos (clientes)" />
-              <Bar dataKey="Egresos"  fill="#dc2626" radius={[4,4,0,0]} name="Egresos (gastos)" />
-              <Bar dataKey="Pagos"    fill="#d97706" radius={[4,4,0,0]} name="Pagos (proveedores)" />
+              <Bar dataKey="Ingresos confirmados" fill="#059669" radius={[4,4,0,0]} />
+              <Bar dataKey="Pagos ejecutados"     fill="#dc2626" radius={[4,4,0,0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>

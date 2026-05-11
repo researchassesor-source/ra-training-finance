@@ -55,7 +55,10 @@ function UsuarioForm({ initial, onSave, onCancel }) {
           <label className="label">Nombre de usuario *</label>
           <input className="input" required value={form.username}
             onChange={e => set('username', e.target.value.toLowerCase().replace(/\s/g,''))}
-            placeholder="usuario.apellido" disabled={!!initial} />
+            placeholder="usuario.apellido" />
+          {initial && (
+            <p className="text-xs text-amber-600 mt-1">⚠ Al cambiar el username el usuario deberá iniciar sesión nuevamente.</p>
+          )}
         </div>
         <div>
           <label className="label">{initial ? 'Nueva Contraseña (dejar vacío para mantener)' : 'Contraseña *'}</label>

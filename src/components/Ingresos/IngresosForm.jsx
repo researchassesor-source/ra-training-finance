@@ -10,10 +10,19 @@ const EMPTY = {
   estado: 'confirmado', notas: '',
 }
 
+// Normaliza una fecha que puede venir como ISO string, Date object o YYYY-MM-DD
+function toDateInput(val) {
+  if (!val) return ''
+  const s = String(val)
+  // ISO datetime → tomar solo la parte de fecha
+  if (s.length > 10 && s.includes('T')) return s.slice(0, 10)
+  return s.slice(0, 10)
+}
+
 function mapInitial(initial) {
   if (!initial) return EMPTY
   return {
-    fecha:           initial.Fecha           || initial.fecha           || '',
+    fecha:           toDateInput(initial.Fecha           || initial.fecha),
     tipo:            initial.Tipo            || initial.tipo            || '',
     modalidad:       initial.Modalidad       || initial.modalidad       || 'N/A',
     concepto:        initial.Concepto        || initial.concepto        || '',
