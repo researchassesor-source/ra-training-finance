@@ -79,8 +79,17 @@ function processRequest(data) {
     addConvenio:        () => addConvenio(user, params),
     updateConvenio:     () => updateConvenio(user, params),
     deleteConvenio:     () => deleteRecord(user, 'Convenios', params, true),
-    getCalendario:      () => getCalendario(user, params),
-    deleteInscripcion:  () => deleteInscripcion(user, params),
+    getCalendario:        () => getCalendario(user, params),
+    deleteInscripcion:    () => deleteInscripcion(user, params),
+    registrarTimbrada:    () => registrarTimbrada(user, params),
+    getAsistencia:        () => getAsistencia(user, params),
+    getResumenSemanal:    () => getResumenSemanal(user, params),
+    getFlujosSemana:      () => getFlujosSemana(user, params),
+    addFlujoSemanal:      () => addFlujoSemanal(user, params),
+    updateFlujoSemanal:   () => updateFlujoSemanal(user, params),
+    addActividadFlujo:    () => addActividadFlujo(user, params),
+    updateActividadFlujo: () => updateActividadFlujo(user, params),
+    deleteActividadFlujo: () => deleteRecord(user, 'ActividadesFlujo', params, false),
   };
 
   if (!handlers[action]) return { success: false, error: 'Acción no reconocida: ' + action };
@@ -98,18 +107,21 @@ function respond(data) {
 // ─────────────────────────────────────────────
 
 const SHEET_HEADERS = {
-  Usuarios:      ['ID','Nombre','Email','Username','PasswordHash','Rol','Activo','FechaCreacion'],
-  Ingresos:      ['ID','Fecha','Tipo','Modalidad','Concepto','Cliente','ContratoID','Monto','MetodoPago','Estado','Notas','CreadoPor','FechaCreacion','ClienteTelefono'],
-  Egresos:       ['ID','Fecha','Categoria','Concepto','Proveedor','Monto','Estado','AprobadoPor','FechaAprobacion','Notas','CreadoPor','FechaCreacion'],
-  Pagos:         ['ID','Fecha','Tipo','Beneficiario','Concepto','Referencia','Monto','MetodoPago','EgresoID','ContratoID','Estado','Notas','CreadoPor','FechaCreacion'],
-  Contratos:     ['ID','Tipo','Nombre','Concepto','ValorTotal','FechaInicio','FechaFin','Estado','Notas','CreadoPor','FechaCreacion'],
-  Proyecciones:  ['ID','Evento','Tipo','FechaEstimada','MontoProyectado','MontoReal','Estado','Notas','CreadoPor','FechaCreacion'],
-  Categorias:    ['ID','Nombre','Tipo','Activo'],
-  Servicios:     ['ID','Nombre','Tipo','Modalidad','Precio','Duracion','Descripcion','Activo','FechaCreacion','FechaEvento','FechaFinEvento','LugarEvento'],
-  Inscripciones: ['ID','ClienteNombre','ClienteID','ClienteEmail','ClienteTelefono','ServicioID','ServicioNombre','Modalidad','FechaInicio','Monto','MetodoPago','RazonSocial','RUC','DireccionFactura','EstadoPago','EstadoCertificado','IngresoID','Notas','CreadoPor','FechaCreacion'],
-  Sesiones:      ['Token','Username','UserID','Rol','Nombre','Expira'],
-  ConfigPagos:   ['ID','Nombre','Tipo','Detalles','Instrucciones','Activo','FechaCreacion'],
-  Convenios:     ['ID','Organizacion','Representante','Cargo','Objeto','ObligacionesRA','ObligacionesAliado','Vigencia','FechaInicio','FechaFin','Estado','Notas','CreadoPor','FechaCreacion'],
+  Usuarios:         ['ID','Nombre','Email','Username','PasswordHash','Rol','Activo','FechaCreacion'],
+  Ingresos:         ['ID','Fecha','Tipo','Modalidad','Concepto','Cliente','ContratoID','Monto','MetodoPago','Estado','Notas','CreadoPor','FechaCreacion','ClienteTelefono'],
+  Egresos:          ['ID','Fecha','Categoria','Concepto','Proveedor','Monto','Estado','AprobadoPor','FechaAprobacion','Notas','CreadoPor','FechaCreacion'],
+  Pagos:            ['ID','Fecha','Tipo','Beneficiario','Concepto','Referencia','Monto','MetodoPago','EgresoID','ContratoID','Estado','Notas','CreadoPor','FechaCreacion'],
+  Contratos:        ['ID','Tipo','Nombre','Concepto','ValorTotal','FechaInicio','FechaFin','Estado','Notas','CreadoPor','FechaCreacion'],
+  Proyecciones:     ['ID','Evento','Tipo','FechaEstimada','MontoProyectado','MontoReal','Estado','Notas','CreadoPor','FechaCreacion'],
+  Categorias:       ['ID','Nombre','Tipo','Activo'],
+  Servicios:        ['ID','Nombre','Tipo','Modalidad','Precio','Duracion','Descripcion','Activo','FechaCreacion','FechaEvento','FechaFinEvento','LugarEvento'],
+  Inscripciones:    ['ID','ClienteNombre','ClienteID','ClienteEmail','ClienteTelefono','ServicioID','ServicioNombre','Modalidad','FechaInicio','Monto','MetodoPago','RazonSocial','RUC','DireccionFactura','EstadoPago','EstadoCertificado','IngresoID','Notas','CreadoPor','FechaCreacion'],
+  Sesiones:         ['Token','Username','UserID','Rol','Nombre','Expira'],
+  ConfigPagos:      ['ID','Nombre','Tipo','Detalles','Instrucciones','Activo','FechaCreacion'],
+  Convenios:        ['ID','Organizacion','Representante','Cargo','Objeto','ObligacionesRA','ObligacionesAliado','Vigencia','FechaInicio','FechaFin','Estado','Notas','CreadoPor','FechaCreacion'],
+  Asistencia:       ['ID','Username','Nombre','Tipo','Timestamp','Fecha','Notas','FechaCreacion'],
+  FlujosSemanales:  ['ID','Username','NombreUsuario','Semana','FechaInicio','FechaFin','TotalHorasPlan','Estado','Notas','CreadoPor','FechaCreacion'],
+  ActividadesFlujo: ['ID','FlujoID','Username','Titulo','Descripcion','DiaSemana','HorasEstimadas','Estado','HorasReales','Notas','CompletadoEn','FechaCreacion'],
 };
 
 function getSheet(name) {
@@ -948,6 +960,197 @@ function updateConvenio(user, { id, convenio }) {
     FechaFin: convenio.fechaFin, Estado: convenio.estado, Notas: convenio.notas,
   });
   bustSheet('convenios');
+  return { success: true };
+}
+
+// ─────────────────────────────────────────────
+// ASISTENCIA — TIMBRADAS
+// ─────────────────────────────────────────────
+
+function getMondayOf(dateStr) {
+  var d = dateStr ? new Date(dateStr) : new Date();
+  var day = d.getDay(); // 0=Dom 1=Lun...6=Sab
+  var diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  return d.toISOString().slice(0, 10);
+}
+
+function registrarTimbrada(user, { tipo, notas } = {}) {
+  if (!isVendedor(user)) throw new Error('Acceso denegado.');
+  if (tipo !== 'entrada' && tipo !== 'salida')
+    return { success: false, error: 'Tipo inválido. Use "entrada" o "salida".' };
+  const sheet = getSheet('Asistencia');
+  const rows  = sheetToObjects(sheet);
+  const hoy   = new Date().toISOString().slice(0, 10);
+  const now   = new Date().toISOString();
+  // Última timbrada del usuario hoy
+  const misHoy = rows
+    .filter(function(r) { return r.Username === user.Username && r.Fecha === hoy; })
+    .sort(function(a, b) { return new Date(b.Timestamp) - new Date(a.Timestamp); });
+  const ultimaTipo = misHoy.length > 0 ? misHoy[0].Tipo : 'salida';
+  if (tipo === 'entrada' && ultimaTipo === 'entrada')
+    return { success: false, error: 'Ya tienes una entrada registrada. Registra tu salida primero.' };
+  if (tipo === 'salida' && ultimaTipo === 'salida')
+    return { success: false, error: 'No tienes una entrada activa hoy.' };
+  const id = generateId('TIM');
+  sheet.appendRow([id, user.Username, user.Nombre, tipo, now, hoy, notas || '', now]);
+  return { success: true, tipo: tipo, timestamp: now };
+}
+
+function getAsistencia(user, { username, desde, hasta } = {}) {
+  if (!isVendedor(user)) throw new Error('Acceso denegado.');
+  const target = (isAdmin(user) && username) ? username : user.Username;
+  let data = sheetToObjects(getSheet('Asistencia'))
+    .filter(function(r) { return r.Username === target; });
+  if (desde) data = data.filter(function(r) { return r.Fecha >= desde; });
+  if (hasta) data = data.filter(function(r) { return r.Fecha <= hasta; });
+  data.sort(function(a, b) { return new Date(b.Timestamp) - new Date(a.Timestamp); });
+  // Estado actual (última timbrada de hoy)
+  const hoy = new Date().toISOString().slice(0, 10);
+  const ultHoy = data.filter(function(r) { return r.Fecha === hoy; });
+  const estadoActual = ultHoy.length > 0 ? ultHoy[0].Tipo : null;
+  return { success: true, data: data, estadoActual: estadoActual };
+}
+
+function getResumenSemanal(user, { username, semana } = {}) {
+  if (!isVendedor(user)) throw new Error('Acceso denegado.');
+  const target   = (isAdmin(user) && username) ? username : user.Username;
+  const lunes    = getMondayOf(semana);
+  const finD     = new Date(lunes); finD.setDate(finD.getDate() + 6);
+  const finSemana = finD.toISOString().slice(0, 10);
+  const timbradas = sheetToObjects(getSheet('Asistencia'))
+    .filter(function(r) { return r.Username === target && r.Fecha >= lunes && r.Fecha <= finSemana; })
+    .sort(function(a, b) { return new Date(a.Timestamp) - new Date(b.Timestamp); });
+  // Construir mapa de días
+  var diasMap = {};
+  timbradas.forEach(function(t) {
+    if (!diasMap[t.Fecha]) diasMap[t.Fecha] = [];
+    diasMap[t.Fecha].push(t);
+  });
+  var totalMin = 0;
+  var dias = Object.keys(diasMap).sort().map(function(fecha) {
+    var regs = diasMap[fecha];
+    var min = 0; var ult = null;
+    regs.forEach(function(r) {
+      if (r.Tipo === 'entrada') { ult = new Date(r.Timestamp); }
+      else if (r.Tipo === 'salida' && ult) { min += (new Date(r.Timestamp) - ult) / 60000; ult = null; }
+    });
+    if (ult) min += (new Date() - ult) / 60000; // aún dentro
+    totalMin += min;
+    return { fecha: fecha, horas: Math.round(min / 60 * 100) / 100, registros: regs };
+  });
+  return {
+    success: true,
+    data: { semana: lunes, username: target, totalHoras: Math.round(totalMin / 60 * 100) / 100, dias: dias },
+  };
+}
+
+function getAsistenciaTodosUsuarios(user) {
+  requireAdmin(user);
+  const hoy   = new Date().toISOString().slice(0, 10);
+  const rows  = sheetToObjects(getSheet('Asistencia'))
+    .filter(function(r) { return r.Fecha === hoy; })
+    .sort(function(a,b) { return new Date(b.Timestamp) - new Date(a.Timestamp); });
+  const usuariosMap = {};
+  rows.forEach(function(r) {
+    if (!usuariosMap[r.Username]) usuariosMap[r.Username] = { username: r.Username, nombre: r.Nombre, ultimaTimbrada: r };
+  });
+  return { success: true, data: Object.values(usuariosMap) };
+}
+
+// ─────────────────────────────────────────────
+// FLUJOS SEMANALES DE TRABAJO
+// ─────────────────────────────────────────────
+
+function getFlujosSemana(user, { username, semana } = {}) {
+  if (!isVendedor(user)) throw new Error('Acceso denegado.');
+  const target = (isAdmin(user) && username) ? username : user.Username;
+  const lunes  = getMondayOf(semana);
+  const flujos = sheetToObjects(getSheet('FlujosSemanales'))
+    .filter(function(f) { return f.Username === target && f.Semana === lunes; });
+  const todasActs = sheetToObjects(getSheet('ActividadesFlujo'));
+  const DIAS = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
+  const result = flujos.map(function(f) {
+    var acts = todasActs
+      .filter(function(a) { return a.FlujoID === f.ID; })
+      .sort(function(a,b) { return DIAS.indexOf(a.DiaSemana) - DIAS.indexOf(b.DiaSemana); });
+    return Object.assign({}, f, { actividades: acts });
+  });
+  return { success: true, data: result, semana: lunes };
+}
+
+function addFlujoSemanal(user, { flujo } = {}) {
+  requireAdmin(user);
+  const lunes = getMondayOf(flujo.semana);
+  // Evitar duplicado
+  const existe = sheetToObjects(getSheet('FlujosSemanales'))
+    .find(function(f) { return f.Username === flujo.username && f.Semana === lunes; });
+  if (existe) return { success: false, error: 'Ya existe un flujo para ese usuario y semana.' };
+  const sheet  = getSheet('FlujosSemanales');
+  const id     = generateId('FLJ');
+  const now    = new Date().toISOString();
+  const finD   = new Date(lunes); finD.setDate(finD.getDate() + 4);
+  const uRow   = sheetToObjects(getSheet('Usuarios')).find(function(u) { return u.Username === flujo.username; });
+  sheet.appendRow([
+    id, flujo.username, uRow ? uRow.Nombre : flujo.username, lunes,
+    lunes, finD.toISOString().slice(0, 10),
+    Number(flujo.totalHorasPlan) || 40,
+    'activo', flujo.notas || '', user.Username, now,
+  ]);
+  return { success: true, id: id, semana: lunes };
+}
+
+function updateFlujoSemanal(user, { id, flujo } = {}) {
+  requireAdmin(user);
+  const sheet = getSheet('FlujosSemanales');
+  const row   = sheetToObjects(sheet).find(function(f) { return f.ID === id; });
+  if (!row) return { success: false, error: 'Flujo no encontrado.' };
+  updateRow(sheet, row, {
+    TotalHorasPlan: Number(flujo.totalHorasPlan) || row.TotalHorasPlan,
+    Estado: flujo.estado || row.Estado,
+    Notas: flujo.notas !== undefined ? flujo.notas : row.Notas,
+  });
+  return { success: true };
+}
+
+function addActividadFlujo(user, { actividad } = {}) {
+  requireAdmin(user);
+  const sheet = getSheet('ActividadesFlujo');
+  const id    = generateId('ACT');
+  const now   = new Date().toISOString();
+  // Recuperar username del flujo
+  const flujo = sheetToObjects(getSheet('FlujosSemanales'))
+    .find(function(f) { return f.ID === actividad.flujoId; });
+  sheet.appendRow([
+    id, actividad.flujoId, flujo ? flujo.Username : '',
+    actividad.titulo, actividad.descripcion || '',
+    actividad.diaSemana || 'Lunes',
+    Number(actividad.horasEstimadas) || 1,
+    'pendiente', 0, '', '', now,
+  ]);
+  return { success: true, id: id };
+}
+
+function updateActividadFlujo(user, { id, actividad } = {}) {
+  if (!isVendedor(user)) throw new Error('Acceso denegado.');
+  const sheet = getSheet('ActividadesFlujo');
+  const row   = sheetToObjects(sheet).find(function(a) { return a.ID === id; });
+  if (!row) return { success: false, error: 'Actividad no encontrada.' };
+  var fields = {};
+  if (isAdmin(user)) {
+    if (actividad.titulo        !== undefined) fields.Titulo          = actividad.titulo;
+    if (actividad.descripcion   !== undefined) fields.Descripcion     = actividad.descripcion;
+    if (actividad.diaSemana     !== undefined) fields.DiaSemana       = actividad.diaSemana;
+    if (actividad.horasEstimadas !== undefined) fields.HorasEstimadas = Number(actividad.horasEstimadas) || 0;
+  }
+  if (actividad.estado      !== undefined) {
+    fields.Estado = actividad.estado;
+    if (actividad.estado === 'completado' && !row.CompletadoEn)
+      fields.CompletadoEn = new Date().toISOString();
+  }
+  if (actividad.horasReales !== undefined) fields.HorasReales = Number(actividad.horasReales) || 0;
+  if (actividad.notas       !== undefined) fields.Notas = actividad.notas;
+  updateRow(sheet, row, fields);
   return { success: true };
 }
 

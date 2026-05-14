@@ -4,6 +4,7 @@ import {
   LayoutDashboard, TrendingUp, TrendingDown, CreditCard,
   FileText, BarChart2, BookOpen, Users, X, TrendingUp as Logo,
   GraduationCap, Briefcase, Settings, HeartHandshake, CalendarDays,
+  Clock, ListChecks,
 } from 'lucide-react'
 
 const adminLinks = [
@@ -17,6 +18,8 @@ const adminLinks = [
   { to: '/contratos',      icon: FileText,        label: 'Contratos' },
   { to: '/convenios',      icon: HeartHandshake,  label: 'Convenios' },
   { to: '/proyecciones',   icon: BarChart2,       label: 'Proyecciones' },
+  { to: '/asistencia',     icon: Clock,           label: 'Asistencia' },
+  { to: '/flujos',         icon: ListChecks,      label: 'Flujos de Trabajo' },
   { to: '/reportes',       icon: BookOpen,        label: 'Reportes' },
   { to: '/usuarios',       icon: Users,           label: 'Usuarios' },
   { to: '/config-pagos',   icon: Settings,        label: 'Cuentas de Pago' },
@@ -28,6 +31,8 @@ const vendedorLinks = [
   { to: '/inscripciones',  icon: GraduationCap,   label: 'Inscripciones' },
   { to: '/servicios',      icon: Briefcase,       label: 'Catálogo Servicios' },
   { to: '/calendario',     icon: CalendarDays,    label: 'Calendario' },
+  { to: '/asistencia',     icon: Clock,           label: 'Mi Asistencia' },
+  { to: '/flujos',         icon: ListChecks,      label: 'Mi Plan Semanal' },
   { to: '/mis-reportes',   icon: BookOpen,        label: 'Mis Reportes' },
 ]
 

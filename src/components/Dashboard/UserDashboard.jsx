@@ -4,8 +4,8 @@ import { useNavigate } from 'react-router-dom'
 import { api } from '../../services/api'
 import { fmt, ESTADOS_INGRESO, ESTADOS_EGRESO } from '../../utils/formatters'
 import {
-  TrendingUp, TrendingDown, GraduationCap, Plus,
-  Clock, CheckCircle, AlertCircle, FileText,
+  TrendingUp, TrendingDown, GraduationCap,
+  Clock, CheckCircle, AlertCircle, LogIn, LogOut,
 } from 'lucide-react'
 
 function StatCard({ icon: Icon, label, value, sub, color = 'brand' }) {
@@ -33,10 +33,13 @@ function StatCard({ icon: Icon, label, value, sub, color = 'brand' }) {
 export default function UserDashboard() {
   const { user } = useAuth()
   const navigate = useNavigate()
-  const [ingresos, setIngresos]     = useState([])
-  const [egresos, setEgresos]       = useState([])
-  const [inscripciones, setInscrip] = useState([])
-  const [loading, setLoading]       = useState(true)
+  const [ingresos, setIngresos]         = useState([])
+  const [egresos, setEgresos]           = useState([])
+  const [inscripciones, setInscrip]     = useState([])
+  const [loading, setLoading]           = useState(true)
+  const [estadoTimbrada, setEstadoTim]  = useState(null)
+  const [timbLoading, setTimbLoading]   = useState(false)
+  const [timbMsg, setTimbMsg]           = useState('')
 
   useEffect(() => {
     setLoading(true)
@@ -44,15 +47,29 @@ export default function UserDashboard() {
       api.getIngresos({}),
       api.getEgresos({}),
       api.getInscripciones({}),
+      api.getAsistencia({}),
     ])
-      .then(([i, e, ins]) => {
+      .then(([i, e, ins, as]) => {
         setIngresos(i.data || [])
         setEgresos(e.data || [])
         setInscrip(ins.data || [])
+        setEstadoTim(as.estadoActual)
       })
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [])
+
+  async function timbrar(tipo) {
+    setTimbLoading(true)
+    setTimbMsg('')
+    try {
+      await api.registrarTimbrada(tipo)
+      setEstadoTim(tipo)
+      setTimbMsg(tipo === 'entrada' ? '✅ Entrada registrada' : '✅ Salida registrada')
+      setTimeout(() => setTimbMsg(''), 3000)
+    } catch (e) { setTimbMsg('⚠ ' + e.message) }
+    finally { setTimbLoading(false) }
+  }
 
   const sum = (arr, f) => arr.reduce((s, r) => s + (Number(r[f]) || 0), 0)
 
@@ -70,10 +87,29 @@ export default function UserDashboard() {
 
   return (
     <div className="space-y-6">
-      {/* Welcome */}
+      {/* Welcome + Timbrada rápida */}
       <div className="card bg-gradient-to-r from-brand-600 to-brand-800 text-white">
-        <h2 className="text-lg font-bold">Bienvenido, {user?.nombre} 👋</h2>
-        <p className="text-brand-200 text-sm mt-1">Resumen de tu actividad registrada</p>
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div>
+            <h2 className="text-lg font-bold">Bienvenido, {user?.nombre} 👋</h2>
+            <p className="text-brand-200 text-sm mt-1">Resumen de tu actividad registrada</p>
+          </div>
+          <div className="flex flex-col items-end gap-1">
+            <button
+              onClick={() => timbrar(estadoTimbrada === 'entrada' ? 'salida' : 'entrada')}
+              disabled={timbLoading}
+              className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm transition-all
+                ${estadoTimbrada === 'entrada'
+                  ? 'bg-red-500 hover:bg-red-400 text-white'
+                  : 'bg-white/20 hover:bg-white/30 text-white border border-white/30'}`}>
+              {timbLoading
+                ? <Clock size={16} className="animate-spin" />
+                : estadoTimbrada === 'entrada' ? <LogOut size={16} /> : <LogIn size={16} />}
+              {timbLoading ? '...' : estadoTimbrada === 'entrada' ? 'Registrar Salida' : 'Registrar Entrada'}
+            </button>
+            {timbMsg && <p className="text-xs text-brand-200">{timbMsg}</p>}
+          </div>
+        </div>
       </div>
 
       {loading ? (
@@ -181,6 +217,8 @@ export default function UserDashboard() {
               { label: 'Reportar Ingreso', sub: 'Registrar pago de cliente', icon: TrendingUp,    path: '/mis-ingresos', color: 'text-emerald-600', bg: 'bg-emerald-50 group-hover:bg-emerald-100' },
               { label: 'Reportar Gasto',   sub: 'Enviar gasto a aprobación', icon: TrendingDown,  path: '/mis-egresos',  color: 'text-red-600',     bg: 'bg-red-50 group-hover:bg-red-100'         },
               { label: 'Inscripciones',    sub: 'Registrar participantes',   icon: GraduationCap, path: '/inscripciones',color: 'text-brand-600',   bg: 'bg-brand-50 group-hover:bg-brand-100'     },
+              { label: 'Mi Asistencia',    sub: 'Historial de entradas/salidas', icon: Clock,     path: '/asistencia',   color: 'text-amber-600',   bg: 'bg-amber-50 group-hover:bg-amber-100'     },
+              { label: 'Plan Semanal',     sub: 'Ver mis actividades',       icon: CheckCircle,   path: '/flujos',       color: 'text-purple-600',  bg: 'bg-purple-50 group-hover:bg-purple-100'   },
             ].map(a => (
               <button key={a.path} onClick={() => navigate(a.path)}
                 className="card hover:shadow-md transition-all text-left group">

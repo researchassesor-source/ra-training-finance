@@ -200,4 +200,26 @@ export const api = {
     bust('getConvenios')
     return call('deleteConvenio', { id }, getToken())
   },
+
+  // ── Asistencia (timbradas) ──
+  registrarTimbrada: (tipo, notas = '') =>
+    call('registrarTimbrada', { tipo, notas }, getToken()),
+  getAsistencia: (params = {}) =>
+    call('getAsistencia', params, getToken()),
+  getResumenSemanal: (params = {}) =>
+    call('getResumenSemanal', params, getToken()),
+
+  // ── Flujos semanales de trabajo ──
+  getFlujosSemana: (params = {}) =>
+    call('getFlujosSemana', params, getToken()),
+  addFlujoSemanal: (flujo) =>
+    call('addFlujoSemanal', { flujo }, getToken()),
+  updateFlujoSemanal: (id, flujo) =>
+    call('updateFlujoSemanal', { id, flujo }, getToken()),
+  addActividadFlujo: (actividad) =>
+    call('addActividadFlujo', { actividad }, getToken()),
+  updateActividadFlujo: (id, actividad) =>
+    call('updateActividadFlujo', { id, actividad }, getToken()),
+  deleteActividadFlujo: (id) =>
+    call('deleteActividadFlujo', { id }, getToken()),
 }
