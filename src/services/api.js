@@ -208,6 +208,8 @@ export const api = {
     call('getAsistencia', params, getToken()),
   getResumenSemanal: (params = {}) =>
     call('getResumenSemanal', params, getToken()),
+  deleteTimbrada: (id) =>
+    call('deleteTimbrada', { id }, getToken()),
 
   // ── Flujos semanales de trabajo ──
   getFlujosSemana: (params = {}) =>
@@ -216,6 +218,8 @@ export const api = {
     call('addFlujoSemanal', { flujo }, getToken()),
   updateFlujoSemanal: (id, flujo) =>
     call('updateFlujoSemanal', { id, flujo }, getToken()),
+  deleteFlujoSemanal: (id) =>
+    call('deleteFlujoSemanal', { id }, getToken()),
   addActividadFlujo: (actividad) =>
     call('addActividadFlujo', { actividad }, getToken()),
   updateActividadFlujo: (id, actividad) =>

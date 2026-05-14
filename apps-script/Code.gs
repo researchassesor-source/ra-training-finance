@@ -87,9 +87,11 @@ function processRequest(data) {
     getFlujosSemana:      () => getFlujosSemana(user, params),
     addFlujoSemanal:      () => addFlujoSemanal(user, params),
     updateFlujoSemanal:   () => updateFlujoSemanal(user, params),
+    deleteFlujoSemanal:   () => deleteFlujoSemanal(user, params),
     addActividadFlujo:    () => addActividadFlujo(user, params),
     updateActividadFlujo: () => updateActividadFlujo(user, params),
     deleteActividadFlujo: () => deleteRecord(user, 'ActividadesFlujo', params, false),
+    deleteTimbrada:       () => deleteTimbrada(user, params),
   };
 
   if (!handlers[action]) return { success: false, error: 'Acción no reconocida: ' + action };
@@ -1137,6 +1139,39 @@ function addActividadFlujo(user, { actividad } = {}) {
     'pendiente', 0, '', '', '', now,
   ]);
   return { success: true, id: id };
+}
+
+function deleteFlujoSemanal(user, { id } = {}) {
+  requireAdmin(user);
+  // Eliminar todas las actividades del flujo primero
+  var actSheet = getSheet('ActividadesFlujo');
+  var acts = sheetToObjects(actSheet).filter(function(a) { return a.FlujoID === id; });
+  acts.forEach(function(a) {
+    var data = actSheet.getDataRange().getValues();
+    for (var i = 1; i < data.length; i++) {
+      if (data[i][0] === a.ID) { actSheet.deleteRow(i + 1); return; }
+    }
+  });
+  // Eliminar el flujo
+  var flujoSheet = getSheet('FlujosSemanales');
+  var data = flujoSheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    if (data[i][0] === id) { flujoSheet.deleteRow(i + 1); break; }
+  }
+  return { success: true };
+}
+
+function deleteTimbrada(user, { id } = {}) {
+  requireAdmin(user);
+  var sheet = getSheet('Asistencia');
+  var data = sheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === String(id)) {
+      sheet.deleteRow(i + 1);
+      return { success: true };
+    }
+  }
+  return { success: false, error: 'Registro no encontrado.' };
 }
 
 function updateActividadFlujo(user, { id, actividad } = {}) {

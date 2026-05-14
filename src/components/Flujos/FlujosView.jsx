@@ -229,13 +229,17 @@ export default function FlujosView() {
   const [error, setError]         = useState('')
   const [usuarios, setUsuarios]   = useState([])
   const [usuarioSel, setUsuarioSel] = useState('')
-  const [showNuevoFlujo, setShowNuevoFlujo] = useState(false)
-  const [showNuevaAct, setShowNuevaAct]     = useState(null) // flujoId
-  const [confirmDel, setConfirmDel]         = useState(null)
-  const [deleting, setDeleting]             = useState(false)
-  const [horasPlan, setHorasPlan]           = useState(40)
-  const [notasFlujo, setNotasFlujo]         = useState('')
-  const [saving, setSaving]                 = useState(false)
+  const [showNuevoFlujo, setShowNuevoFlujo]   = useState(false)
+  const [showNuevaAct, setShowNuevaAct]       = useState(null)
+  const [confirmDel, setConfirmDel]           = useState(null)      // actividad
+  const [confirmDelFlujo, setConfirmDelFlujo] = useState(false)     // flujo completo
+  const [editFlujo, setEditFlujo]             = useState(false)     // panel editar flujo
+  const [deleting, setDeleting]               = useState(false)
+  const [horasPlan, setHorasPlan]             = useState(40)
+  const [notasFlujo, setNotasFlujo]           = useState('')
+  const [editHorasPlan, setEditHorasPlan]     = useState(40)
+  const [editNotas, setEditNotas]             = useState('')
+  const [saving, setSaving]                   = useState(false)
 
   const targetUser = isAdmin
     ? (usuarioSel || (usuarios[0]?.Username || ''))
@@ -291,6 +295,32 @@ export default function FlujosView() {
     try { await api.deleteActividadFlujo(confirmDel.ID); setConfirmDel(null); load() }
     catch (e) { setError(e.message) }
     finally { setDeleting(false) }
+  }
+
+  async function handleEditFlujo() {
+    setSaving(true)
+    try {
+      await api.updateFlujoSemanal(flujoActual.ID, { totalHorasPlan: editHorasPlan, notas: editNotas })
+      setEditFlujo(false)
+      load()
+    } catch (e) { setError(e.message) }
+    finally { setSaving(false) }
+  }
+
+  async function handleDeleteFlujo() {
+    setDeleting(true)
+    try {
+      await api.deleteFlujoSemanal(flujoActual.ID)
+      setConfirmDelFlujo(false)
+      load()
+    } catch (e) { setError(e.message) }
+    finally { setDeleting(false) }
+  }
+
+  function openEditFlujo() {
+    setEditHorasPlan(Number(flujoActual.TotalHorasPlan) || 40)
+    setEditNotas(flujoActual.Notas || '')
+    setEditFlujo(true)
   }
 
   const flujoActual = flujos[0]
@@ -372,6 +402,51 @@ export default function FlujosView() {
             </div>
           ) : (
             <>
+              {/* Cabecera del flujo con acciones admin */}
+              {isAdmin && (
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <p className="text-xs text-gray-500">Flujo asignado a <span className="font-semibold text-gray-700">{targetUser}</span> · semana {semanaLabel}</p>
+                    {flujoActual.Notas && <p className="text-xs text-gray-400 mt-0.5 italic">{flujoActual.Notas}</p>}
+                  </div>
+                  <div className="flex gap-2 flex-shrink-0">
+                    <button onClick={openEditFlujo}
+                      className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium transition-colors">
+                      <Pencil size={13} /> Editar flujo
+                    </button>
+                    <button onClick={() => setConfirmDelFlujo(true)}
+                      className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 font-medium transition-colors">
+                      <Trash2 size={13} /> Eliminar
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Panel de edición del flujo */}
+              {editFlujo && (
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-3">
+                  <p className="text-sm font-semibold text-amber-800">Editar flujo de trabajo</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="label">Horas planificadas</label>
+                      <input type="number" className="input" value={editHorasPlan}
+                        onChange={e => setEditHorasPlan(Number(e.target.value))} />
+                    </div>
+                    <div>
+                      <label className="label">Notas</label>
+                      <input className="input" value={editNotas}
+                        onChange={e => setEditNotas(e.target.value)} placeholder="Opcional..." />
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => setEditFlujo(false)} className="btn-secondary flex-1 text-sm">Cancelar</button>
+                    <button onClick={handleEditFlujo} disabled={saving} className="btn-primary flex-1 text-sm">
+                      {saving ? 'Guardando...' : 'Guardar cambios'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* Resumen del flujo */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 {[
@@ -479,6 +554,12 @@ export default function FlujosView() {
         open={!!confirmDel} onClose={() => setConfirmDel(null)} onConfirm={handleDeleteAct}
         loading={deleting} title="Eliminar Actividad"
         message={`¿Eliminar la actividad "${confirmDel?.Titulo}"?`}
+      />
+
+      <ConfirmDialog
+        open={confirmDelFlujo} onClose={() => setConfirmDelFlujo(false)} onConfirm={handleDeleteFlujo}
+        loading={deleting} title="Eliminar Flujo Semanal"
+        message={`¿Eliminar el flujo completo de la semana ${semanaLabel}? Se eliminarán también todas sus actividades. Esta acción no se puede deshacer.`}
       />
     </div>
   )
