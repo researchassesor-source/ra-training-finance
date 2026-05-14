@@ -7,19 +7,32 @@ import ConfirmDialog from '../UI/ConfirmDialog'
 import TableSkeleton from '../UI/TableSkeleton'
 import {
   Plus, Pencil, Trash2, CheckCircle, Clock, ChevronLeft, ChevronRight,
-  ListChecks, PlayCircle, AlertCircle,
+  ListChecks, PlayCircle, AlertCircle, Paperclip, ExternalLink,
 } from 'lucide-react'
 
-const DIAS_SEMANA = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado']
+const DIAS_SEMANA = ['Lunes','Martes','Miércoles','Jueves','Viernes']
 
-function getMondayOf(date) {
-  const d = date ? new Date(date) : new Date()
-  const day = d.getDay()
-  d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day))
+function getMondayOf(dateStr) {
+  let d
+  if (dateStr) {
+    d = new Date(dateStr + 'T12:00:00Z')
+  } else {
+    const now = new Date()
+    d = new Date(
+      now.getUTCFullYear() + '-' +
+      String(now.getUTCMonth() + 1).padStart(2, '0') + '-' +
+      String(now.getUTCDate()).padStart(2, '0') + 'T12:00:00Z'
+    )
+  }
+  const day = d.getUTCDay()
+  const diff = day === 0 ? -6 : 1 - day
+  d.setUTCDate(d.getUTCDate() + diff)
   return d.toISOString().slice(0, 10)
 }
-function addDays(s, n) {
-  const d = new Date(s); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10)
+function addDays(dateStr, n) {
+  const d = new Date(dateStr + 'T12:00:00Z')
+  d.setUTCDate(d.getUTCDate() + n)
+  return d.toISOString().slice(0, 10)
 }
 
 const ESTADO_ACT = {
@@ -30,16 +43,30 @@ const ESTADO_ACT = {
 }
 
 function ActividadCard({ act, isAdmin, onUpdate, onDelete }) {
-  const [editHoras, setEditHoras] = useState(false)
-  const [horas, setHoras]         = useState(act.HorasReales || 0)
-  const [notas, setNotas]         = useState(act.Notas || '')
+  const [editHoras, setEditHoras]       = useState(false)
+  const [editEvidencia, setEditEvidencia] = useState(false)
+  const [horas, setHoras]               = useState(act.HorasReales || 0)
+  const [notas, setNotas]               = useState(act.Notas || '')
+  const [evidencia, setEvidencia]       = useState(act.Evidencia || '')
+  const [saving, setSaving]             = useState(false)
   const est = ESTADO_ACT[act.Estado] || ESTADO_ACT.pendiente
   const Icon = est.icon
 
   async function saveHoras() {
+    setSaving(true)
     await onUpdate(act.ID, { horasReales: Number(horas), notas })
+    setSaving(false)
     setEditHoras(false)
   }
+
+  async function saveEvidencia() {
+    setSaving(true)
+    await onUpdate(act.ID, { evidencia })
+    setSaving(false)
+    setEditEvidencia(false)
+  }
+
+  const isUrl = (s) => s && (s.startsWith('http://') || s.startsWith('https://'))
 
   return (
     <div className={`border rounded-xl p-4 space-y-2 transition-all
@@ -74,39 +101,78 @@ function ActividadCard({ act, isAdmin, onUpdate, onDelete }) {
         )}
       </div>
 
-      {/* Controles de estado */}
-      {act.Estado !== 'completado' && (
-        <div className="flex flex-wrap gap-1.5 pt-1">
-          {act.Estado === 'pendiente' && (
-            <button onClick={() => onUpdate(act.ID, { estado: 'en_proceso' })}
-              className="text-xs px-2.5 py-1 rounded-lg bg-blue-600 text-white hover:bg-blue-700 flex items-center gap-1">
-              <PlayCircle size={12} /> Iniciar
-            </button>
-          )}
-          {act.Estado === 'en_proceso' && (
-            <>
-              <button onClick={() => setEditHoras(v => !v)}
-                className="text-xs px-2.5 py-1 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 flex items-center gap-1">
-                <Clock size={12} /> Horas reales
-              </button>
-              <button onClick={() => onUpdate(act.ID, { estado: 'completado', horasReales: Number(horas) })}
-                className="text-xs px-2.5 py-1 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 flex items-center gap-1">
-                <CheckCircle size={12} /> Completar
-              </button>
-            </>
+      {/* Evidencia adjunta */}
+      {act.Evidencia && (
+        <div className="flex items-center gap-1.5 text-xs text-gray-600 bg-white/70 rounded-lg px-2.5 py-1.5 border border-gray-200">
+          <Paperclip size={12} className="text-gray-400 flex-shrink-0" />
+          {isUrl(act.Evidencia) ? (
+            <a href={act.Evidencia} target="_blank" rel="noopener noreferrer"
+              className="text-brand-600 hover:underline flex items-center gap-1 truncate">
+              Ver evidencia <ExternalLink size={11} />
+            </a>
+          ) : (
+            <span className="truncate">{act.Evidencia}</span>
           )}
         </div>
       )}
 
+      {/* Controles de estado */}
+      <div className="flex flex-wrap gap-1.5 pt-1">
+        {act.Estado === 'pendiente' && (
+          <button onClick={() => onUpdate(act.ID, { estado: 'en_proceso' })}
+            className="text-xs px-2.5 py-1 rounded-lg bg-blue-600 text-white hover:bg-blue-700 flex items-center gap-1">
+            <PlayCircle size={12} /> Iniciar
+          </button>
+        )}
+        {act.Estado === 'en_proceso' && (
+          <>
+            <button onClick={() => { setEditHoras(v => !v); setEditEvidencia(false) }}
+              className="text-xs px-2.5 py-1 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 flex items-center gap-1">
+              <Clock size={12} /> Horas reales
+            </button>
+            <button onClick={() => onUpdate(act.ID, { estado: 'completado', horasReales: Number(horas) })}
+              className="text-xs px-2.5 py-1 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 flex items-center gap-1">
+              <CheckCircle size={12} /> Completar
+            </button>
+          </>
+        )}
+        {/* Evidencia disponible en cualquier estado (excepto pendiente) */}
+        {act.Estado !== 'pendiente' && (
+          <button onClick={() => { setEditEvidencia(v => !v); setEditHoras(false) }}
+            className="text-xs px-2.5 py-1 rounded-lg bg-amber-100 text-amber-700 hover:bg-amber-200 flex items-center gap-1">
+            <Paperclip size={12} /> {act.Evidencia ? 'Editar evidencia' : 'Agregar evidencia'}
+          </button>
+        )}
+      </div>
+
+      {/* Panel: Horas reales */}
       {editHoras && (
         <div className="pt-2 space-y-2">
           <div className="flex gap-2">
             <input type="number" step="0.5" min="0" className="input text-sm flex-1"
               value={horas} onChange={e => setHoras(e.target.value)} placeholder="Horas trabajadas" />
-            <button onClick={saveHoras} className="btn-primary text-xs px-3">Guardar</button>
+            <button onClick={saveHoras} disabled={saving} className="btn-primary text-xs px-3">
+              {saving ? '...' : 'Guardar'}
+            </button>
           </div>
           <textarea className="input text-xs" rows={2} value={notas}
             onChange={e => setNotas(e.target.value)} placeholder="Notas opcionales..." />
+        </div>
+      )}
+
+      {/* Panel: Evidencia */}
+      {editEvidencia && (
+        <div className="pt-2 space-y-2">
+          <p className="text-xs text-gray-500">Pega un enlace (Drive, Dropbox, etc.) o escribe una descripción del trabajo realizado.</p>
+          <textarea className="input text-xs" rows={3} value={evidencia}
+            onChange={e => setEvidencia(e.target.value)}
+            placeholder="https://drive.google.com/... o descripción de lo que se realizó" />
+          <div className="flex gap-2">
+            <button onClick={() => setEditEvidencia(false)} className="btn-secondary text-xs flex-1">Cancelar</button>
+            <button onClick={saveEvidencia} disabled={saving} className="btn-primary text-xs flex-1">
+              {saving ? 'Guardando...' : 'Guardar evidencia'}
+            </button>
+          </div>
         </div>
       )}
     </div>
@@ -199,8 +265,10 @@ export default function FlujosView() {
   }, [isAdmin])
 
   const semanaLabel = (() => {
-    const d = new Date(semana); const fin = new Date(semana); fin.setDate(fin.getDate() + 4)
-    return `${d.getDate()} – ${fin.getDate()} ${fin.toLocaleDateString('es-EC', { month:'long', year:'numeric' })}`
+    const d   = new Date(semana + 'T12:00:00Z')
+    const fin = new Date(semana + 'T12:00:00Z')
+    fin.setUTCDate(fin.getUTCDate() + 4)
+    return `${d.getUTCDate()} – ${fin.getUTCDate()} ${fin.toLocaleDateString('es-EC', { month:'long', year:'numeric' })}`
   })()
 
   async function crearFlujo() {
@@ -337,7 +405,9 @@ export default function FlujosView() {
               <div className="space-y-4">
                 {DIAS_SEMANA.map((dia, i) => {
                   const fechaDia = addDays(semana, i)
-                  const esHoy = fechaDia === new Date().toISOString().slice(0, 10)
+                  const now = new Date()
+                  const todayUtc = `${now.getUTCFullYear()}-${String(now.getUTCMonth()+1).padStart(2,'0')}-${String(now.getUTCDate()).padStart(2,'0')}`
+                  const esHoy = fechaDia === todayUtc
                   const acts = actsByDia[dia]
                   return (
                     <div key={dia}>

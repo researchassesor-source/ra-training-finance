@@ -5,17 +5,27 @@ import { fmt } from '../../utils/formatters'
 import { LogIn, LogOut, Clock, Calendar, User, ChevronLeft, ChevronRight } from 'lucide-react'
 import TableSkeleton from '../UI/TableSkeleton'
 
-function getMondayOf(date) {
-  const d = date ? new Date(date) : new Date()
-  const day = d.getDay()
+function getMondayOf(dateStr) {
+  let d
+  if (dateStr) {
+    d = new Date(dateStr + 'T12:00:00Z')
+  } else {
+    const now = new Date()
+    d = new Date(
+      now.getUTCFullYear() + '-' +
+      String(now.getUTCMonth() + 1).padStart(2, '0') + '-' +
+      String(now.getUTCDate()).padStart(2, '0') + 'T12:00:00Z'
+    )
+  }
+  const day = d.getUTCDay()
   const diff = day === 0 ? -6 : 1 - day
-  d.setDate(d.getDate() + diff)
+  d.setUTCDate(d.getUTCDate() + diff)
   return d.toISOString().slice(0, 10)
 }
 
 function addDays(dateStr, n) {
-  const d = new Date(dateStr)
-  d.setDate(d.getDate() + n)
+  const d = new Date(dateStr + 'T12:00:00Z')
+  d.setUTCDate(d.getUTCDate() + n)
   return d.toISOString().slice(0, 10)
 }
 
@@ -119,13 +129,14 @@ export default function AsistenciaView() {
     finally { setTimbLoading(false) }
   }
 
-  const DIAS_SEMANA = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo']
-  const diasSemana = Array.from({ length: 7 }, (_, i) => addDays(semana, i))
+  const DIAS_SEMANA = ['Lun','Mar','Mié','Jue','Vie']
+  const diasSemana = Array.from({ length: 5 }, (_, i) => addDays(semana, i))
 
   const semanaLabel = (() => {
-    const lun = new Date(semana)
-    const dom = new Date(semana); dom.setDate(dom.getDate() + 6)
-    return `${lun.getDate()} – ${dom.getDate()} ${dom.toLocaleDateString('es-EC', { month: 'long', year: 'numeric' })}`
+    const lun = new Date(semana + 'T12:00:00Z')
+    const vie = new Date(semana + 'T12:00:00Z')
+    vie.setUTCDate(vie.getUTCDate() + 4)
+    return `${lun.getUTCDate()} – ${vie.getUTCDate()} ${vie.toLocaleDateString('es-EC', { month: 'long', year: 'numeric' })}`
   })()
 
   return (
@@ -176,15 +187,17 @@ export default function AsistenciaView() {
                 Total: {resumen ? formatHoras(resumen.totalHoras) : '0h 00m'}
               </span>
             </div>
-            <div className="grid grid-cols-7 gap-2">
+            <div className="grid grid-cols-5 gap-2">
               {diasSemana.map((fecha, i) => {
                 const diaData = resumen?.dias?.find(d => d.fecha === fecha)
-                const esHoy = fecha === new Date().toISOString().slice(0, 10)
+                const now = new Date()
+                const todayUtc = `${now.getUTCFullYear()}-${String(now.getUTCMonth()+1).padStart(2,'0')}-${String(now.getUTCDate()).padStart(2,'0')}`
+                const esHoy = fecha === todayUtc
                 return (
                   <div key={fecha} className={`rounded-xl p-3 text-center ${esHoy ? 'bg-brand-50 border border-brand-200' : 'bg-gray-50'}`}>
-                    <p className={`text-xs font-semibold ${esHoy ? 'text-brand-700' : 'text-gray-500'}`}>{DIAS_SEMANA[i].slice(0, 3)}</p>
+                    <p className={`text-xs font-semibold ${esHoy ? 'text-brand-700' : 'text-gray-500'}`}>{DIAS_SEMANA[i]}</p>
                     <p className={`text-xs mt-0.5 ${esHoy ? 'text-brand-500' : 'text-gray-400'}`}>
-                      {new Date(fecha).getDate()}
+                      {new Date(fecha + 'T12:00:00Z').getUTCDate()}
                     </p>
                     <p className={`text-sm font-bold mt-1 ${diaData?.horas > 0 ? 'text-emerald-700' : 'text-gray-300'}`}>
                       {diaData ? formatHoras(diaData.horas) : '—'}

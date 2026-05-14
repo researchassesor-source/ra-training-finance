@@ -121,7 +121,7 @@ const SHEET_HEADERS = {
   Convenios:        ['ID','Organizacion','Representante','Cargo','Objeto','ObligacionesRA','ObligacionesAliado','Vigencia','FechaInicio','FechaFin','Estado','Notas','CreadoPor','FechaCreacion'],
   Asistencia:       ['ID','Username','Nombre','Tipo','Timestamp','Fecha','Notas','FechaCreacion'],
   FlujosSemanales:  ['ID','Username','NombreUsuario','Semana','FechaInicio','FechaFin','TotalHorasPlan','Estado','Notas','CreadoPor','FechaCreacion'],
-  ActividadesFlujo: ['ID','FlujoID','Username','Titulo','Descripcion','DiaSemana','HorasEstimadas','Estado','HorasReales','Notas','CompletadoEn','FechaCreacion'],
+  ActividadesFlujo: ['ID','FlujoID','Username','Titulo','Descripcion','DiaSemana','HorasEstimadas','Estado','HorasReales','Notas','Evidencia','CompletadoEn','FechaCreacion'],
 };
 
 function getSheet(name) {
@@ -968,10 +968,18 @@ function updateConvenio(user, { id, convenio }) {
 // ─────────────────────────────────────────────
 
 function getMondayOf(dateStr) {
-  var d = dateStr ? new Date(dateStr) : new Date();
-  var day = d.getDay(); // 0=Dom 1=Lun...6=Sab
+  // Usar UTC para evitar problemas de zona horaria al parsear "YYYY-MM-DD"
+  var d = dateStr ? new Date(dateStr + 'T12:00:00Z') : new Date();
+  if (!dateStr) {
+    // Para fecha actual usar mediodia UTC del dia local del servidor (GAS corre en UTC)
+    var now = new Date();
+    d = new Date(now.getUTCFullYear() + '-' +
+      String(now.getUTCMonth() + 1).padStart(2,'0') + '-' +
+      String(now.getUTCDate()).padStart(2,'0') + 'T12:00:00Z');
+  }
+  var day = d.getUTCDay(); // 0=Dom 1=Lun...6=Sab en UTC
   var diff = day === 0 ? -6 : 1 - day;
-  d.setDate(d.getDate() + diff);
+  d.setUTCDate(d.getUTCDate() + diff);
   return d.toISOString().slice(0, 10);
 }
 
@@ -1016,7 +1024,7 @@ function getResumenSemanal(user, { username, semana } = {}) {
   if (!isVendedor(user)) throw new Error('Acceso denegado.');
   const target   = (isAdmin(user) && username) ? username : user.Username;
   const lunes    = getMondayOf(semana);
-  const finD     = new Date(lunes); finD.setDate(finD.getDate() + 6);
+  const finD     = new Date(lunes + 'T12:00:00Z'); finD.setUTCDate(finD.getUTCDate() + 6);
   const finSemana = finD.toISOString().slice(0, 10);
   const timbradas = sheetToObjects(getSheet('Asistencia'))
     .filter(function(r) { return r.Username === target && r.Fecha >= lunes && r.Fecha <= finSemana; })
@@ -1069,7 +1077,7 @@ function getFlujosSemana(user, { username, semana } = {}) {
   const flujos = sheetToObjects(getSheet('FlujosSemanales'))
     .filter(function(f) { return f.Username === target && f.Semana === lunes; });
   const todasActs = sheetToObjects(getSheet('ActividadesFlujo'));
-  const DIAS = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
+  const DIAS = ['Lunes','Martes','Miércoles','Jueves','Viernes'];
   const result = flujos.map(function(f) {
     var acts = todasActs
       .filter(function(a) { return a.FlujoID === f.ID; })
@@ -1089,7 +1097,7 @@ function addFlujoSemanal(user, { flujo } = {}) {
   const sheet  = getSheet('FlujosSemanales');
   const id     = generateId('FLJ');
   const now    = new Date().toISOString();
-  const finD   = new Date(lunes); finD.setDate(finD.getDate() + 4);
+  const finD   = new Date(lunes + 'T12:00:00Z'); finD.setUTCDate(finD.getUTCDate() + 4);
   const uRow   = sheetToObjects(getSheet('Usuarios')).find(function(u) { return u.Username === flujo.username; });
   sheet.appendRow([
     id, flujo.username, uRow ? uRow.Nombre : flujo.username, lunes,
@@ -1126,7 +1134,7 @@ function addActividadFlujo(user, { actividad } = {}) {
     actividad.titulo, actividad.descripcion || '',
     actividad.diaSemana || 'Lunes',
     Number(actividad.horasEstimadas) || 1,
-    'pendiente', 0, '', '', now,
+    'pendiente', 0, '', '', '', now,
   ]);
   return { success: true, id: id };
 }
@@ -1149,7 +1157,8 @@ function updateActividadFlujo(user, { id, actividad } = {}) {
       fields.CompletadoEn = new Date().toISOString();
   }
   if (actividad.horasReales !== undefined) fields.HorasReales = Number(actividad.horasReales) || 0;
-  if (actividad.notas       !== undefined) fields.Notas = actividad.notas;
+  if (actividad.notas       !== undefined) fields.Notas     = actividad.notas;
+  if (actividad.evidencia   !== undefined) fields.Evidencia = actividad.evidencia;
   updateRow(sheet, row, fields);
   return { success: true };
 }
