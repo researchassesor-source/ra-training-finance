@@ -969,6 +969,14 @@ function updateConvenio(user, { id, convenio }) {
 // ASISTENCIA — TIMBRADAS
 // ─────────────────────────────────────────────
 
+// Helper: devuelve solo YYYY-MM-DD aunque el valor sea un Date→ISO completo
+// Google Sheets auto-detecta strings de fecha como objetos Date; sheetToObjects
+// los convierte a ISO completo (ej: '2026-05-11T05:00:00.000Z'). Usar este
+// helper en TODOS los comparadores de fecha para evitar falsos negativos.
+function ds(val) {
+  return val ? String(val).slice(0, 10) : '';
+}
+
 function getMondayOf(dateStr) {
   // Usar UTC para evitar problemas de zona horaria al parsear "YYYY-MM-DD"
   var d = dateStr ? new Date(dateStr + 'T12:00:00Z') : new Date();
@@ -995,7 +1003,7 @@ function registrarTimbrada(user, { tipo, notas } = {}) {
   const now   = new Date().toISOString();
   // Última timbrada del usuario hoy
   const misHoy = rows
-    .filter(function(r) { return r.Username === user.Username && r.Fecha === hoy; })
+    .filter(function(r) { return r.Username === user.Username && ds(r.Fecha) === hoy; })
     .sort(function(a, b) { return new Date(b.Timestamp) - new Date(a.Timestamp); });
   const ultimaTipo = misHoy.length > 0 ? misHoy[0].Tipo : 'salida';
   if (tipo === 'entrada' && ultimaTipo === 'entrada')
@@ -1012,8 +1020,10 @@ function getAsistencia(user, { username, desde, hasta } = {}) {
   const target = (isAdmin(user) && username) ? username : user.Username;
   let data = sheetToObjects(getSheet('Asistencia'))
     .filter(function(r) { return r.Username === target; });
-  if (desde) data = data.filter(function(r) { return r.Fecha >= desde; });
-  if (hasta) data = data.filter(function(r) { return r.Fecha <= hasta; });
+  if (desde) data = data.filter(function(r) { return ds(r.Fecha) >= desde; });
+  if (hasta) data = data.filter(function(r) { return ds(r.Fecha) <= hasta; });
+  // Normalizar Fecha a YYYY-MM-DD en cada registro para que el frontend pueda comparar
+  data = data.map(function(r) { return Object.assign({}, r, { Fecha: ds(r.Fecha) }); });
   data.sort(function(a, b) { return new Date(b.Timestamp) - new Date(a.Timestamp); });
   // Estado actual (última timbrada de hoy)
   const hoy = new Date().toISOString().slice(0, 10);
@@ -1029,7 +1039,8 @@ function getResumenSemanal(user, { username, semana } = {}) {
   const finD     = new Date(lunes + 'T12:00:00Z'); finD.setUTCDate(finD.getUTCDate() + 6);
   const finSemana = finD.toISOString().slice(0, 10);
   const timbradas = sheetToObjects(getSheet('Asistencia'))
-    .filter(function(r) { return r.Username === target && r.Fecha >= lunes && r.Fecha <= finSemana; })
+    .filter(function(r) { return r.Username === target && ds(r.Fecha) >= lunes && ds(r.Fecha) <= finSemana; })
+    .map(function(r) { return Object.assign({}, r, { Fecha: ds(r.Fecha) }); })
     .sort(function(a, b) { return new Date(a.Timestamp) - new Date(b.Timestamp); });
   // Construir mapa de días
   var diasMap = {};
@@ -1059,7 +1070,7 @@ function getAsistenciaTodosUsuarios(user) {
   requireAdmin(user);
   const hoy   = new Date().toISOString().slice(0, 10);
   const rows  = sheetToObjects(getSheet('Asistencia'))
-    .filter(function(r) { return r.Fecha === hoy; })
+    .filter(function(r) { return ds(r.Fecha) === hoy; })
     .sort(function(a,b) { return new Date(b.Timestamp) - new Date(a.Timestamp); });
   const usuariosMap = {};
   rows.forEach(function(r) {
@@ -1077,7 +1088,7 @@ function getFlujosSemana(user, { username, semana } = {}) {
   const target = (isAdmin(user) && username) ? username : user.Username;
   const lunes  = getMondayOf(semana);
   const flujos = sheetToObjects(getSheet('FlujosSemanales'))
-    .filter(function(f) { return f.Username === target && f.Semana === lunes; });
+    .filter(function(f) { return f.Username === target && ds(f.Semana) === lunes; });
   const todasActs = sheetToObjects(getSheet('ActividadesFlujo'));
   const DIAS = ['Lunes','Martes','Miércoles','Jueves','Viernes'];
   const result = flujos.map(function(f) {
@@ -1094,7 +1105,7 @@ function addFlujoSemanal(user, { flujo } = {}) {
   const lunes = getMondayOf(flujo.semana);
   // Evitar duplicado
   const existe = sheetToObjects(getSheet('FlujosSemanales'))
-    .find(function(f) { return f.Username === flujo.username && f.Semana === lunes; });
+    .find(function(f) { return f.Username === flujo.username && ds(f.Semana) === lunes; });
   if (existe) return { success: false, error: 'Ya existe un flujo para ese usuario y semana.' };
   const sheet  = getSheet('FlujosSemanales');
   const id     = generateId('FLJ');

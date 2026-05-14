@@ -242,11 +242,11 @@ export default function FlujosView() {
   const [saving, setSaving]                   = useState(false)
 
   const targetUser = isAdmin
-    ? (usuarioSel || (usuarios[0]?.Username || ''))
+    ? usuarioSel   // no fallback: esperar a que setUsuarioSel se inicialice
     : (user?.username || '')
 
   const load = useCallback(() => {
-    if (!targetUser) return
+    if (!targetUser) return  // evita carga con usuario vacío
     setLoading(true)
     api.getFlujosSemana({ username: targetUser, semana })
       .then(r => setFlujos(r.data || []))
