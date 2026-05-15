@@ -144,6 +144,8 @@ export default function AsistenciaView() {
 
   const targetUser = isAdmin && usuarioSel ? usuarioSel : (isAdmin ? '' : user?.username)
 
+  // Carga el resumen semanal e historial para la semana visible.
+  // NO toca estadoActual cuando se ve una semana que no contiene hoy.
   const load = useCallback(() => {
     setLoading(true)
     setError('')
@@ -156,19 +158,36 @@ export default function AsistenciaView() {
         setResumen(res.data)
         const timbradas = hist.data || []
         setHistorial(timbradas)
-        setEstadoActual(hist.estadoActual)
-        // Buscar la entrada activa de hoy (última entrada sin salida posterior)
+        // Solo actualizar estadoActual cuando la semana visible contiene hoy
         const hoy = utcToday()
-        const deHoy = timbradas.filter(t => t.Fecha === hoy)
-          .sort((a, b) => new Date(b.Timestamp) - new Date(a.Timestamp))
-        const ultima = deHoy[0]
-        setEntradaTs(ultima?.Tipo === 'entrada' ? ultima.Timestamp : null)
+        if (hoy >= semana && hoy <= addDays(semana, 6)) {
+          setEstadoActual(hist.estadoActual)
+          const deHoy = timbradas.filter(t => t.Fecha === hoy)
+            .sort((a, b) => new Date(b.Timestamp) - new Date(a.Timestamp))
+          setEntradaTs(deHoy[0]?.Tipo === 'entrada' ? deHoy[0].Timestamp : null)
+        }
       })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false))
   }, [semana, targetUser])
 
   useEffect(() => { load() }, [load])
+
+  // Carga dedicada del estado actual — independiente de la semana visible.
+  // Se ejecuta solo cuando cambia el usuario objetivo (no cuando navega semanas).
+  useEffect(() => {
+    const params = targetUser ? { username: targetUser } : {}
+    api.getAsistencia(params)   // sin filtro de fecha = retorna estadoActual real
+      .then(res => {
+        setEstadoActual(res.estadoActual)
+        const hoy = utcToday()
+        const deHoy = (res.data || [])
+          .filter(t => t.Fecha === hoy)
+          .sort((a, b) => new Date(b.Timestamp) - new Date(a.Timestamp))
+        setEntradaTs(deHoy[0]?.Tipo === 'entrada' ? deHoy[0].Timestamp : null)
+      })
+      .catch(() => {})
+  }, [targetUser])
 
   useEffect(() => {
     if (isAdmin) {
