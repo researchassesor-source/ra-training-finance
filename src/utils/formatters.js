@@ -4,14 +4,23 @@ export const fmt = {
 
   date: (v) => {
     if (!v) return '—'
-    const d = new Date(v)
+    const s = String(v)
+    // Strings de solo fecha (YYYY-MM-DD) se parsean como UTC medianoche.
+    // En Ecuador (UTC-5) eso retrocede al día anterior. Usamos mediodía UTC
+    // para que toLocaleDateString devuelva el día correcto en cualquier zona.
+    const d = s.length >= 10 && s[4] === '-' && s[7] === '-' && s.length === 10
+      ? new Date(s + 'T12:00:00Z')
+      : new Date(s)
     if (isNaN(d)) return v
     return d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' })
   },
 
   datetime: (v) => {
     if (!v) return '—'
-    const d = new Date(v)
+    const s = String(v)
+    const d = s.length === 10 && s[4] === '-' && s[7] === '-'
+      ? new Date(s + 'T12:00:00Z')
+      : new Date(s)
     if (isNaN(d)) return v
     return d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
   },

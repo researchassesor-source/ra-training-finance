@@ -43,9 +43,11 @@ function formatHoras(h) {
   return `${hh}h ${mm.toString().padStart(2, '0')}m`
 }
 
-function utcToday() {
+// Devuelve la fecha local del navegador como YYYY-MM-DD.
+// El backend también usa la hora local Ecuador, así que deben coincidir.
+function localToday() {
   const now = new Date()
-  return `${now.getUTCFullYear()}-${String(now.getUTCMonth()+1).padStart(2,'0')}-${String(now.getUTCDate()).padStart(2,'0')}`
+  return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`
 }
 
 // ── ClockWidget ─────────────────────────────────────────────
@@ -159,7 +161,7 @@ export default function AsistenciaView() {
         const timbradas = hist.data || []
         setHistorial(timbradas)
         // Solo actualizar estadoActual cuando la semana visible contiene hoy
-        const hoy = utcToday()
+        const hoy = localToday()
         if (hoy >= semana && hoy <= addDays(semana, 6)) {
           setEstadoActual(hist.estadoActual)
           const deHoy = timbradas.filter(t => t.Fecha === hoy)
@@ -180,7 +182,7 @@ export default function AsistenciaView() {
     api.getAsistencia(params)   // sin filtro de fecha = retorna estadoActual real
       .then(res => {
         setEstadoActual(res.estadoActual)
-        const hoy = utcToday()
+        const hoy = localToday()
         const deHoy = (res.data || [])
           .filter(t => t.Fecha === hoy)
           .sort((a, b) => new Date(b.Timestamp) - new Date(a.Timestamp))
@@ -303,7 +305,7 @@ export default function AsistenciaView() {
             <div className="grid grid-cols-5 gap-2">
               {diasSemana.map((fecha, i) => {
                 const diaData = resumen?.dias?.find(d => d.fecha === fecha)
-                const todayUtc = utcToday()
+                const todayUtc = localToday()
                 const esHoy    = fecha === todayUtc
                 const seleccionado = diaFiltro === fecha
                 return (

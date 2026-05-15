@@ -481,8 +481,8 @@ export default function FlujosView() {
                 {DIAS_SEMANA.map((dia, i) => {
                   const fechaDia = addDays(semana, i)
                   const now = new Date()
-                  const todayUtc = `${now.getUTCFullYear()}-${String(now.getUTCMonth()+1).padStart(2,'0')}-${String(now.getUTCDate()).padStart(2,'0')}`
-                  const esHoy = fechaDia === todayUtc
+                  const todayLocal = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`
+                  const esHoy = fechaDia === todayLocal
                   const acts = actsByDia[dia]
                   return (
                     <div key={dia}>

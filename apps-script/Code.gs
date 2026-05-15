@@ -969,6 +969,12 @@ function updateConvenio(user, { id, convenio }) {
 // ASISTENCIA — TIMBRADAS
 // ─────────────────────────────────────────────
 
+// Fecha local en Ecuador (America/Guayaquil = UTC-5) como YYYY-MM-DD.
+// Evita que registros después de las 7pm Ecuador aparezcan en el día UTC siguiente.
+function hoyLocal() {
+  return Utilities.formatDate(new Date(), 'America/Guayaquil', 'yyyy-MM-dd');
+}
+
 // Helper: devuelve solo YYYY-MM-DD aunque el valor sea un Date→ISO completo
 // Google Sheets auto-detecta strings de fecha como objetos Date; sheetToObjects
 // los convierte a ISO completo (ej: '2026-05-11T05:00:00.000Z'). Usar este
@@ -999,7 +1005,7 @@ function registrarTimbrada(user, { tipo, notas } = {}) {
     return { success: false, error: 'Tipo inválido. Use "entrada" o "salida".' };
   const sheet = getSheet('Asistencia');
   const rows  = sheetToObjects(sheet);
-  const hoy   = new Date().toISOString().slice(0, 10);
+  const hoy   = hoyLocal();   // fecha local Ecuador, no UTC
   const now   = new Date().toISOString();
   // Última timbrada del usuario hoy
   const misHoy = rows
@@ -1025,8 +1031,8 @@ function getAsistencia(user, { username, desde, hasta } = {}) {
   // Normalizar Fecha a YYYY-MM-DD en cada registro para que el frontend pueda comparar
   data = data.map(function(r) { return Object.assign({}, r, { Fecha: ds(r.Fecha) }); });
   data.sort(function(a, b) { return new Date(b.Timestamp) - new Date(a.Timestamp); });
-  // Estado actual (última timbrada de hoy)
-  const hoy = new Date().toISOString().slice(0, 10);
+  // Estado actual (última timbrada de hoy — fecha local Ecuador)
+  const hoy = hoyLocal();
   const ultHoy = data.filter(function(r) { return r.Fecha === hoy; });
   const estadoActual = ultHoy.length > 0 ? ultHoy[0].Tipo : null;
   return { success: true, data: data, estadoActual: estadoActual };
@@ -1068,7 +1074,7 @@ function getResumenSemanal(user, { username, semana } = {}) {
 
 function getAsistenciaTodosUsuarios(user) {
   requireAdmin(user);
-  const hoy   = new Date().toISOString().slice(0, 10);
+  const hoy   = hoyLocal();
   const rows  = sheetToObjects(getSheet('Asistencia'))
     .filter(function(r) { return ds(r.Fecha) === hoy; })
     .sort(function(a,b) { return new Date(b.Timestamp) - new Date(a.Timestamp); });
