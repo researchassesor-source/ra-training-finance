@@ -18,6 +18,7 @@ import ConveniosList from './components/Convenios/ConveniosList'
 import CalendarView from './components/Calendario/CalendarView'
 import AsistenciaView from './components/Asistencia/AsistenciaView'
 import FlujosView from './components/Flujos/FlujosView'
+import VerificarCertificado from './components/Verificacion/VerificarCertificado'
 
 function RequireAuth({ children }) {
   const { user } = useAuth()
@@ -56,6 +57,9 @@ function AppRoutes() {
           ? <Navigate to={isAdmin ? '/dashboard' : isVendedor ? '/mis-ingresos' : '/mis-egresos'} replace />
           : <Login />
       } />
+
+      {/* Pública — sin sesión, para escanear el QR de un certificado */}
+      <Route path="/verificar/:id" element={<VerificarCertificado />} />
 
       <Route element={<RequireAuth><Layout /></RequireAuth>}>
         {/* Admin routes */}

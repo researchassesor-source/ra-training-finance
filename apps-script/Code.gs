@@ -36,6 +36,8 @@ function processRequest(data) {
   const { action, token, ...params } = data;
 
   if (action === 'login') return handleLogin(params);
+  // Endpoint público: verificación de certificados por QR, sin sesión requerida.
+  if (action === 'verificarCertificado') return handleVerificarCertificado(params);
 
   const user = validateToken(token);
   if (!user) return { success: false, error: 'Sesión inválida o expirada. Por favor inicia sesión de nuevo.' };
@@ -117,7 +119,7 @@ const SHEET_HEADERS = {
   Proyecciones:     ['ID','Evento','Tipo','FechaEstimada','MontoProyectado','MontoReal','Estado','Notas','CreadoPor','FechaCreacion'],
   Categorias:       ['ID','Nombre','Tipo','Activo'],
   Servicios:        ['ID','Nombre','Tipo','Modalidad','Precio','Duracion','Descripcion','Activo','FechaCreacion','FechaEvento','FechaFinEvento','LugarEvento'],
-  Inscripciones:    ['ID','ClienteNombre','ClienteID','ClienteEmail','ClienteTelefono','ServicioID','ServicioNombre','Modalidad','FechaInicio','Monto','MetodoPago','RazonSocial','RUC','DireccionFactura','EstadoPago','EstadoCertificado','IngresoID','Notas','CreadoPor','FechaCreacion'],
+  Inscripciones:    ['ID','ClienteNombre','ClienteID','ClienteEmail','ClienteTelefono','ServicioID','ServicioNombre','Modalidad','FechaInicio','Monto','MetodoPago','RazonSocial','RUC','DireccionFactura','EstadoPago','EstadoCertificado','IngresoID','Notas','CreadoPor','FechaCreacion','FechaEmisionCertificado'],
   Sesiones:         ['Token','Username','UserID','Rol','Nombre','Expira'],
   ConfigPagos:      ['ID','Nombre','Tipo','Detalles','Instrucciones','Activo','FechaCreacion'],
   Convenios:        ['ID','Organizacion','Representante','Cargo','Objeto','ObligacionesRA','ObligacionesAliado','Vigencia','FechaInicio','FechaFin','Estado','Notas','CreadoPor','FechaCreacion'],
@@ -259,6 +261,26 @@ function handleLogout(token) {
   const session  = sessions.find(s => s.Token === token);
   if (session) sheet.deleteRow(session._row);
   return { success: true };
+}
+
+// Endpoint público (sin token) para el QR de verificación de certificados.
+// Solo expone campos no sensibles y nunca revela si un ID existe pero
+// aún no fue emitido (mismo mensaje "no válido" para ambos casos).
+function handleVerificarCertificado({ id } = {}) {
+  if (!id) return { success: true, valido: false };
+  const row = sheetToObjects(getSheet('Inscripciones')).find(r => r.ID === id);
+  if (!row || row.EstadoCertificado !== 'emitido') return { success: true, valido: false };
+  return {
+    success: true,
+    valido: true,
+    data: {
+      nombre:       row.ClienteNombre,
+      servicio:     row.ServicioNombre,
+      modalidad:    row.Modalidad,
+      fechaInicio:  row.FechaInicio,
+      fechaEmision: row.FechaEmisionCertificado || '',
+    },
+  };
 }
 
 // ─────────────────────────────────────────────
@@ -810,6 +832,9 @@ function updateInscripcion(user, { id, inscripcion }) {
   if (!row) return { success: false, error: 'Inscripción no encontrada.' };
   if (!isAdmin(user) && row.CreadoPor !== user.Username) return { success: false, error: 'No autorizado.' };
 
+  // Primera vez que el certificado pasa a 'emitido' → registrar fecha de emisión
+  const emiteAhora = inscripcion.estadoCertificado === 'emitido' && row.EstadoCertificado !== 'emitido';
+
   updateRow(sheet, row, {
     ClienteNombre: inscripcion.clienteNombre, ClienteID: inscripcion.clienteID,
     ClienteEmail: inscripcion.clienteEmail, ClienteTelefono: inscripcion.clienteTelefono,
@@ -819,6 +844,7 @@ function updateInscripcion(user, { id, inscripcion }) {
     RUC: inscripcion.ruc, DireccionFactura: inscripcion.direccionFactura,
     EstadoPago: inscripcion.estadoPago, EstadoCertificado: inscripcion.estadoCertificado,
     Notas: inscripcion.notas,
+    FechaEmisionCertificado: emiteAhora ? new Date().toISOString() : undefined,
   });
 
   // Sincronizar ingreso vinculado cuando cambia el estado de pago o el monto

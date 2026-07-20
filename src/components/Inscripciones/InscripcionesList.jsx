@@ -3,11 +3,12 @@ import { api } from '../../services/api'
 import { useAuth } from '../../context/AuthContext'
 import { fmt, ESTADOS_CERTIFICADO, ESTADOS_PAGO_INS } from '../../utils/formatters'
 import { exportInscripcionPDF, exportInscripcionesCSV, exportInscripcionesPDF } from '../../utils/exporters'
+import { buildVerificationUrl, generateQrDataUrl } from '../../utils/qr'
 import Modal from '../UI/Modal'
 import ConfirmDialog from '../UI/ConfirmDialog'
 import Spinner from '../UI/Spinner'
 import InscripcionesForm from './InscripcionesForm'
-import { Plus, Pencil, Download, Award, CheckCircle, MessageCircle, Trash2, FileText } from 'lucide-react'
+import { Plus, Pencil, Download, Award, CheckCircle, MessageCircle, Trash2, FileText, QrCode } from 'lucide-react'
 
 export default function InscripcionesList() {
   const { isAdmin, user } = useAuth()
@@ -22,6 +23,8 @@ export default function InscripcionesList() {
   const [waIns, setWaIns]       = useState(null)
   const [cuentas, setCuentas]   = useState([])
   const [waSelected, setWaSelected] = useState('')
+  const [qrIns, setQrIns]       = useState(null)
+  const [qrDataUrl, setQrDataUrl] = useState('')
 
   const load = useCallback(() => {
     setLoading(true)
@@ -77,6 +80,12 @@ export default function InscripcionesList() {
     try { await api.deleteInscripcion(confirm.ID); setConfirm(null); load() }
     catch (e) { setError(e.message) }
     finally { setDeleting(false) }
+  }
+
+  function handleShowQr(ins) {
+    setQrIns(ins)
+    setQrDataUrl('')
+    generateQrDataUrl(ins.ID).then(setQrDataUrl).catch(() => setError('No se pudo generar el código QR.'))
   }
 
   function openWhatsApp(ins) {
@@ -252,6 +261,12 @@ export default function InscripcionesList() {
                             <Award size={14} />
                           </button>
                         )}
+                        {i.EstadoCertificado === 'emitido' && (
+                          <button onClick={() => handleShowQr(i)} title="QR de verificación del certificado"
+                            className="p-1.5 hover:bg-brand-50 rounded text-gray-400 hover:text-brand-600 transition-colors">
+                            <QrCode size={14} />
+                          </button>
+                        )}
                         {(isAdmin || i.EstadoPago === 'pendiente') && (
                           <button onClick={() => setConfirm(i)} title="Eliminar"
                             className="p-1.5 hover:bg-red-50 rounded text-gray-400 hover:text-red-600 transition-colors">
@@ -328,6 +343,32 @@ export default function InscripcionesList() {
                 <MessageCircle size={15} /> Abrir WhatsApp
               </button>
             </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal open={!!qrIns} onClose={() => setQrIns(null)} title="QR de Verificación del Certificado" size="sm">
+        {qrIns && (
+          <div className="space-y-4 text-center">
+            <p className="text-sm text-gray-600">
+              Pega este QR en el certificado de <span className="font-medium">{qrIns.ClienteNombre}</span> — al
+              escanearlo se confirma que el certificado fue emitido por R.A. Training.
+            </p>
+            {qrDataUrl ? (
+              <>
+                <img src={qrDataUrl} alt="QR de verificación" className="mx-auto rounded-lg border border-gray-200" width={220} height={220} />
+                <p className="text-xs text-gray-400 break-all">{buildVerificationUrl(qrIns.ID)}</p>
+                <a
+                  href={qrDataUrl}
+                  download={`qr_certificado_${qrIns.ID}.png`}
+                  className="btn-primary w-full justify-center"
+                >
+                  <Download size={15} /> Descargar PNG
+                </a>
+              </>
+            ) : (
+              <Spinner text="Generando QR..." />
+            )}
           </div>
         )}
       </Modal>

@@ -10,16 +10,17 @@
     "deploy": "vite build && gh-pages -d dist"
   },
   "dependencies": {
+    "date-fns": "^3.3.1",
+    "docx": "^8.5.0",
+    "file-saver": "^2.0.5",
+    "jspdf": "^2.5.1",
+    "jspdf-autotable": "^3.8.1",
+    "lucide-react": "^0.303.0",
+    "qrcode": "^1.5.4",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.21.0",
-    "recharts": "^2.10.0",
-    "jspdf": "^2.5.1",
-    "jspdf-autotable": "^3.8.1",
-    "docx": "^8.5.0",
-    "file-saver": "^2.0.5",
-    "date-fns": "^3.3.1",
-    "lucide-react": "^0.303.0"
+    "recharts": "^2.10.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.2.1",

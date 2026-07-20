@@ -53,6 +53,10 @@ export const api = {
   login: (username, password) =>
     call('login', { username, password }),
 
+  // Pública — sin token, usada por la página de verificación de certificados (QR)
+  verificarCertificado: (id) =>
+    call('verificarCertificado', { id }),
+
   logout: () => {
     _cache.clear()  // clear all cache on logout
     return call('logout', {}, getToken())
