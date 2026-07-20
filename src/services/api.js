@@ -98,11 +98,12 @@ export const api = {
   getPagos: (filtros = {}) =>
     callCached('getPagos', { filtros }, getToken()),
   addPago: (pago) => {
-    bust('getPagos', 'getDashboard')
+    // Un pago vinculado a un egreso puede marcarlo como 'pagado' en el backend
+    bust('getPagos', 'getDashboard', 'getEgresos')
     return call('addPago', { pago }, getToken())
   },
   updatePago: (id, pago) => {
-    bust('getPagos', 'getDashboard')
+    bust('getPagos', 'getDashboard', 'getEgresos')
     return call('updatePago', { id, pago }, getToken())
   },
   deletePago: (id) => {
