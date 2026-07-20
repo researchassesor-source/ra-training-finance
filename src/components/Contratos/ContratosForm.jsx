@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { api } from '../../services/api'
+import { toDateInput } from '../../utils/formatters'
 
 const EMPTY = {
   tipo: 'cliente', nombre: '', concepto: '', valorTotal: '',
@@ -13,8 +14,8 @@ function mapInitial(initial) {
     nombre:      initial.Nombre      || initial.nombre      || '',
     concepto:    initial.Concepto    || initial.concepto    || '',
     valorTotal:  initial.ValorTotal  || initial.valorTotal  || '',
-    fechaInicio: initial.FechaInicio || initial.fechaInicio || '',
-    fechaFin:    initial.FechaFin    || initial.fechaFin    || '',
+    fechaInicio: toDateInput(initial.FechaInicio || initial.fechaInicio),
+    fechaFin:    toDateInput(initial.FechaFin    || initial.fechaFin),
     estado:      initial.Estado      || initial.estado      || 'activo',
     notas:       initial.Notas       || initial.notas       || '',
   }

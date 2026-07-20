@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { api } from '../../services/api'
-import { TIPOS_PAGO, METODOS_PAGO } from '../../utils/formatters'
+import { TIPOS_PAGO, METODOS_PAGO, toDateInput } from '../../utils/formatters'
 
 const EMPTY = {
   fecha: '', tipo: '', beneficiario: '', concepto: '', referencia: '',
@@ -9,7 +9,7 @@ const EMPTY = {
 
 function mapInitial(initial) {
   return {
-    fecha:       initial.Fecha       || initial.fecha       || new Date().toISOString().slice(0,10),
+    fecha:       toDateInput(initial.Fecha || initial.fecha) || new Date().toISOString().slice(0,10),
     tipo:        initial.Tipo        || initial.tipo        || '',
     beneficiario:initial.Beneficiario|| initial.beneficiario|| '',
     concepto:    initial.Concepto    || initial.concepto    || '',

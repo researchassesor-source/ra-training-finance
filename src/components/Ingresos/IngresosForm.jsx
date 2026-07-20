@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { api } from '../../services/api'
-import { TIPOS_INGRESO, MODALIDADES, METODOS_PAGO } from '../../utils/formatters'
+import { TIPOS_INGRESO, MODALIDADES, METODOS_PAGO, toDateInput } from '../../utils/formatters'
 import { useAuth } from '../../context/AuthContext'
 import { MessageCircle, CheckCircle } from 'lucide-react'
 
@@ -8,15 +8,6 @@ const EMPTY = {
   fecha: '', tipo: '', modalidad: 'N/A', concepto: '', cliente: '',
   clienteTelefono: '', contratoId: '', monto: '', metodoPago: '',
   estado: 'confirmado', notas: '',
-}
-
-// Normaliza una fecha que puede venir como ISO string, Date object o YYYY-MM-DD
-function toDateInput(val) {
-  if (!val) return ''
-  const s = String(val)
-  // ISO datetime → tomar solo la parte de fecha
-  if (s.length > 10 && s.includes('T')) return s.slice(0, 10)
-  return s.slice(0, 10)
 }
 
 function mapInitial(initial) {

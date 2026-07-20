@@ -1,3 +1,13 @@
+// Normaliza una fecha que puede venir como ISO datetime completo (Google Sheets
+// guarda 'Fecha' como objeto Date y el backend lo serializa a ISO), Date object
+// o ya como YYYY-MM-DD, al formato que exige <input type="date">. Sin esto, un
+// input type=date required recibe un valor que no puede parsear, lo deja vacío
+// silenciosamente y el navegador bloquea el submit sin mostrar ningún error.
+export function toDateInput(val) {
+  if (!val) return ''
+  return String(val).slice(0, 10)
+}
+
 export const fmt = {
   usd: (v) =>
     new Intl.NumberFormat('es-US', { style: 'currency', currency: 'USD' }).format(Number(v) || 0),

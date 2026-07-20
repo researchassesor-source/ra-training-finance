@@ -446,17 +446,23 @@ function addEgreso(user, { egreso }) {
 }
 
 function updateEgreso(user, { id, egreso }) {
-  requireAdmin(user);
   const sheet = getSheet('Egresos');
   const row   = sheetToObjects(sheet).find(r => r.ID === id);
   if (!row) return { success: false, error: 'Egreso no encontrado.' };
+  // El dueño puede editar su propio egreso mientras siga pendiente (igual que
+  // el frontend lo permite); cualquier otro caso requiere admin.
+  if (!isAdmin(user)) {
+    if (row.CreadoPor !== user.Username) return { success: false, error: 'No autorizado.' };
+    if (row.Estado !== 'pendiente') return { success: false, error: 'Solo puede editar egresos en estado pendiente.' };
+  }
   const now = new Date().toISOString();
+  const nuevoEstado = isAdmin(user) ? egreso.estado : row.Estado;
   updateRow(sheet, row, {
     Fecha: egreso.fecha, Categoria: egreso.categoria, Concepto: egreso.concepto,
     Proveedor: egreso.proveedor, Monto: Number(egreso.monto) || 0,
-    Estado: egreso.estado, Notas: egreso.notas,
-    AprobadoPor:      egreso.estado === 'aprobado' ? user.Username : row.AprobadoPor,
-    FechaAprobacion:  egreso.estado === 'aprobado' ? now : row.FechaAprobacion,
+    Estado: nuevoEstado, Notas: egreso.notas,
+    AprobadoPor:      nuevoEstado === 'aprobado' ? user.Username : row.AprobadoPor,
+    FechaAprobacion:  nuevoEstado === 'aprobado' ? now : row.FechaAprobacion,
   });
   return { success: true };
 }
@@ -475,17 +481,28 @@ function getPagos(user, { filtros = {} } = {}) {
   return { success: true, data };
 }
 
+// Cuando un pago vinculado a un egreso queda 'completado', el egreso pasa a
+// 'pagado' — si no, un egreso pagado se queda mostrando "Aprobado" para siempre.
+function marcarEgresoPagado(egresoId) {
+  if (!egresoId) return;
+  const sheet = getSheet('Egresos');
+  const row   = sheetToObjects(sheet).find(e => e.ID === egresoId);
+  if (row && row.Estado !== 'pagado') updateRow(sheet, row, { Estado: 'pagado' });
+}
+
 function addPago(user, { pago }) {
   requireAdmin(user);
   const sheet = getSheet('Pagos');
   const id    = generateId('PAG');
   const now   = new Date().toISOString();
+  const estado = pago.estado || 'completado';
   sheet.appendRow([
     id, pago.fecha, pago.tipo, pago.beneficiario, pago.concepto,
     pago.referencia || '', Number(pago.monto) || 0, pago.metodoPago,
     pago.egresoId || '', pago.contratoId || '',
-    pago.estado || 'completado', pago.notas || '', user.Username, now,
+    estado, pago.notas || '', user.Username, now,
   ]);
+  if (estado === 'completado') marcarEgresoPagado(pago.egresoId);
   return { success: true, id };
 }
 
@@ -500,6 +517,7 @@ function updatePago(user, { id, pago }) {
     Monto: Number(pago.monto) || 0, MetodoPago: pago.metodoPago,
     Estado: pago.estado, Notas: pago.notas,
   });
+  if (pago.estado === 'completado') marcarEgresoPagado(pago.egresoId || row.EgresoID);
   return { success: true };
 }
 

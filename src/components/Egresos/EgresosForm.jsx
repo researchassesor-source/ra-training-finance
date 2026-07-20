@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { api } from '../../services/api'
 import { useAuth } from '../../context/AuthContext'
+import { toDateInput } from '../../utils/formatters'
 
 const EMPTY = {
   fecha: '', categoria: '', concepto: '', proveedor: '',
@@ -10,7 +11,7 @@ const EMPTY = {
 function mapInitial(initial) {
   if (!initial) return { ...EMPTY, fecha: new Date().toISOString().slice(0,10) }
   return {
-    fecha:     initial.Fecha     || initial.fecha     || new Date().toISOString().slice(0,10),
+    fecha:     toDateInput(initial.Fecha || initial.fecha) || new Date().toISOString().slice(0,10),
     categoria: initial.Categoria || initial.categoria || '',
     concepto:  initial.Concepto  || initial.concepto  || '',
     proveedor: initial.Proveedor || initial.proveedor || '',

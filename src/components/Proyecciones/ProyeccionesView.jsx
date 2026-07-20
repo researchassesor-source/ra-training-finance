@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { api } from '../../services/api'
-import { fmt, TIPOS_PROYECCION, ESTADOS_PROYECCION } from '../../utils/formatters'
+import { fmt, TIPOS_PROYECCION, ESTADOS_PROYECCION, toDateInput } from '../../utils/formatters'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend, ResponsiveContainer, LineChart, Line,
@@ -19,7 +19,7 @@ function mapInitial(initial) {
   return {
     evento:          initial.Evento          || initial.evento          || '',
     tipo:            initial.Tipo            || initial.tipo            || '',
-    fechaEstimada:   initial.FechaEstimada   || initial.fechaEstimada   || '',
+    fechaEstimada:   toDateInput(initial.FechaEstimada || initial.fechaEstimada),
     montoProyectado: initial.MontoProyectado || initial.montoProyectado || '',
     montoReal:       initial.MontoReal       || initial.montoReal       || '',
     estado:          initial.Estado          || initial.estado          || 'proyectado',

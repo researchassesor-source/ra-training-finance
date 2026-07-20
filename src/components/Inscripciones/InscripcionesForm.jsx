@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { api } from '../../services/api'
-import { MODALIDADES, METODOS_PAGO } from '../../utils/formatters'
+import { MODALIDADES, METODOS_PAGO, toDateInput } from '../../utils/formatters'
 import { useAuth } from '../../context/AuthContext'
 
 const EMPTY = {
@@ -21,7 +21,7 @@ function mapInitial(initial) {
     servicioId:      initial.ServicioID      || initial.servicioId      || '',
     servicioNombre:  initial.ServicioNombre  || initial.servicioNombre  || '',
     modalidad:       initial.Modalidad       || initial.modalidad       || 'Virtual',
-    fechaInicio:     initial.FechaInicio     || initial.fechaInicio     || '',
+    fechaInicio:     toDateInput(initial.FechaInicio || initial.fechaInicio),
     monto:           initial.Monto           || initial.monto           || '',
     metodoPago:      initial.MetodoPago      || initial.metodoPago      || '',
     razonSocial:     initial.RazonSocial     || initial.razonSocial     || '',
