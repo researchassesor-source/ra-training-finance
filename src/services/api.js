@@ -107,7 +107,7 @@ export const api = {
     return call('updatePago', { id, pago }, getToken())
   },
   deletePago: (id) => {
-    bust('getPagos', 'getDashboard')
+    bust('getPagos', 'getDashboard', 'getEgresos')
     return call('deletePago', { id }, getToken())
   },
 

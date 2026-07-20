@@ -45,9 +45,14 @@ const ESTADO_ACT = {
 function ActividadCard({ act, isAdmin, onUpdate, onDelete }) {
   const [editHoras, setEditHoras]       = useState(false)
   const [editEvidencia, setEditEvidencia] = useState(false)
+  const [editDetalle, setEditDetalle]   = useState(false)
   const [horas, setHoras]               = useState(act.HorasReales || 0)
   const [notas, setNotas]               = useState(act.Notas || '')
   const [evidencia, setEvidencia]       = useState(act.Evidencia || '')
+  const [detalle, setDetalle]           = useState({
+    titulo: act.Titulo, descripcion: act.Descripcion || '',
+    diaSemana: act.DiaSemana, horasEstimadas: act.HorasEstimadas,
+  })
   const [saving, setSaving]             = useState(false)
   const est = ESTADO_ACT[act.Estado] || ESTADO_ACT.pendiente
   const Icon = est.icon
@@ -64,6 +69,16 @@ function ActividadCard({ act, isAdmin, onUpdate, onDelete }) {
     await onUpdate(act.ID, { evidencia })
     setSaving(false)
     setEditEvidencia(false)
+  }
+
+  async function saveDetalle() {
+    setSaving(true)
+    await onUpdate(act.ID, {
+      titulo: detalle.titulo, descripcion: detalle.descripcion,
+      diaSemana: detalle.diaSemana, horasEstimadas: Number(detalle.horasEstimadas),
+    })
+    setSaving(false)
+    setEditDetalle(false)
   }
 
   const isUrl = (s) => s && (s.startsWith('http://') || s.startsWith('https://'))
@@ -83,12 +98,43 @@ function ActividadCard({ act, isAdmin, onUpdate, onDelete }) {
         </div>
         <div className="flex gap-1 flex-shrink-0">
           {isAdmin && (
-            <button onClick={() => onDelete(act)} className="p-1 hover:bg-red-50 rounded text-gray-400 hover:text-red-600">
-              <Trash2 size={14} />
-            </button>
+            <>
+              <button onClick={() => { setEditDetalle(v => !v); setEditHoras(false); setEditEvidencia(false) }}
+                className="p-1 hover:bg-brand-50 rounded text-gray-400 hover:text-brand-600">
+                <Pencil size={14} />
+              </button>
+              <button onClick={() => onDelete(act)} className="p-1 hover:bg-red-50 rounded text-gray-400 hover:text-red-600">
+                <Trash2 size={14} />
+              </button>
+            </>
           )}
         </div>
       </div>
+
+      {/* Panel: Editar detalle (solo admin) */}
+      {editDetalle && (
+        <div className="pt-2 space-y-2 border-t border-gray-100">
+          <input className="input text-sm" value={detalle.titulo}
+            onChange={e => setDetalle(d => ({ ...d, titulo: e.target.value }))} placeholder="Título" />
+          <textarea className="input text-sm" rows={2} value={detalle.descripcion}
+            onChange={e => setDetalle(d => ({ ...d, descripcion: e.target.value }))} placeholder="Descripción (opcional)" />
+          <div className="flex gap-2">
+            <select className="input text-sm flex-1" value={detalle.diaSemana}
+              onChange={e => setDetalle(d => ({ ...d, diaSemana: e.target.value }))}>
+              {DIAS_SEMANA.map(d => <option key={d}>{d}</option>)}
+            </select>
+            <input type="number" min="0.5" step="0.5" className="input text-sm w-28"
+              value={detalle.horasEstimadas}
+              onChange={e => setDetalle(d => ({ ...d, horasEstimadas: e.target.value }))} placeholder="Horas" />
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => setEditDetalle(false)} className="btn-secondary text-xs flex-1">Cancelar</button>
+            <button onClick={saveDetalle} disabled={saving} className="btn-primary text-xs flex-1">
+              {saving ? 'Guardando...' : 'Guardar cambios'}
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-medium ${est.css}`}>

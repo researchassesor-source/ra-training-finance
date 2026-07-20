@@ -56,7 +56,7 @@ function processRequest(data) {
     getPagos:         () => getPagos(user, params),
     addPago:          () => addPago(user, params),
     updatePago:       () => updatePago(user, params),
-    deletePago:       () => deleteRecord(user, 'Pagos', params, true),
+    deletePago:       () => deletePagoConSync(user, params),
     getContratos:     () => getContratos(user, params),
     addContrato:      () => addContrato(user, params),
     updateContrato:   () => updateContrato(user, params),
@@ -491,6 +491,15 @@ function marcarEgresoPagado(egresoId) {
   if (row && row.Estado !== 'pagado') updateRow(sheet, row, { Estado: 'pagado' });
 }
 
+// Contraparte: si el pago que marcaba el egreso como pagado se elimina o se
+// invalida, el egreso vuelve a 'aprobado' para poder registrar el pago correcto.
+function revertirEgresoSiPagado(egresoId) {
+  if (!egresoId) return;
+  const sheet = getSheet('Egresos');
+  const row   = sheetToObjects(sheet).find(e => e.ID === egresoId);
+  if (row && row.Estado === 'pagado') updateRow(sheet, row, { Estado: 'aprobado' });
+}
+
 function addPago(user, { pago }) {
   requireAdmin(user);
   const sheet = getSheet('Pagos');
@@ -512,6 +521,14 @@ function updatePago(user, { id, pago }) {
   const sheet = getSheet('Pagos');
   const row   = sheetToObjects(sheet).find(r => r.ID === id);
   if (!row) return { success: false, error: 'Pago no encontrado.' };
+  // 'Pendiente' en un pago existente significa que fue un registro erróneo
+  // (no un pago real) — se elimina para no dejar valores duplicados en Pagos,
+  // y el egreso vinculado vuelve a 'aprobado' para poder pagarlo correctamente.
+  if (pago.estado === 'pendiente') {
+    sheet.deleteRow(row._row);
+    revertirEgresoSiPagado(row.EgresoID);
+    return { success: true, eliminado: true };
+  }
   updateRow(sheet, row, {
     Fecha: pago.fecha, Tipo: pago.tipo, Beneficiario: pago.beneficiario,
     Concepto: pago.concepto, Referencia: pago.referencia,
@@ -519,6 +536,16 @@ function updatePago(user, { id, pago }) {
     Estado: pago.estado, Notas: pago.notas,
   });
   if (pago.estado === 'completado') marcarEgresoPagado(pago.egresoId || row.EgresoID);
+  return { success: true };
+}
+
+function deletePagoConSync(user, { id }) {
+  requireAdmin(user);
+  const sheet = getSheet('Pagos');
+  const row   = sheetToObjects(sheet).find(r => r.ID === id);
+  if (!row) return { success: false, error: 'Pago no encontrado.' };
+  sheet.deleteRow(row._row);
+  revertirEgresoSiPagado(row.EgresoID);
   return { success: true };
 }
 

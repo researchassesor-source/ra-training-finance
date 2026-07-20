@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { api } from '../../services/api'
 import { TIPOS_PAGO, METODOS_PAGO, toDateInput } from '../../utils/formatters'
+import { AlertTriangle } from 'lucide-react'
 
 const EMPTY = {
   fecha: '', tipo: '', beneficiario: '', concepto: '', referencia: '',
@@ -45,6 +46,9 @@ export default function PagosForm({ initial, prefill, onSave, onCancel }) {
   }, [])
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+  // Editar un pago existente a 'pendiente' se interpreta como "esto fue un error,
+  // no un pago real" — el backend elimina el registro en vez de dejarlo a medias.
+  const marcaraEliminar = !!initial?.ID && form.estado === 'pendiente'
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -128,11 +132,18 @@ export default function PagosForm({ initial, prefill, onSave, onCancel }) {
         </div>
       </div>
 
+      {marcaraEliminar && (
+        <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">
+          <AlertTriangle size={16} className="flex-shrink-0 mt-0.5" />
+          <span>Marcar este pago como <strong>Pendiente</strong> elimina el registro (se asume que fue un error, no un pago real) y el egreso vinculado vuelve a "Aprobado" para poder pagarlo correctamente.</span>
+        </div>
+      )}
+
       {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg p-3">{error}</p>}
       <div className="flex gap-3 pt-2">
         <button type="button" onClick={onCancel} className="btn-secondary flex-1">Cancelar</button>
-        <button type="submit" className="btn-primary flex-1" disabled={saving}>
-          {saving ? 'Guardando...' : initial?.ID ? 'Actualizar' : 'Registrar Pago'}
+        <button type="submit" className={`flex-1 ${marcaraEliminar ? 'btn-danger' : 'btn-primary'}`} disabled={saving}>
+          {saving ? 'Guardando...' : marcaraEliminar ? 'Eliminar registro' : initial?.ID ? 'Actualizar' : 'Registrar Pago'}
         </button>
       </div>
     </form>
