@@ -6,8 +6,9 @@ import { exportEgresosPDF } from '../../utils/exporters'
 import Modal from '../UI/Modal'
 import ConfirmDialog from '../UI/ConfirmDialog'
 import TableSkeleton from '../UI/TableSkeleton'
+import Spinner from '../UI/Spinner'
 import EgresosForm from './EgresosForm'
-import { Plus, Pencil, Trash2, CheckCircle, XCircle, Download, CreditCard } from 'lucide-react'
+import { Plus, Pencil, Trash2, CheckCircle, XCircle, Download, CreditCard, Receipt } from 'lucide-react'
 import PagosForm from '../Pagos/PagosForm'
 
 export default function EgresosList({ soloMios = false }) {
@@ -23,6 +24,8 @@ export default function EgresosList({ soloMios = false }) {
   const [filtros, setFiltros]   = useState({ categoria: '', estado: '', desde: '', hasta: '' })
   const [payModal, setPayModal] = useState(false)
   const [payTarget, setPayTarget] = useState(null)
+  const [verPagoEgreso, setVerPagoEgreso] = useState(null)
+  const [pagoDetalle, setPagoDetalle]     = useState(null)
 
   const load = useCallback(() => {
     setLoading(true)
@@ -52,6 +55,14 @@ export default function EgresosList({ soloMios = false }) {
       })
       load()
     } catch (e) { setError(e.message) }
+  }
+
+  function handleVerPago(egreso) {
+    setVerPagoEgreso(egreso)
+    setPagoDetalle(null)
+    api.getPagos({ egresoId: egreso.ID })
+      .then(r => setPagoDetalle((r.data || [])[0] || false))
+      .catch(e => setError(e.message))
   }
 
   async function handleDelete() {
@@ -171,6 +182,13 @@ export default function EgresosList({ soloMios = false }) {
                             <CreditCard size={14} />
                           </button>
                         )}
+                        {isAdmin && e.Estado === 'pagado' && (
+                          <button onClick={() => handleVerPago(e)}
+                            title="Ver detalle del pago"
+                            className="p-1.5 hover:bg-blue-50 rounded text-emerald-500 hover:text-blue-600 transition-colors">
+                            <Receipt size={14} />
+                          </button>
+                        )}
                         {(isAdmin || e.Estado === 'pendiente') && (
                           <button onClick={() => setConfirm(e)}
                             title="Eliminar"
@@ -224,6 +242,32 @@ export default function EgresosList({ soloMios = false }) {
           onSave={() => { setPayModal(false); load() }}
           onCancel={() => setPayModal(false)}
         />
+      </Modal>
+
+      <Modal open={!!verPagoEgreso} onClose={() => setVerPagoEgreso(null)} title="Detalle del Pago" size="md">
+        {pagoDetalle === null ? (
+          <Spinner text="Cargando pago..." />
+        ) : pagoDetalle === false ? (
+          <p className="text-sm text-gray-500 text-center py-6">No se encontró un pago registrado para este egreso.</p>
+        ) : (
+          <div className="space-y-2 text-sm">
+            {[
+              ['Fecha', fmt.date(pagoDetalle.Fecha)],
+              ['Beneficiario', pagoDetalle.Beneficiario],
+              ['Concepto', pagoDetalle.Concepto],
+              ['Monto', fmt.usd(pagoDetalle.Monto)],
+              ['Método de pago', pagoDetalle.MetodoPago],
+              ['Referencia', pagoDetalle.Referencia || '—'],
+              ['Estado', pagoDetalle.Estado],
+              ['Notas', pagoDetalle.Notas || '—'],
+            ].map(([label, valor]) => (
+              <div key={label} className="flex justify-between gap-3 border-b border-gray-50 py-1.5">
+                <span className="text-gray-500">{label}</span>
+                <span className="font-medium text-gray-900 text-right">{valor}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </Modal>
     </div>
   )

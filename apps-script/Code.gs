@@ -474,10 +474,11 @@ function updateEgreso(user, { id, egreso }) {
 function getPagos(user, { filtros = {} } = {}) {
   requireAdmin(user);
   let data = sheetToObjects(getSheet('Pagos'));
-  if (filtros.tipo)   data = data.filter(p => p.Tipo === filtros.tipo);
-  if (filtros.estado) data = data.filter(p => p.Estado === filtros.estado);
-  if (filtros.desde)  data = data.filter(p => new Date(p.Fecha) >= new Date(filtros.desde));
-  if (filtros.hasta)  data = data.filter(p => new Date(p.Fecha) <= new Date(filtros.hasta));
+  if (filtros.tipo)     data = data.filter(p => p.Tipo === filtros.tipo);
+  if (filtros.estado)   data = data.filter(p => p.Estado === filtros.estado);
+  if (filtros.egresoId) data = data.filter(p => p.EgresoID === filtros.egresoId);
+  if (filtros.desde)    data = data.filter(p => new Date(p.Fecha) >= new Date(filtros.desde));
+  if (filtros.hasta)    data = data.filter(p => new Date(p.Fecha) <= new Date(filtros.hasta));
   return { success: true, data };
 }
 
