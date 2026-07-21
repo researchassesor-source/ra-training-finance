@@ -123,7 +123,7 @@ const SHEET_HEADERS = {
   Proyecciones:     ['ID','Evento','Tipo','FechaEstimada','MontoProyectado','MontoReal','Estado','Notas','CreadoPor','FechaCreacion'],
   Categorias:       ['ID','Nombre','Tipo','Activo'],
   Servicios:        ['ID','Nombre','Tipo','Modalidad','Precio','Duracion','Descripcion','Activo','FechaCreacion','FechaEvento','FechaFinEvento','LugarEvento'],
-  Inscripciones:    ['ID','ClienteNombre','ClienteID','ClienteEmail','ClienteTelefono','ServicioID','ServicioNombre','Modalidad','FechaInicio','Monto','MetodoPago','RazonSocial','RUC','DireccionFactura','EstadoPago','EstadoCertificado','IngresoID','Notas','CreadoPor','FechaCreacion','FechaEmisionCertificado','RequiereAvalExterno','EstadoAval','AvalReferencia','FechaAval','ValorAval'],
+  Inscripciones:    ['ID','ClienteNombre','ClienteID','ClienteEmail','ClienteTelefono','ServicioID','ServicioNombre','Modalidad','FechaInicio','Monto','MetodoPago','RazonSocial','RUC','DireccionFactura','EstadoPago','EstadoCertificado','IngresoID','Notas','CreadoPor','FechaCreacion','FechaEmisionCertificado','RequiereAvalExterno','EstadoAval','AvalReferencia','FechaAval','ValorAval','FechaFin'],
   Sesiones:         ['Token','Username','UserID','Rol','Nombre','Expira'],
   ConfigPagos:      ['ID','Nombre','Tipo','Detalles','Instrucciones','Activo','FechaCreacion'],
   Convenios:        ['ID','Organizacion','Representante','Cargo','Objeto','ObligacionesRA','ObligacionesAliado','Vigencia','FechaInicio','FechaFin','Estado','Notas','CreadoPor','FechaCreacion'],
@@ -840,6 +840,18 @@ function getCalendario(user, { year, month } = {}) {
 // INSCRIPCIONES
 // ─────────────────────────────────────────────
 
+// Mapa de Servicios por ID y por Nombre (respaldo para registros antiguos sin
+// ServicioID) para anexar la Duracion (horas) de un servicio a una inscripcion.
+function mapaDuracionServicios() {
+  const servicios = sheetToObjects(getSheet('Servicios'));
+  const porId = {}, porNombre = {};
+  servicios.forEach(function(s) { porId[s.ID] = s; porNombre[s.Nombre] = s; });
+  return function(i) {
+    const s = porId[i.ServicioID] || porNombre[i.ServicioNombre];
+    return s ? (s.Duracion || '') : '';
+  };
+}
+
 function getInscripciones(user, { filtros = {} } = {}) {
   let data = sheetToObjects(getSheet('Inscripciones'));
   if (!isAdmin(user)) data = data.filter(i => i.CreadoPor === user.Username);
@@ -848,6 +860,8 @@ function getInscripciones(user, { filtros = {} } = {}) {
   if (filtros.servicioId)        data = data.filter(i => i.ServicioID === filtros.servicioId);
   if (filtros.desde)             data = data.filter(i => new Date(i.FechaCreacion) >= new Date(filtros.desde));
   if (filtros.hasta)             data = data.filter(i => new Date(i.FechaCreacion) <= new Date(filtros.hasta));
+  const duracionDe = mapaDuracionServicios();
+  data = data.map(function(i) { return Object.assign({}, i, { Duracion: duracionDe(i) }); });
   return { success: true, data };
 }
 
@@ -873,6 +887,7 @@ function addInscripcion(user, { inscripcion }) {
     '',                                    // AvalReferencia
     '',                                    // FechaAval
     0,                                     // ValorAval
+    inscripcion.fechaFin || '',            // FechaFin
   ]);
 
   // Auto-crear ingreso vinculado — columnas deben coincidir exactamente con SHEET_HEADERS.Ingresos
@@ -925,7 +940,8 @@ function updateInscripcion(user, { id, inscripcion }) {
     ClienteNombre: inscripcion.clienteNombre, ClienteID: inscripcion.clienteID,
     ClienteEmail: inscripcion.clienteEmail, ClienteTelefono: inscripcion.clienteTelefono,
     ServicioNombre: inscripcion.servicioNombre, Modalidad: inscripcion.modalidad,
-    FechaInicio: inscripcion.fechaInicio, Monto: Number(inscripcion.monto) || 0,
+    FechaInicio: inscripcion.fechaInicio, FechaFin: inscripcion.fechaFin,
+    Monto: Number(inscripcion.monto) || 0,
     MetodoPago: inscripcion.metodoPago, RazonSocial: inscripcion.razonSocial,
     RUC: inscripcion.ruc, DireccionFactura: inscripcion.direccionFactura,
     EstadoPago: inscripcion.estadoPago, EstadoCertificado: inscripcion.estadoCertificado,
@@ -971,15 +987,7 @@ function getCertificadosAval(user, { filtros = {} } = {}) {
   if (filtros.estadoAval) {
     data = data.filter(function(i) { return (i.EstadoAval || 'pendiente') === filtros.estadoAval; });
   }
-  // Mapa de servicios por ID (y por nombre, respaldo para registros antiguos) para traer Duracion (horas)
-  const servicios = sheetToObjects(getSheet('Servicios'));
-  const servicioPorId = {};
-  const servicioPorNombre = {};
-  servicios.forEach(function(s) { servicioPorId[s.ID] = s; servicioPorNombre[s.Nombre] = s; });
-  function duracionDe(i) {
-    const s = servicioPorId[i.ServicioID] || servicioPorNombre[i.ServicioNombre];
-    return s ? (s.Duracion || '') : '';
-  }
+  const duracionDe = mapaDuracionServicios();
   // Whitelist explicito — nunca exponer monto, RUC, email, telefono ni factura a este rol.
   const out = data.map(function(i) {
     return {
@@ -988,6 +996,7 @@ function getCertificadosAval(user, { filtros = {} } = {}) {
       ServicioNombre: i.ServicioNombre,
       Modalidad: i.Modalidad,
       FechaInicio: i.FechaInicio,
+      FechaFin: i.FechaFin || '',
       Duracion: duracionDe(i),
       EstadoAval: i.EstadoAval || 'pendiente',
       AvalReferencia: i.AvalReferencia || '',

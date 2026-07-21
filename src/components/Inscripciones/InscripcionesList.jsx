@@ -51,7 +51,7 @@ export default function InscripcionesList() {
       clienteNombre: ins.ClienteNombre, clienteID: ins.ClienteID,
       clienteEmail: ins.ClienteEmail, clienteTelefono: ins.ClienteTelefono,
       servicioId: ins.ServicioID, servicioNombre: ins.ServicioNombre,
-      modalidad: ins.Modalidad, fechaInicio: ins.FechaInicio,
+      modalidad: ins.Modalidad, fechaInicio: ins.FechaInicio, fechaFin: ins.FechaFin,
       monto: ins.Monto, metodoPago: ins.MetodoPago,
       razonSocial: ins.RazonSocial, ruc: ins.RUC,
       direccionFactura: ins.DireccionFactura,
@@ -222,7 +222,12 @@ export default function InscripcionesList() {
                     </td>
                     <td className="px-4 py-3 max-w-xs">
                       <p className="truncate">{i.ServicioNombre}</p>
-                      {i.FechaInicio && <p className="text-xs text-gray-400">Inicio: {fmt.date(i.FechaInicio)}</p>}
+                      {i.Duracion && <p className="text-xs text-gray-400">{i.Duracion}</p>}
+                      {i.FechaInicio && (
+                        <p className="text-xs text-gray-400">
+                          Inicio: {fmt.date(i.FechaInicio)}{i.FechaFin ? ` — Fin: ${fmt.date(i.FechaFin)}` : ''}
+                        </p>
+                      )}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">{i.Modalidad}</td>
                     <td className="px-4 py-3 font-semibold text-brand-700 whitespace-nowrap">{fmt.usd(i.Monto)}</td>

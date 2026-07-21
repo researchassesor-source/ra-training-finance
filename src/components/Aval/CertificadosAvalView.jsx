@@ -98,7 +98,7 @@ export default function CertificadosAvalView() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-100">
-                  {['Fecha','Participante','Servicio','Modalidad','Horas','Estado de Aval','Referencia','Valor Aval',''].map(h => (
+                  {['Fecha Curso','Participante','Servicio','Modalidad','Horas','Estado de Aval','Referencia','Valor Aval',''].map(h => (
                     <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -108,7 +108,9 @@ export default function CertificadosAvalView() {
                   <tr><td colSpan={9} className="text-center py-10 text-gray-400">Sin certificados con aval externo</td></tr>
                 ) : data.map(i => (
                   <tr key={i.ID} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
-                    <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-500">{fmt.date(i.FechaInicio)}</td>
+                    <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-500">
+                      {fmt.date(i.FechaInicio)}{i.FechaFin ? ` — ${fmt.date(i.FechaFin)}` : ''}
+                    </td>
                     <td className="px-4 py-3 font-medium text-gray-900">{i.ClienteNombre}</td>
                     <td className="px-4 py-3 max-w-xs truncate">{i.ServicioNombre}</td>
                     <td className="px-4 py-3 whitespace-nowrap">{i.Modalidad}</td>

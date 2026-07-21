@@ -6,7 +6,7 @@ import { useAuth } from '../../context/AuthContext'
 const EMPTY = {
   clienteNombre: '', clienteID: '', clienteEmail: '', clienteTelefono: '',
   servicioId: '', servicioNombre: '', modalidad: 'Virtual',
-  fechaInicio: '', monto: '', metodoPago: '',
+  fechaInicio: '', fechaFin: '', monto: '', metodoPago: '',
   razonSocial: '', ruc: '', direccionFactura: '',
   estadoPago: 'pendiente', notas: '', requiereAvalExterno: false,
 }
@@ -22,6 +22,7 @@ function mapInitial(initial) {
     servicioNombre:  initial.ServicioNombre  || initial.servicioNombre  || '',
     modalidad:       initial.Modalidad       || initial.modalidad       || 'Virtual',
     fechaInicio:     toDateInput(initial.FechaInicio || initial.fechaInicio),
+    fechaFin:        toDateInput(initial.FechaFin || initial.fechaFin),
     monto:           initial.Monto           || initial.monto           || '',
     metodoPago:      initial.MetodoPago      || initial.metodoPago      || '',
     razonSocial:     initial.RazonSocial     || initial.razonSocial     || '',
@@ -99,6 +100,10 @@ export default function InscripcionesForm({ initial, onSave, onCancel }) {
           <div>
             <label className="label">Fecha de Inicio</label>
             <input className="input" type="date" value={form.fechaInicio} onChange={e => set('fechaInicio', e.target.value)} />
+          </div>
+          <div>
+            <label className="label">Fecha de Fin</label>
+            <input className="input" type="date" value={form.fechaFin} onChange={e => set('fechaFin', e.target.value)} />
           </div>
         </div>
       </div>
