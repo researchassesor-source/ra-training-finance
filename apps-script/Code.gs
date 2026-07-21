@@ -63,11 +63,15 @@ function processRequest(data) {
     getProyecciones:  () => getProyecciones(user, params),
     addProyeccion:    () => addProyeccion(user, params),
     updateProyeccion: () => updateProyeccion(user, params),
+    deleteProyeccion: () => deleteRecord(user, 'Proyecciones', params, true),
     getCategorias:    () => getCategorias(user, params),
     addCategoria:     () => addCategoria(user, params),
     getUsuarios:        () => getUsuarios(user, params),
     addUsuario:         () => addUsuario(user, params),
     updateUsuario:      () => updateUsuario(user, params),
+    deleteUsuario:      () => deleteUsuario(user, params),
+    getCertificadosAval: () => getCertificadosAval(user, params),
+    marcarAval:          () => marcarAval(user, params),
     getServicios:       () => getServicios(user, params),
     addServicio:        () => addServicio(user, params),
     updateServicio:     () => updateServicio(user, params),
@@ -119,7 +123,7 @@ const SHEET_HEADERS = {
   Proyecciones:     ['ID','Evento','Tipo','FechaEstimada','MontoProyectado','MontoReal','Estado','Notas','CreadoPor','FechaCreacion'],
   Categorias:       ['ID','Nombre','Tipo','Activo'],
   Servicios:        ['ID','Nombre','Tipo','Modalidad','Precio','Duracion','Descripcion','Activo','FechaCreacion','FechaEvento','FechaFinEvento','LugarEvento'],
-  Inscripciones:    ['ID','ClienteNombre','ClienteID','ClienteEmail','ClienteTelefono','ServicioID','ServicioNombre','Modalidad','FechaInicio','Monto','MetodoPago','RazonSocial','RUC','DireccionFactura','EstadoPago','EstadoCertificado','IngresoID','Notas','CreadoPor','FechaCreacion','FechaEmisionCertificado'],
+  Inscripciones:    ['ID','ClienteNombre','ClienteID','ClienteEmail','ClienteTelefono','ServicioID','ServicioNombre','Modalidad','FechaInicio','Monto','MetodoPago','RazonSocial','RUC','DireccionFactura','EstadoPago','EstadoCertificado','IngresoID','Notas','CreadoPor','FechaCreacion','FechaEmisionCertificado','RequiereAvalExterno','EstadoAval','AvalReferencia','FechaAval'],
   Sesiones:         ['Token','Username','UserID','Rol','Nombre','Expira'],
   ConfigPagos:      ['ID','Nombre','Tipo','Detalles','Instrucciones','Activo','FechaCreacion'],
   Convenios:        ['ID','Organizacion','Representante','Cargo','Objeto','ObligacionesRA','ObligacionesAliado','Vigencia','FechaInicio','FechaFin','Estado','Notas','CreadoPor','FechaCreacion'],
@@ -217,6 +221,7 @@ function requireAdmin(user) {
 
 function isAdmin(user)    { return user.Rol === 'admin'; }
 function isVendedor(user) { return user.Rol === 'vendedor' || user.Rol === 'admin'; }
+function isAval(user)     { return user.Rol === 'aval'; }
 
 // ─────────────────────────────────────────────
 // AUTH
@@ -700,6 +705,31 @@ function updateUsuario(user, { id, usuario }) {
   return { success: true };
 }
 
+function deleteUsuario(user, { id }) {
+  requireAdmin(user);
+  if (id === user.ID) return { success: false, error: 'No puedes eliminar tu propio usuario.' };
+  const sheet = getSheet('Usuarios');
+  const rows  = sheetToObjects(sheet);
+  const row   = rows.find(function(u) { return u.ID === id; });
+  if (!row) return { success: false, error: 'Usuario no encontrado.' };
+  if (row.Rol === 'admin') {
+    const otrosAdmins = rows.filter(function(u) {
+      return u.Rol === 'admin' && u.ID !== id && (u.Activo === true || u.Activo === 'TRUE');
+    });
+    if (otrosAdmins.length === 0) return { success: false, error: 'Debe existir al menos un administrador activo.' };
+  }
+  sheet.deleteRow(row._row);
+  // Invalidar todas las sesiones activas del usuario eliminado — sin esto
+  // seguiría con acceso hasta que su token expire solo (hasta 24h).
+  const sesSheet = getSheet('Sesiones');
+  let sesiones = sheetToObjects(sesSheet).filter(function(s) { return s.Username === row.Username; });
+  while (sesiones.length > 0) {
+    sesSheet.deleteRow(sesiones[0]._row);
+    sesiones = sheetToObjects(sesSheet).filter(function(s) { return s.Username === row.Username; });
+  }
+  return { success: true };
+}
+
 // ─────────────────────────────────────────────
 // SERVICIOS
 // ─────────────────────────────────────────────
@@ -827,6 +857,7 @@ function addInscripcion(user, { inscripcion }) {
   const id       = generateId('INS');
   const now      = new Date().toISOString();
   const estadoPago = isAdmin(user) ? (inscripcion.estadoPago || 'pagado') : 'pendiente';
+  const requiereAval = !!inscripcion.requiereAvalExterno;
 
   sheet.appendRow([
     id,
@@ -836,6 +867,11 @@ function addInscripcion(user, { inscripcion }) {
     Number(inscripcion.monto) || 0, inscripcion.metodoPago || '',
     inscripcion.razonSocial || '', inscripcion.ruc || '', inscripcion.direccionFactura || '',
     estadoPago, 'pendiente', '', inscripcion.notas || '', user.Username, now,
+    '',                                    // FechaEmisionCertificado
+    requiereAval,                          // RequiereAvalExterno
+    requiereAval ? 'pendiente' : '',       // EstadoAval
+    '',                                    // AvalReferencia
+    '',                                    // FechaAval
   ]);
 
   // Auto-crear ingreso vinculado — columnas deben coincidir exactamente con SHEET_HEADERS.Ingresos
@@ -880,6 +916,9 @@ function updateInscripcion(user, { id, inscripcion }) {
 
   // Primera vez que el certificado pasa a 'emitido' → registrar fecha de emisión
   const emiteAhora = inscripcion.estadoCertificado === 'emitido' && row.EstadoCertificado !== 'emitido';
+  // Primera vez que se activa "requiere aval externo" → arranca en 'pendiente'
+  const activaAvalAhora = !!inscripcion.requiereAvalExterno &&
+    !(row.RequiereAvalExterno === true || row.RequiereAvalExterno === 'TRUE');
 
   updateRow(sheet, row, {
     ClienteNombre: inscripcion.clienteNombre, ClienteID: inscripcion.clienteID,
@@ -891,6 +930,8 @@ function updateInscripcion(user, { id, inscripcion }) {
     EstadoPago: inscripcion.estadoPago, EstadoCertificado: inscripcion.estadoCertificado,
     Notas: inscripcion.notas,
     FechaEmisionCertificado: emiteAhora ? new Date().toISOString() : undefined,
+    RequiereAvalExterno: inscripcion.requiereAvalExterno !== undefined ? !!inscripcion.requiereAvalExterno : undefined,
+    EstadoAval: activaAvalAhora ? 'pendiente' : undefined,
   });
 
   // Sincronizar ingreso vinculado cuando cambia el estado de pago o el monto
@@ -915,6 +956,50 @@ function updateInscripcion(user, { id, inscripcion }) {
     }
   }
 
+  return { success: true };
+}
+
+// ─────────────────────────────────────────────
+// AVAL EXTERNO — superficie minima para el rol 'aval'
+// ─────────────────────────────────────────────
+
+function getCertificadosAval(user, { filtros = {} } = {}) {
+  if (!isAval(user) && !isAdmin(user)) throw new Error('Acceso denegado.');
+  let data = sheetToObjects(getSheet('Inscripciones'))
+    .filter(function(i) { return i.RequiereAvalExterno === true || i.RequiereAvalExterno === 'TRUE'; });
+  if (filtros.estadoAval) {
+    data = data.filter(function(i) { return (i.EstadoAval || 'pendiente') === filtros.estadoAval; });
+  }
+  // Whitelist explicito — nunca exponer monto, RUC, email, telefono ni factura a este rol.
+  const out = data.map(function(i) {
+    return {
+      ID: i.ID,
+      ClienteNombre: i.ClienteNombre,
+      ServicioNombre: i.ServicioNombre,
+      Modalidad: i.Modalidad,
+      FechaInicio: i.FechaInicio,
+      EstadoAval: i.EstadoAval || 'pendiente',
+      AvalReferencia: i.AvalReferencia || '',
+      FechaAval: i.FechaAval || '',
+    };
+  });
+  out.sort(function(a, b) { return new Date(b.FechaInicio || 0) - new Date(a.FechaInicio || 0); });
+  return { success: true, data: out };
+}
+
+function marcarAval(user, { id, avalReferencia } = {}) {
+  if (!isAval(user) && !isAdmin(user)) throw new Error('Acceso denegado.');
+  const sheet = getSheet('Inscripciones');
+  const row   = sheetToObjects(sheet).find(function(r) { return r.ID === id; });
+  if (!row) return { success: false, error: 'Registro no encontrado.' };
+  if (!(row.RequiereAvalExterno === true || row.RequiereAvalExterno === 'TRUE')) {
+    return { success: false, error: 'Este registro no requiere aval externo.' };
+  }
+  updateRow(sheet, row, {
+    EstadoAval: 'avalado',
+    AvalReferencia: avalReferencia || '',
+    FechaAval: new Date().toISOString(),
+  });
   return { success: true };
 }
 

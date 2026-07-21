@@ -16,8 +16,9 @@ export default function Login() {
     setError('')
     setLoading(true)
     try {
-      const user = await login(form.username, form.password)
-      navigate(user.rol === 'admin' ? '/dashboard' : '/mis-egresos')
+      await login(form.username, form.password)
+      // HomeRedirect (en "/") decide el destino correcto según el rol
+      navigate('/')
     } catch (err) {
       setError(err.message || 'Usuario o contraseña incorrectos')
     } finally {

@@ -57,6 +57,7 @@ export default function InscripcionesList() {
       direccionFactura: ins.DireccionFactura,
       estadoPago: ins.EstadoPago, estadoCertificado: ins.EstadoCertificado,
       notas: ins.Notas,
+      requiereAvalExterno: ins.RequiereAvalExterno === true || ins.RequiereAvalExterno === 'TRUE',
       ...overrides,
     }
   }
@@ -234,6 +235,11 @@ export default function InscripcionesList() {
                       <span className={ESTADOS_CERTIFICADO[i.EstadoCertificado]?.css || 'badge-gray'}>
                         {ESTADOS_CERTIFICADO[i.EstadoCertificado]?.label || i.EstadoCertificado}
                       </span>
+                      {(i.RequiereAvalExterno === true || i.RequiereAvalExterno === 'TRUE') && (
+                        <p className={`text-[10px] mt-1 font-medium ${i.EstadoAval === 'avalado' ? 'text-emerald-600' : 'text-amber-600'}`}>
+                          Aval: {i.EstadoAval === 'avalado' ? 'Avalado' : 'Pendiente'}
+                        </p>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex gap-1">

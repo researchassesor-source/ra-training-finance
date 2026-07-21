@@ -1,9 +1,11 @@
 import { useEffect, useState, useCallback } from 'react'
 import { api } from '../../services/api'
+import { useAuth } from '../../context/AuthContext'
 import { fmt } from '../../utils/formatters'
 import Modal from '../UI/Modal'
+import ConfirmDialog from '../UI/ConfirmDialog'
 import Spinner from '../UI/Spinner'
-import { Plus, Pencil, UserCheck, UserX } from 'lucide-react'
+import { Plus, Pencil, Trash2, UserCheck, UserX } from 'lucide-react'
 
 const EMPTY = { nombre: '', email: '', username: '', password: '', rol: 'usuario', activo: true }
 
@@ -70,6 +72,7 @@ function UsuarioForm({ initial, onSave, onCancel }) {
           <select className="input" value={form.rol} onChange={e => set('rol', e.target.value)}>
             <option value="usuario">Usuario (solo gastos)</option>
             <option value="vendedor">Vendedor (ingresos + gastos + inscripciones)</option>
+            <option value="aval">Aval Externo (solo certificados con aval)</option>
             <option value="admin">Administrador (acceso total)</option>
           </select>
         </div>
@@ -94,11 +97,14 @@ function UsuarioForm({ initial, onSave, onCancel }) {
 }
 
 export default function UsuariosView() {
+  const { user } = useAuth()
   const [data, setData]         = useState([])
   const [loading, setLoading]   = useState(true)
   const [error, setError]       = useState('')
   const [modal, setModal]       = useState(null)
   const [selected, setSelected] = useState(null)
+  const [confirm, setConfirm]   = useState(null)
+  const [deleting, setDeleting] = useState(false)
 
   const load = useCallback(() => {
     setLoading(true)
@@ -109,6 +115,13 @@ export default function UsuariosView() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  async function handleDelete() {
+    setDeleting(true)
+    try { await api.deleteUsuario(confirm.ID); setConfirm(null); load() }
+    catch (e) { setError(e.message) }
+    finally { setDeleting(false) }
+  }
 
   return (
     <div className="space-y-4">
@@ -147,10 +160,18 @@ export default function UsuariosView() {
                 </div>
                 <p className="text-xs text-gray-300 mt-1">Creado: {fmt.date(u.FechaCreacion)}</p>
               </div>
-              <button onClick={() => { setSelected(u); setModal('edit') }}
-                className="p-1.5 hover:bg-brand-50 rounded text-gray-400 hover:text-brand-600 transition-colors flex-shrink-0">
-                <Pencil size={14} />
-              </button>
+              <div className="flex flex-col gap-1 flex-shrink-0">
+                <button onClick={() => { setSelected(u); setModal('edit') }}
+                  className="p-1.5 hover:bg-brand-50 rounded text-gray-400 hover:text-brand-600 transition-colors">
+                  <Pencil size={14} />
+                </button>
+                {u.ID !== user?.id && (
+                  <button onClick={() => setConfirm(u)} title="Eliminar usuario"
+                    className="p-1.5 hover:bg-red-50 rounded text-gray-400 hover:text-red-600 transition-colors">
+                    <Trash2 size={14} />
+                  </button>
+                )}
+              </div>
             </div>
           ))}
         </div>
@@ -164,6 +185,12 @@ export default function UsuariosView() {
           onCancel={() => setModal(null)}
         />
       </Modal>
+
+      <ConfirmDialog
+        open={!!confirm} onClose={() => setConfirm(null)} onConfirm={handleDelete}
+        loading={deleting} title="Eliminar Usuario"
+        message={`¿Eliminar el usuario "${confirm?.Nombre}" (${confirm?.Username})? Esta acción no se puede deshacer.`}
+      />
     </div>
   )
 }

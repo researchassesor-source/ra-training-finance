@@ -19,6 +19,7 @@ import CalendarView from './components/Calendario/CalendarView'
 import AsistenciaView from './components/Asistencia/AsistenciaView'
 import FlujosView from './components/Flujos/FlujosView'
 import VerificarCertificado from './components/Verificacion/VerificarCertificado'
+import CertificadosAvalView from './components/Aval/CertificadosAvalView'
 
 function RequireAuth({ children }) {
   const { user } = useAuth()
@@ -26,35 +27,52 @@ function RequireAuth({ children }) {
 }
 
 function RequireAdmin({ children }) {
-  const { user, isAdmin } = useAuth()
+  const { user, isAdmin, isAval } = useAuth()
   if (!user) return <Navigate to="/login" replace />
-  if (!isAdmin) return <Navigate to="/mis-egresos" replace />
+  if (!isAdmin) return <Navigate to={isAval ? '/aval-externo' : '/mis-egresos'} replace />
   return children
 }
 
 function RequireVendedor({ children }) {
-  const { user, isVendedor } = useAuth()
+  const { user, isVendedor, isAval } = useAuth()
   if (!user) return <Navigate to="/login" replace />
-  if (!isVendedor) return <Navigate to="/mis-egresos" replace />
+  if (!isVendedor) return <Navigate to={isAval ? '/aval-externo' : '/mis-egresos'} replace />
+  return children
+}
+
+function RequireAval({ children }) {
+  const { user, isAdmin, isAval } = useAuth()
+  if (!user) return <Navigate to="/login" replace />
+  if (!isAdmin && !isAval) return <Navigate to="/mis-egresos" replace />
+  return children
+}
+
+// Rutas "para cualquier autenticado" que no deben quedar visibles al rol
+// restringido 'aval' (solo debe ver /aval-externo).
+function RequireGeneral({ children }) {
+  const { user, isAval } = useAuth()
+  if (!user) return <Navigate to="/login" replace />
+  if (isAval) return <Navigate to="/aval-externo" replace />
   return children
 }
 
 function HomeRedirect() {
-  const { user, isAdmin, isVendedor } = useAuth()
+  const { user, isAdmin, isVendedor, isAval } = useAuth()
   if (!user) return <Navigate to="/login" replace />
   if (isAdmin)    return <Navigate to="/dashboard" replace />
   if (isVendedor) return <Navigate to="/mis-ingresos" replace />
+  if (isAval)     return <Navigate to="/aval-externo" replace />
   return <Navigate to="/mis-egresos" replace />
 }
 
 function AppRoutes() {
-  const { user, isAdmin, isVendedor } = useAuth()
+  const { user, isAdmin, isVendedor, isAval } = useAuth()
 
   return (
     <Routes>
       <Route path="/login" element={
         user
-          ? <Navigate to={isAdmin ? '/dashboard' : isVendedor ? '/mis-ingresos' : '/mis-egresos'} replace />
+          ? <Navigate to={isAdmin ? '/dashboard' : isVendedor ? '/mis-ingresos' : isAval ? '/aval-externo' : '/mis-egresos'} replace />
           : <Login />
       } />
 
@@ -82,9 +100,12 @@ function AppRoutes() {
         <Route path="/asistencia"    element={<RequireVendedor><AsistenciaView /></RequireVendedor>} />
         <Route path="/flujos"        element={<RequireVendedor><FlujosView /></RequireVendedor>} />
 
-        {/* All authenticated users */}
-        <Route path="/mis-egresos"   element={<EgresosList />} />
-        <Route path="/mis-reportes"  element={<UserDashboard />} />
+        {/* Rol restringido: solo certificados con aval externo (admin también puede entrar) */}
+        <Route path="/aval-externo"  element={<RequireAval><CertificadosAvalView /></RequireAval>} />
+
+        {/* Cualquier autenticado, excepto el rol 'aval' */}
+        <Route path="/mis-egresos"   element={<RequireGeneral><EgresosList /></RequireGeneral>} />
+        <Route path="/mis-reportes"  element={<RequireGeneral><UserDashboard /></RequireGeneral>} />
       </Route>
 
       <Route path="/" element={<RequireAuth><HomeRedirect /></RequireAuth>} />

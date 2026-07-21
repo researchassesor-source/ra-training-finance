@@ -4,7 +4,7 @@ import {
   LayoutDashboard, TrendingUp, TrendingDown, CreditCard,
   FileText, BarChart2, BookOpen, Users, X, TrendingUp as Logo,
   GraduationCap, Briefcase, Settings, HeartHandshake, CalendarDays,
-  Clock, ListChecks,
+  Clock, ListChecks, ShieldCheck,
 } from 'lucide-react'
 
 const adminLinks = [
@@ -41,9 +41,13 @@ const userLinks = [
   { to: '/mis-reportes',   icon: BookOpen,        label: 'Mis Reportes' },
 ]
 
+const avalLinks = [
+  { to: '/aval-externo',   icon: ShieldCheck,     label: 'Certificados con Aval' },
+]
+
 export default function Sidebar({ open, onClose }) {
-  const { isAdmin, isVendedor, user } = useAuth()
-  const links = isAdmin ? adminLinks : isVendedor ? vendedorLinks : userLinks
+  const { isAdmin, isVendedor, isAval, user } = useAuth()
+  const links = isAdmin ? adminLinks : isVendedor ? vendedorLinks : isAval ? avalLinks : userLinks
 
   return (
     <>

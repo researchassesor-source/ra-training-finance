@@ -132,6 +132,10 @@ export const api = {
     bust('getProyecciones', 'getDashboard')
     return call('updateProyeccion', { id, proyeccion }, getToken())
   },
+  deleteProyeccion: (id) => {
+    bust('getProyecciones', 'getDashboard')
+    return call('deleteProyeccion', { id }, getToken())
+  },
 
   getCategorias: () =>
     callCached('getCategorias', {}, getToken()),
@@ -150,6 +154,15 @@ export const api = {
     bust('getUsuarios')
     return call('updateUsuario', { id, usuario }, getToken())
   },
+  deleteUsuario: (id) => {
+    bust('getUsuarios')
+    return call('deleteUsuario', { id }, getToken())
+  },
+
+  getCertificadosAval: (filtros = {}) =>
+    call('getCertificadosAval', { filtros }, getToken()),
+  marcarAval: (id, avalReferencia) =>
+    call('marcarAval', { id, avalReferencia }, getToken()),
 
   getServicios: () =>
     callCached('getServicios', {}, getToken()),

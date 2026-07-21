@@ -8,7 +8,7 @@ const EMPTY = {
   servicioId: '', servicioNombre: '', modalidad: 'Virtual',
   fechaInicio: '', monto: '', metodoPago: '',
   razonSocial: '', ruc: '', direccionFactura: '',
-  estadoPago: 'pendiente', notas: '',
+  estadoPago: 'pendiente', notas: '', requiereAvalExterno: false,
 }
 
 function mapInitial(initial) {
@@ -29,6 +29,8 @@ function mapInitial(initial) {
     direccionFactura:initial.DireccionFactura|| initial.direccionFactura|| '',
     estadoPago:      initial.EstadoPago      || initial.estadoPago      || 'pendiente',
     notas:           initial.Notas           || initial.notas           || '',
+    requiereAvalExterno: initial.RequiereAvalExterno === true || initial.RequiereAvalExterno === 'TRUE' ||
+                         initial.requiereAvalExterno === true || false,
   }
 }
 
@@ -190,6 +192,13 @@ export default function InscripcionesForm({ initial, onSave, onCancel }) {
             <label className="label">Notas</label>
             <textarea className="input" rows={2} value={form.notas}
               onChange={e => set('notas', e.target.value)} placeholder="Observaciones..." />
+          </div>
+          <div className="sm:col-span-2 flex items-center gap-2">
+            <input type="checkbox" id="requiereAval" checked={form.requiereAvalExterno}
+              onChange={e => set('requiereAvalExterno', e.target.checked)} className="w-4 h-4 accent-brand-600" />
+            <label htmlFor="requiereAval" className="text-sm text-gray-700">
+              El cliente requiere aval externo para este certificado
+            </label>
           </div>
         </div>
       </div>

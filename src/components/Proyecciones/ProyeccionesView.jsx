@@ -6,8 +6,9 @@ import {
   Legend, ResponsiveContainer, LineChart, Line,
 } from 'recharts'
 import Modal from '../UI/Modal'
+import ConfirmDialog from '../UI/ConfirmDialog'
 import Spinner from '../UI/Spinner'
-import { Plus, Pencil, TrendingUp } from 'lucide-react'
+import { Plus, Pencil, Trash2, TrendingUp } from 'lucide-react'
 
 const EMPTY = {
   evento: '', tipo: '', fechaEstimada: '', montoProyectado: '',
@@ -107,6 +108,8 @@ export default function ProyeccionesView() {
   const [error, setError]       = useState('')
   const [modal, setModal]       = useState(null)
   const [selected, setSelected] = useState(null)
+  const [confirm, setConfirm]   = useState(null)
+  const [deleting, setDeleting] = useState(false)
   const [filtroEstado, setFiltroEstado] = useState('')
 
   const load = useCallback(() => {
@@ -118,6 +121,13 @@ export default function ProyeccionesView() {
   }, [filtroEstado])
 
   useEffect(() => { load() }, [load])
+
+  async function handleDelete() {
+    setDeleting(true)
+    try { await api.deleteProyeccion(confirm.ID); setConfirm(null); load() }
+    catch (e) { setError(e.message) }
+    finally { setDeleting(false) }
+  }
 
   const totalProyectado = data.reduce((s, p) => s + (Number(p.MontoProyectado)||0), 0)
   const totalReal       = data.reduce((s, p) => s + (Number(p.MontoReal)||0), 0)
@@ -219,10 +229,16 @@ export default function ProyeccionesView() {
                         </span>
                       </td>
                       <td className="px-4 py-3">
-                        <button onClick={() => { setSelected(p); setModal('edit') }}
-                          className="p-1.5 hover:bg-brand-50 rounded text-gray-400 hover:text-brand-600 transition-colors">
-                          <Pencil size={14} />
-                        </button>
+                        <div className="flex gap-1">
+                          <button onClick={() => { setSelected(p); setModal('edit') }}
+                            className="p-1.5 hover:bg-brand-50 rounded text-gray-400 hover:text-brand-600 transition-colors">
+                            <Pencil size={14} />
+                          </button>
+                          <button onClick={() => setConfirm(p)} title="Eliminar"
+                            className="p-1.5 hover:bg-red-50 rounded text-gray-400 hover:text-red-600 transition-colors">
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   )
@@ -241,6 +257,12 @@ export default function ProyeccionesView() {
           onCancel={() => setModal(null)}
         />
       </Modal>
+
+      <ConfirmDialog
+        open={!!confirm} onClose={() => setConfirm(null)} onConfirm={handleDelete}
+        loading={deleting} title="Eliminar Proyección"
+        message={`¿Eliminar la proyección "${confirm?.Evento}"? Esta acción no se puede deshacer.`}
+      />
     </div>
   )
 }
