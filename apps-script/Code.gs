@@ -988,11 +988,14 @@ function getCertificadosAval(user, { filtros = {} } = {}) {
     data = data.filter(function(i) { return (i.EstadoAval || 'pendiente') === filtros.estadoAval; });
   }
   const duracionDe = mapaDuracionServicios();
-  // Whitelist explicito — nunca exponer monto, RUC, email, telefono ni factura a este rol.
+  // Whitelist explicito — a pedido, incluye cédula y correo del participante;
+  // sigue sin exponer monto, RUC, teléfono ni datos de facturación a este rol.
   const out = data.map(function(i) {
     return {
       ID: i.ID,
       ClienteNombre: i.ClienteNombre,
+      ClienteID: i.ClienteID || '',
+      ClienteEmail: i.ClienteEmail || '',
       ServicioNombre: i.ServicioNombre,
       Modalidad: i.Modalidad,
       FechaInicio: i.FechaInicio,

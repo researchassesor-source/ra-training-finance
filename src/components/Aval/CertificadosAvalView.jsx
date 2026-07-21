@@ -111,7 +111,11 @@ export default function CertificadosAvalView() {
                     <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-500">
                       {fmt.date(i.FechaInicio)}{i.FechaFin ? ` — ${fmt.date(i.FechaFin)}` : ''}
                     </td>
-                    <td className="px-4 py-3 font-medium text-gray-900">{i.ClienteNombre}</td>
+                    <td className="px-4 py-3">
+                      <p className="font-medium text-gray-900">{i.ClienteNombre}</p>
+                      {i.ClienteID && <p className="text-xs text-gray-400">CI: {i.ClienteID}</p>}
+                      {i.ClienteEmail && <p className="text-xs text-gray-400">{i.ClienteEmail}</p>}
+                    </td>
                     <td className="px-4 py-3 max-w-xs truncate">{i.ServicioNombre}</td>
                     <td className="px-4 py-3 whitespace-nowrap">{i.Modalidad}</td>
                     <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-500">{i.Duracion || '—'}</td>

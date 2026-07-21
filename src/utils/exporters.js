@@ -684,9 +684,9 @@ export function exportInscripcionesPDF(data, filtroLabel = '') {
 }
 
 export function exportCertificadosAvalExcel(data) {
-  const headers = ['Participante','Curso','Modalidad','Horas','Fecha Inicio','Fecha Fin','Estado de Aval','Código / Enlace de Aval','Valor del Aval']
+  const headers = ['Participante','Cédula','Correo','Curso','Modalidad','Horas','Fecha Inicio','Fecha Fin','Estado de Aval','Código / Enlace de Aval','Valor del Aval']
   const rows = data.map(i => [
-    i.ClienteNombre, i.ServicioNombre, i.Modalidad, i.Duracion || '',
+    i.ClienteNombre, i.ClienteID || '', i.ClienteEmail || '', i.ServicioNombre, i.Modalidad, i.Duracion || '',
     fmt.date(i.FechaInicio), i.FechaFin ? fmt.date(i.FechaFin) : '',
     i.EstadoAval === 'avalado' ? 'Avalado' : 'Pendiente',
     i.AvalReferencia || '', Number(i.ValorAval || 0).toFixed(2),
@@ -710,19 +710,19 @@ export function exportCertificadosAvalPDF(data, filtroLabel = '') {
 
   autoTable(doc, {
     startY: y,
-    head: [['Participante','Curso','Modalidad','Horas','Fecha Inicio','Fecha Fin','Estado','Código / Enlace','Valor Aval']],
+    head: [['Participante','Cédula','Correo','Curso','Modalidad','Horas','Fecha Inicio','Fecha Fin','Estado','Código / Enlace','Valor Aval']],
     body: data.map(i => [
-      i.ClienteNombre, i.ServicioNombre, i.Modalidad, i.Duracion || '—',
+      i.ClienteNombre, i.ClienteID || '—', i.ClienteEmail || '—', i.ServicioNombre, i.Modalidad, i.Duracion || '—',
       fmt.date(i.FechaInicio), i.FechaFin ? fmt.date(i.FechaFin) : '—',
       i.EstadoAval === 'avalado' ? 'Avalado' : 'Pendiente',
       i.AvalReferencia || '—', fmt.usd(i.ValorAval),
     ]),
-    foot: [['', '', '', '', '', '', '', 'TOTAL', fmt.usd(total)]],
-    headStyles: { fillColor: BRAND_COLOR, fontSize: 8 },
-    footStyles: { fillColor: [240, 240, 255], fontStyle: 'bold', fontSize: 9 },
-    bodyStyles: { fontSize: 8 },
+    foot: [['', '', '', '', '', '', '', '', '', 'TOTAL', fmt.usd(total)]],
+    headStyles: { fillColor: BRAND_COLOR, fontSize: 7 },
+    footStyles: { fillColor: [240, 240, 255], fontStyle: 'bold', fontSize: 8 },
+    bodyStyles: { fontSize: 7 },
     alternateRowStyles: { fillColor: [248, 249, 255] },
-    columnStyles: { 8: { halign: 'right' } },
+    columnStyles: { 10: { halign: 'right' } },
   })
 
   addFooter(doc)
