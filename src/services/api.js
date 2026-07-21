@@ -161,8 +161,8 @@ export const api = {
 
   getCertificadosAval: (filtros = {}) =>
     call('getCertificadosAval', { filtros }, getToken()),
-  marcarAval: (id, avalReferencia) =>
-    call('marcarAval', { id, avalReferencia }, getToken()),
+  marcarAval: (id, avalReferencia, valorAval) =>
+    call('marcarAval', { id, avalReferencia, valorAval }, getToken()),
 
   getServicios: () =>
     callCached('getServicios', {}, getToken()),

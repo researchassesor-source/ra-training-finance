@@ -683,6 +683,50 @@ export function exportInscripcionesPDF(data, filtroLabel = '') {
   doc.save('inscripciones_certificados_ra_training.pdf')
 }
 
+export function exportCertificadosAvalExcel(data) {
+  const headers = ['Participante','Curso','Modalidad','Horas','Fecha del Curso','Estado de Aval','Código / Enlace de Aval','Valor del Aval']
+  const rows = data.map(i => [
+    i.ClienteNombre, i.ServicioNombre, i.Modalidad, i.Duracion || '',
+    fmt.date(i.FechaInicio), i.EstadoAval === 'avalado' ? 'Avalado' : 'Pendiente',
+    i.AvalReferencia || '', Number(i.ValorAval || 0).toFixed(2),
+  ])
+  const csv = [headers, ...rows]
+    .map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
+    .join('\n')
+  // BOM al inicio para que Excel detecte UTF-8 y no rompa tildes/ñ
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
+  const url  = URL.createObjectURL(blob)
+  const a    = document.createElement('a')
+  a.href = url; a.download = 'certificados_aval_externo_ra_training.csv'; a.click()
+  URL.revokeObjectURL(url)
+}
+
+export function exportCertificadosAvalPDF(data, filtroLabel = '') {
+  const doc = new jsPDF('landscape')
+  const y = addHeader(doc, 'Certificados con Aval Externo', filtroLabel || 'Para pago de factura de aval')
+
+  const total = data.reduce((s, i) => s + (Number(i.ValorAval) || 0), 0)
+
+  autoTable(doc, {
+    startY: y,
+    head: [['Participante','Curso','Modalidad','Horas','Fecha del Curso','Estado','Código / Enlace','Valor Aval']],
+    body: data.map(i => [
+      i.ClienteNombre, i.ServicioNombre, i.Modalidad, i.Duracion || '—',
+      fmt.date(i.FechaInicio), i.EstadoAval === 'avalado' ? 'Avalado' : 'Pendiente',
+      i.AvalReferencia || '—', fmt.usd(i.ValorAval),
+    ]),
+    foot: [['', '', '', '', '', '', 'TOTAL', fmt.usd(total)]],
+    headStyles: { fillColor: BRAND_COLOR, fontSize: 8 },
+    footStyles: { fillColor: [240, 240, 255], fontStyle: 'bold', fontSize: 9 },
+    bodyStyles: { fontSize: 8 },
+    alternateRowStyles: { fillColor: [248, 249, 255] },
+    columnStyles: { 7: { halign: 'right' } },
+  })
+
+  addFooter(doc)
+  doc.save('certificados_aval_externo_ra_training.pdf')
+}
+
 function makeWordRow(cells, isHeader = false) {
   return new TableRow({
     tableHeader: isHeader,

@@ -123,7 +123,7 @@ const SHEET_HEADERS = {
   Proyecciones:     ['ID','Evento','Tipo','FechaEstimada','MontoProyectado','MontoReal','Estado','Notas','CreadoPor','FechaCreacion'],
   Categorias:       ['ID','Nombre','Tipo','Activo'],
   Servicios:        ['ID','Nombre','Tipo','Modalidad','Precio','Duracion','Descripcion','Activo','FechaCreacion','FechaEvento','FechaFinEvento','LugarEvento'],
-  Inscripciones:    ['ID','ClienteNombre','ClienteID','ClienteEmail','ClienteTelefono','ServicioID','ServicioNombre','Modalidad','FechaInicio','Monto','MetodoPago','RazonSocial','RUC','DireccionFactura','EstadoPago','EstadoCertificado','IngresoID','Notas','CreadoPor','FechaCreacion','FechaEmisionCertificado','RequiereAvalExterno','EstadoAval','AvalReferencia','FechaAval'],
+  Inscripciones:    ['ID','ClienteNombre','ClienteID','ClienteEmail','ClienteTelefono','ServicioID','ServicioNombre','Modalidad','FechaInicio','Monto','MetodoPago','RazonSocial','RUC','DireccionFactura','EstadoPago','EstadoCertificado','IngresoID','Notas','CreadoPor','FechaCreacion','FechaEmisionCertificado','RequiereAvalExterno','EstadoAval','AvalReferencia','FechaAval','ValorAval'],
   Sesiones:         ['Token','Username','UserID','Rol','Nombre','Expira'],
   ConfigPagos:      ['ID','Nombre','Tipo','Detalles','Instrucciones','Activo','FechaCreacion'],
   Convenios:        ['ID','Organizacion','Representante','Cargo','Objeto','ObligacionesRA','ObligacionesAliado','Vigencia','FechaInicio','FechaFin','Estado','Notas','CreadoPor','FechaCreacion'],
@@ -872,6 +872,7 @@ function addInscripcion(user, { inscripcion }) {
     requiereAval ? 'pendiente' : '',       // EstadoAval
     '',                                    // AvalReferencia
     '',                                    // FechaAval
+    0,                                     // ValorAval
   ]);
 
   // Auto-crear ingreso vinculado — columnas deben coincidir exactamente con SHEET_HEADERS.Ingresos
@@ -970,6 +971,15 @@ function getCertificadosAval(user, { filtros = {} } = {}) {
   if (filtros.estadoAval) {
     data = data.filter(function(i) { return (i.EstadoAval || 'pendiente') === filtros.estadoAval; });
   }
+  // Mapa de servicios por ID (y por nombre, respaldo para registros antiguos) para traer Duracion (horas)
+  const servicios = sheetToObjects(getSheet('Servicios'));
+  const servicioPorId = {};
+  const servicioPorNombre = {};
+  servicios.forEach(function(s) { servicioPorId[s.ID] = s; servicioPorNombre[s.Nombre] = s; });
+  function duracionDe(i) {
+    const s = servicioPorId[i.ServicioID] || servicioPorNombre[i.ServicioNombre];
+    return s ? (s.Duracion || '') : '';
+  }
   // Whitelist explicito — nunca exponer monto, RUC, email, telefono ni factura a este rol.
   const out = data.map(function(i) {
     return {
@@ -978,16 +988,18 @@ function getCertificadosAval(user, { filtros = {} } = {}) {
       ServicioNombre: i.ServicioNombre,
       Modalidad: i.Modalidad,
       FechaInicio: i.FechaInicio,
+      Duracion: duracionDe(i),
       EstadoAval: i.EstadoAval || 'pendiente',
       AvalReferencia: i.AvalReferencia || '',
       FechaAval: i.FechaAval || '',
+      ValorAval: Number(i.ValorAval) || 0,
     };
   });
   out.sort(function(a, b) { return new Date(b.FechaInicio || 0) - new Date(a.FechaInicio || 0); });
   return { success: true, data: out };
 }
 
-function marcarAval(user, { id, avalReferencia } = {}) {
+function marcarAval(user, { id, avalReferencia, valorAval } = {}) {
   if (!isAval(user) && !isAdmin(user)) throw new Error('Acceso denegado.');
   const sheet = getSheet('Inscripciones');
   const row   = sheetToObjects(sheet).find(function(r) { return r.ID === id; });
@@ -999,6 +1011,7 @@ function marcarAval(user, { id, avalReferencia } = {}) {
     EstadoAval: 'avalado',
     AvalReferencia: avalReferencia || '',
     FechaAval: new Date().toISOString(),
+    ValorAval: Number(valorAval) || 0,
   });
   return { success: true };
 }
