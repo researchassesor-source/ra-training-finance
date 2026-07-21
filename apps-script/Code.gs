@@ -987,6 +987,9 @@ function getCertificadosAval(user, { filtros = {} } = {}) {
   if (filtros.estadoAval) {
     data = data.filter(function(i) { return (i.EstadoAval || 'pendiente') === filtros.estadoAval; });
   }
+  // Los ultimos registros ingresados primero (por fecha de creacion, no por
+  // fecha del curso — un curso futuro no deberia "esconder" lo recien creado).
+  data.sort(function(a, b) { return new Date(b.FechaCreacion || 0) - new Date(a.FechaCreacion || 0); });
   const duracionDe = mapaDuracionServicios();
   // Whitelist explicito — a pedido, incluye cédula y correo del participante;
   // sigue sin exponer monto, RUC, teléfono ni datos de facturación a este rol.
@@ -1007,7 +1010,6 @@ function getCertificadosAval(user, { filtros = {} } = {}) {
       ValorAval: Number(i.ValorAval) || 0,
     };
   });
-  out.sort(function(a, b) { return new Date(b.FechaInicio || 0) - new Date(a.FechaInicio || 0); });
   return { success: true, data: out };
 }
 

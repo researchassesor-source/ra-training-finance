@@ -10,7 +10,7 @@ export default function CertificadosAvalView() {
   const [data, setData]       = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError]     = useState('')
-  const [filtro, setFiltro]   = useState('')
+  const [filtros, setFiltros] = useState({ estadoAval: '', servicio: '', desde: '', hasta: '' })
   const [avalTarget, setAvalTarget] = useState(null)
   const [referencia, setReferencia] = useState('')
   const [valorAval, setValorAval]   = useState('')
@@ -18,13 +18,24 @@ export default function CertificadosAvalView() {
 
   const load = useCallback(() => {
     setLoading(true)
-    api.getCertificadosAval(filtro ? { estadoAval: filtro } : {})
+    api.getCertificadosAval(filtros.estadoAval ? { estadoAval: filtros.estadoAval } : {})
       .then(r => setData(r.data || []))
       .catch(e => setError(e.message))
       .finally(() => setLoading(false))
-  }, [filtro])
+  }, [filtros.estadoAval])
 
   useEffect(() => { load() }, [load])
+
+  // Servicio + rango de fechas se filtran en el cliente sobre lo ya cargado,
+  // igual que en InscripcionesList.
+  const filtered = data.filter(i => {
+    if (filtros.servicio && i.ServicioNombre !== filtros.servicio) return false
+    if (filtros.desde && i.FechaInicio && i.FechaInicio < filtros.desde) return false
+    if (filtros.hasta && i.FechaInicio && i.FechaInicio > filtros.hasta) return false
+    return true
+  })
+
+  const serviciosUnicos = [...new Set(data.map(i => i.ServicioNombre).filter(Boolean))].sort()
 
   function openAval(item) {
     setAvalTarget(item)
@@ -44,9 +55,9 @@ export default function CertificadosAvalView() {
   }
 
   const isUrl = (s) => s && (s.startsWith('http://') || s.startsWith('https://'))
-  const pendientes   = data.filter(i => i.EstadoAval !== 'avalado').length
-  const avalados     = data.filter(i => i.EstadoAval === 'avalado').length
-  const totalAPagar  = data.reduce((s, i) => s + (Number(i.ValorAval) || 0), 0)
+  const pendientes   = filtered.filter(i => i.EstadoAval !== 'avalado').length
+  const avalados     = filtered.filter(i => i.EstadoAval === 'avalado').length
+  const totalAPagar  = filtered.reduce((s, i) => s + (Number(i.ValorAval) || 0), 0)
 
   return (
     <div className="space-y-4">
@@ -56,16 +67,28 @@ export default function CertificadosAvalView() {
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <select className="input w-auto text-sm" value={filtro} onChange={e => setFiltro(e.target.value)}>
-          <option value="">Todos</option>
-          <option value="pendiente">Pendientes</option>
-          <option value="avalado">Avalados</option>
-        </select>
+        <div className="flex flex-wrap gap-2">
+          <select className="input w-auto text-sm" value={filtros.estadoAval}
+            onChange={e => setFiltros(f => ({ ...f, estadoAval: e.target.value }))}>
+            <option value="">Todos (aval generado o no)</option>
+            <option value="pendiente">Aval no generado</option>
+            <option value="avalado">Aval generado</option>
+          </select>
+          <select className="input w-auto text-sm" value={filtros.servicio}
+            onChange={e => setFiltros(f => ({ ...f, servicio: e.target.value }))}>
+            <option value="">Todos los cursos</option>
+            {serviciosUnicos.map(s => <option key={s}>{s}</option>)}
+          </select>
+          <input className="input w-36 text-sm" type="date" placeholder="Desde" value={filtros.desde}
+            onChange={e => setFiltros(f => ({ ...f, desde: e.target.value }))} />
+          <input className="input w-36 text-sm" type="date" placeholder="Hasta" value={filtros.hasta}
+            onChange={e => setFiltros(f => ({ ...f, hasta: e.target.value }))} />
+        </div>
         <div className="flex gap-2">
-          <button onClick={() => exportCertificadosAvalExcel(data)} className="btn-secondary text-sm" disabled={data.length === 0}>
+          <button onClick={() => exportCertificadosAvalExcel(filtered)} className="btn-secondary text-sm" disabled={filtered.length === 0}>
             <Download size={15} /> Excel
           </button>
-          <button onClick={() => exportCertificadosAvalPDF(data, filtro ? `Filtro: ${filtro}` : '')} className="btn-secondary text-sm" disabled={data.length === 0}>
+          <button onClick={() => exportCertificadosAvalPDF(filtered, filtros.estadoAval ? `Filtro: ${filtros.estadoAval}` : '')} className="btn-secondary text-sm" disabled={filtered.length === 0}>
             <FileText size={15} /> PDF
           </button>
         </div>
@@ -73,7 +96,7 @@ export default function CertificadosAvalView() {
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="card py-3 text-center">
-          <p className="text-xl font-bold text-gray-900">{data.length}</p>
+          <p className="text-xl font-bold text-gray-900">{filtered.length}</p>
           <p className="text-xs text-gray-500">Total</p>
         </div>
         <div className="card py-3 text-center">
@@ -104,9 +127,9 @@ export default function CertificadosAvalView() {
                 </tr>
               </thead>
               <tbody>
-                {data.length === 0 ? (
+                {filtered.length === 0 ? (
                   <tr><td colSpan={9} className="text-center py-10 text-gray-400">Sin certificados con aval externo</td></tr>
-                ) : data.map(i => (
+                ) : filtered.map(i => (
                   <tr key={i.ID} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
                     <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-500">
                       {fmt.date(i.FechaInicio)}{i.FechaFin ? ` — ${fmt.date(i.FechaFin)}` : ''}
