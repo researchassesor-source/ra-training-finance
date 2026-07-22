@@ -9,6 +9,7 @@ import Spinner from '../UI/Spinner'
 import {
   TrendingUp, TrendingDown, DollarSign, FileText,
   Clock, BarChart2, AlertCircle, CreditCard, ArrowUpCircle, ArrowDownCircle, Scale,
+  Award, BadgeCheck, ShieldAlert, UsersRound,
 } from 'lucide-react'
 
 const PIE_COLORS = ['#4338ca','#0891b2','#059669','#d97706','#dc2626','#7c3aed','#db2777','#0284c7']
@@ -172,6 +173,19 @@ export default function AdminDashboard() {
         <KpiCard icon={Clock}      label="Egresos Pendientes"   value={kpis.egresosPendientes}                 color="amber"  sub="Esperan aprobación" />
         <KpiCard icon={CreditCard} label="Egresos Aprobados"    value={kpis.egresosAprobados || 0}             color="red"    sub="Comprometidos, aún no pagados" />
         <KpiCard icon={BarChart2}  label="Ing. Proyectado"      value={fmt.usd(kpis.totalProyectado)}          color="purple" sub="Eventos futuros" />
+      </div>
+
+      <div className="space-y-3">
+        <div>
+          <h2 className="text-sm font-bold uppercase tracking-wide text-gray-700">Inscripciones y certificados</h2>
+          <p className="text-xs text-gray-500">Estado operativo del año seleccionado</p>
+        </div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <KpiCard icon={UsersRound} label="Inscripciones" value={kpis.inscripciones || 0} color="blue" />
+          <KpiCard icon={Award} label="R.A. por emitir" value={kpis.certificadosRaPendientes || 0} color="amber" sub="Aval propio" />
+          <KpiCard icon={ShieldAlert} label="Aval institucional pendiente" value={kpis.certificadosAvalPendientes || 0} color="purple" />
+          <KpiCard icon={BadgeCheck} label="Certificados emitidos" value={kpis.certificadosEmitidos || 0} color="green" />
+        </div>
       </div>
 
       {/* Charts row 1 */}

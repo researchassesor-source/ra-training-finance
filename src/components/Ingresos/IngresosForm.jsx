@@ -7,7 +7,7 @@ import { MessageCircle, CheckCircle } from 'lucide-react'
 const EMPTY = {
   fecha: '', tipo: '', modalidad: 'N/A', concepto: '', cliente: '',
   clienteTelefono: '', contratoId: '', monto: '', metodoPago: '',
-  estado: 'confirmado', notas: '',
+  estado: 'confirmado', referencia: '', notas: '',
 }
 
 function mapInitial(initial) {
@@ -23,6 +23,7 @@ function mapInitial(initial) {
     monto:           initial.Monto           || initial.monto           || '',
     metodoPago:      initial.MetodoPago      || initial.metodoPago      || '',
     estado:          initial.Estado          || initial.estado          || 'confirmado',
+    referencia:      initial.Referencia      || initial.referencia      || initial.Notas || '',
     notas:           initial.Notas           || initial.notas           || '',
   }
 }
@@ -228,11 +229,16 @@ export default function IngresosForm({ initial, onSave, onCancel }) {
           </div>
         )}
         <div className="sm:col-span-2">
-          <label className="label">N° de Referencia / Comprobante *</label>
-          <textarea className="input" rows={2} value={form.notas}
-            onChange={e => set('notas', e.target.value)}
-            placeholder="Ej: Transferencia #001234, Captura de pago adjunta, Nº comprobante Zelle..." />
+          <label className="label">N° de Referencia / Comprobante</label>
+          <input className="input" value={form.referencia}
+            onChange={e => set('referencia', e.target.value)}
+            placeholder="Ej.: Transferencia #001234 o referencia bancaria" />
           <p className="text-xs text-gray-400 mt-1">Este dato es revisado por el administrador para verificar el pago.</p>
+        </div>
+        <div className="sm:col-span-2">
+          <label className="label">Observaciones</label>
+          <textarea className="input" rows={2} value={form.notas}
+            onChange={e => set('notas', e.target.value)} placeholder="Observaciones internas opcionales" />
         </div>
       </div>
 

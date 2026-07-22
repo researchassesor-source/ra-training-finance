@@ -34,6 +34,13 @@ export const fmt = {
     if (isNaN(d)) return v
     return d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
   },
+
+  time: (v) => {
+    if (!v) return ''
+    const d = new Date(v)
+    if (isNaN(d)) return ''
+    return d.toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit', hour12: false })
+  },
 }
 
 export const MESES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']

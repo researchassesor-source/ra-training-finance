@@ -7,7 +7,14 @@ import ConfirmDialog from '../UI/ConfirmDialog'
 import Spinner from '../UI/Spinner'
 import { Plus, Pencil, Trash2, UserCheck, UserX } from 'lucide-react'
 
-const EMPTY = { nombre: '', email: '', username: '', password: '', rol: 'usuario', activo: true }
+const EMPTY = { nombre: '', email: '', username: '', password: '', rol: 'usuario', activo: true, institucionAval: '' }
+
+const ROLE_META = {
+  admin: { label: 'Administrador', css: 'badge-blue' },
+  vendedor: { label: 'Vendedor', css: 'badge-green' },
+  aval: { label: 'Aval externo', css: 'badge-yellow' },
+  usuario: { label: 'Usuario', css: 'badge-gray' },
+}
 
 function mapInitial(initial) {
   if (!initial) return EMPTY
@@ -18,6 +25,7 @@ function mapInitial(initial) {
     password: '',
     rol:      initial.Rol      || initial.rol      || 'usuario',
     activo:   initial.Activo === true || initial.Activo === 'TRUE' || initial.activo === true,
+    institucionAval: initial.InstitucionAval || initial.institucionAval || '',
   }
 }
 
@@ -30,6 +38,10 @@ function UsuarioForm({ initial, onSave, onCancel }) {
   async function handleSubmit(e) {
     e.preventDefault()
     if (!initial && !form.password) { setError('La contraseña es requerida'); return }
+    if (form.rol === 'aval' && !form.institucionAval.trim()) {
+      setError('Ingrese la institución asignada a este usuario de aval.')
+      return
+    }
     setSaving(true)
     setError('')
     try {
@@ -69,13 +81,27 @@ function UsuarioForm({ initial, onSave, onCancel }) {
         </div>
         <div>
           <label className="label">Rol</label>
-          <select className="input" value={form.rol} onChange={e => set('rol', e.target.value)}>
+          <select className="input" value={form.rol} onChange={e => {
+            const rol = e.target.value
+            setForm(actual => ({ ...actual, rol, institucionAval: rol === 'aval' ? actual.institucionAval : '' }))
+          }}>
             <option value="usuario">Usuario (solo gastos)</option>
             <option value="vendedor">Vendedor (ingresos + gastos + inscripciones)</option>
             <option value="aval">Aval Externo (solo certificados con aval)</option>
             <option value="admin">Administrador (acceso total)</option>
           </select>
         </div>
+        {form.rol === 'aval' && (
+          <div className="sm:col-span-2">
+            <label className="label">Institución asignada *</label>
+            <input className="input" required value={form.institucionAval}
+              onChange={e => set('institucionAval', e.target.value)}
+              placeholder="Ej.: IPSA" />
+            <p className="text-xs text-gray-500 mt-1">
+              Este usuario solo podrá ver y registrar avales de esta institución.
+            </p>
+          </div>
+        )}
         {initial && (
           <div className="flex items-center gap-3">
             <input type="checkbox" id="activo" checked={form.activo}
@@ -151,13 +177,18 @@ export default function UsuariosView() {
                 <p className="text-xs text-gray-500">{u.Username}</p>
                 {u.Email && <p className="text-xs text-gray-400 truncate">{u.Email}</p>}
                 <div className="flex items-center gap-2 mt-2">
-                  <span className={u.Rol === 'admin' ? 'badge-blue' : 'badge-gray'}>
-                    {u.Rol === 'admin' ? 'Admin' : 'Usuario'}
+                  <span className={ROLE_META[u.Rol]?.css || 'badge-gray'}>
+                    {ROLE_META[u.Rol]?.label || u.Rol}
                   </span>
                   <span className={u.Activo ? 'badge-green' : 'badge-red'}>
                     {u.Activo ? 'Activo' : 'Inactivo'}
                   </span>
                 </div>
+                {u.Rol === 'aval' && u.InstitucionAval && (
+                  <p className="text-xs text-amber-700 mt-1 truncate" title={u.InstitucionAval}>
+                    Institución: {u.InstitucionAval}
+                  </p>
+                )}
                 <p className="text-xs text-gray-300 mt-1">Creado: {fmt.date(u.FechaCreacion)}</p>
               </div>
               <div className="flex flex-col gap-1 flex-shrink-0">

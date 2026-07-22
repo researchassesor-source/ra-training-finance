@@ -2,13 +2,24 @@ async function call(action, params = {}, token = null) {
   const body = { action, ...params }
   if (token) body.token = token
 
-  const url = `/api/proxy?payload=${encodeURIComponent(JSON.stringify(body))}`
-  const res = await fetch(url)
+  // Todas las acciones pasan por POST para que el token y los datos sensibles
+  // no queden expuestos en la URL, el historial o los registros del proxy.
+  const res = await fetch('/api/proxy', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
 
   if (!res.ok) throw new Error(`Error HTTP ${res.status}`)
-  const data = await res.json()
+  let data
+  try { data = await res.json() }
+  catch { throw new Error('El servidor devolvió una respuesta inválida.') }
   if (!data.success) throw new Error(data.error || 'Error desconocido')
   return data
+}
+
+async function callPost(action, params = {}, token = null) {
+  return call(action, params, token)
 }
 
 function getToken() {
@@ -147,31 +158,35 @@ export const api = {
   getUsuarios: () =>
     callCached('getUsuarios', {}, getToken()),
   addUsuario: (usuario) => {
-    bust('getUsuarios')
+    bust('getUsuarios', 'getInstitucionesAval')
     return call('addUsuario', { usuario }, getToken())
   },
   updateUsuario: (id, usuario) => {
-    bust('getUsuarios')
+    bust('getUsuarios', 'getInstitucionesAval')
     return call('updateUsuario', { id, usuario }, getToken())
   },
   deleteUsuario: (id) => {
-    bust('getUsuarios')
+    bust('getUsuarios', 'getInstitucionesAval')
     return call('deleteUsuario', { id }, getToken())
   },
 
+  getInstitucionesAval: () =>
+    callCached('getInstitucionesAval', {}, getToken()),
   getCertificadosAval: (filtros = {}) =>
     call('getCertificadosAval', { filtros }, getToken()),
-  marcarAval: (id, avalReferencia, valorAval) =>
-    call('marcarAval', { id, avalReferencia, valorAval }, getToken()),
+  marcarAval: (id, datos = {}) => {
+    bust('getInscripciones', 'getDashboard', 'getInstitucionesAval')
+    return call('marcarAval', { id, ...datos }, getToken())
+  },
 
   getServicios: () =>
     callCached('getServicios', {}, getToken()),
   addServicio: (servicio) => {
-    bust('getServicios')
+    bust('getServicios', 'getInscripciones')
     return call('addServicio', { servicio }, getToken())
   },
   updateServicio: (id, servicio) => {
-    bust('getServicios')
+    bust('getServicios', 'getInscripciones')
     return call('updateServicio', { id, servicio }, getToken())
   },
 
@@ -184,6 +199,22 @@ export const api = {
   updateInscripcion: (id, inscripcion) => {
     bust('getInscripciones', 'getIngresos', 'getDashboard')
     return call('updateInscripcion', { id, inscripcion }, getToken())
+  },
+  verificarPagoInscripcion: (id, correcciones = {}) => {
+    bust('getInscripciones', 'getIngresos', 'getDashboard')
+    return call('verificarPagoInscripcion', { id, ...correcciones }, getToken())
+  },
+  emitirCertificado: (id, codigoCertificado) => {
+    bust('getInscripciones', 'getDashboard')
+    return call('emitirCertificado', { id, codigoCertificado }, getToken())
+  },
+  actualizarEntregaCertificado: (id, estadoEntrega) => {
+    bust('getInscripciones')
+    return call('actualizarEntregaCertificado', { id, estadoEntrega }, getToken())
+  },
+  enviarCertificadoEmail: (id, archivo) => {
+    bust('getInscripciones')
+    return callPost('enviarCertificadoEmail', { id, ...archivo }, getToken())
   },
   deleteInscripcion: (id) => {
     bust('getInscripciones', 'getIngresos', 'getDashboard')

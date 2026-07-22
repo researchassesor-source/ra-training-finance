@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { api } from '../../services/api'
+import { useAuth } from '../../context/AuthContext'
 import { fmt } from '../../utils/formatters'
 import { exportCertificadosAvalExcel, exportCertificadosAvalPDF } from '../../utils/exporters'
 import Modal from '../UI/Modal'
@@ -7,13 +8,16 @@ import Spinner from '../UI/Spinner'
 import { ShieldCheck, Clock, ExternalLink, Download, FileText } from 'lucide-react'
 
 export default function CertificadosAvalView() {
+  const { isAdmin } = useAuth()
   const [data, setData]       = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError]     = useState('')
-  const [filtros, setFiltros] = useState({ estadoAval: '', servicio: '', desde: '', hasta: '' })
+  const [filtros, setFiltros] = useState({ estadoAval: '', institucionAval: '', servicio: '', desde: '', hasta: '' })
   const [avalTarget, setAvalTarget] = useState(null)
   const [referencia, setReferencia] = useState('')
   const [valorAval, setValorAval]   = useState('')
+  const [enlaceExterno, setEnlaceExterno] = useState('')
+  const [codigoExterno, setCodigoExterno] = useState('')
   const [saving, setSaving]   = useState(false)
 
   const load = useCallback(() => {
@@ -30,31 +34,44 @@ export default function CertificadosAvalView() {
   // igual que en InscripcionesList.
   const filtered = data.filter(i => {
     if (filtros.servicio && i.ServicioNombre !== filtros.servicio) return false
+    if (filtros.institucionAval && i.InstitucionAval !== filtros.institucionAval) return false
     if (filtros.desde && i.FechaInicio && i.FechaInicio < filtros.desde) return false
     if (filtros.hasta && i.FechaInicio && i.FechaInicio > filtros.hasta) return false
     return true
   })
 
   const serviciosUnicos = [...new Set(data.map(i => i.ServicioNombre).filter(Boolean))].sort()
+  const institucionesUnicas = [...new Set(data.map(i => i.InstitucionAval).filter(Boolean))].sort()
 
   function openAval(item) {
+    setError('')
     setAvalTarget(item)
-    setReferencia('')
-    setValorAval('')
+    setReferencia(item.AvalReferencia || '')
+    setValorAval(item.ValorAval || '')
+    setEnlaceExterno(item.AvalEnlaceExterno || '')
+    setCodigoExterno(item.AvalCodigoExterno || '')
   }
 
   async function handleMarcarAval(e) {
     e.preventDefault()
+    if (![referencia, enlaceExterno, codigoExterno].some(value => value.trim())) {
+      setError('Ingrese al menos una referencia, un código externo o un enlace de validación.')
+      return
+    }
     setSaving(true)
     try {
-      await api.marcarAval(avalTarget.ID, referencia, valorAval)
+      await api.marcarAval(avalTarget.ID, {
+        avalReferencia: referencia,
+        valorAval,
+        avalEnlaceExterno: enlaceExterno,
+        avalCodigoExterno: codigoExterno,
+      })
       setAvalTarget(null)
       load()
     } catch (err) { setError(err.message) }
     finally { setSaving(false) }
   }
 
-  const isUrl = (s) => s && (s.startsWith('http://') || s.startsWith('https://'))
   const pendientes   = filtered.filter(i => i.EstadoAval !== 'avalado').length
   const avalados     = filtered.filter(i => i.EstadoAval === 'avalado').length
   const totalAPagar  = filtered.reduce((s, i) => s + (Number(i.ValorAval) || 0), 0)
@@ -62,8 +79,10 @@ export default function CertificadosAvalView() {
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="text-lg font-bold text-gray-900">Certificados con Aval Externo</h2>
-        <p className="text-sm text-gray-500">Listado de participantes cuyo certificado requiere aval externo</p>
+        <h2 className="text-lg font-bold text-gray-900">Certificados con aval institucional</h2>
+        <p className="text-sm text-gray-500">
+          {isAdmin ? 'Control de certificados que dependen de una institución avaladora.' : 'Solo se muestran los certificados asignados a su institución.'}
+        </p>
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -74,6 +93,13 @@ export default function CertificadosAvalView() {
             <option value="pendiente">Aval no generado</option>
             <option value="avalado">Aval generado</option>
           </select>
+          {isAdmin && (
+            <select className="input w-auto text-sm" value={filtros.institucionAval}
+              onChange={e => setFiltros(f => ({ ...f, institucionAval: e.target.value }))}>
+              <option value="">Todas las instituciones</option>
+              {institucionesUnicas.map(nombre => <option key={nombre}>{nombre}</option>)}
+            </select>
+          )}
           <select className="input w-auto text-sm" value={filtros.servicio}
             onChange={e => setFiltros(f => ({ ...f, servicio: e.target.value }))}>
             <option value="">Todos los cursos</option>
@@ -121,14 +147,14 @@ export default function CertificadosAvalView() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-100">
-                  {['Fecha Curso','Participante','Servicio','Modalidad','Horas','Estado de Aval','Referencia','Valor Aval',''].map(h => (
+                  {['Fecha Curso','Participante','Servicio','Institución','Modalidad','Horas','Estado de Aval','Referencia','Valor Aval',''].map(h => (
                     <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {filtered.length === 0 ? (
-                  <tr><td colSpan={9} className="text-center py-10 text-gray-400">Sin certificados con aval externo</td></tr>
+                  <tr><td colSpan={10} className="text-center py-10 text-gray-400">Sin certificados con aval externo</td></tr>
                 ) : filtered.map(i => (
                   <tr key={i.ID} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
                     <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-500">
@@ -140,6 +166,7 @@ export default function CertificadosAvalView() {
                       {i.ClienteEmail && <p className="text-xs text-gray-400">{i.ClienteEmail}</p>}
                     </td>
                     <td className="px-4 py-3 max-w-xs truncate">{i.ServicioNombre}</td>
+                    <td className="px-4 py-3 max-w-[180px] truncate" title={i.InstitucionAval || ''}>{i.InstitucionAval || '—'}</td>
                     <td className="px-4 py-3 whitespace-nowrap">{i.Modalidad}</td>
                     <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-500">{i.Duracion || '—'}</td>
                     <td className="px-4 py-3">
@@ -150,26 +177,21 @@ export default function CertificadosAvalView() {
                       )}
                     </td>
                     <td className="px-4 py-3 max-w-[200px] truncate text-xs">
-                      {i.AvalReferencia ? (
-                        isUrl(i.AvalReferencia) ? (
-                          <a href={i.AvalReferencia} target="_blank" rel="noopener noreferrer"
+                      {i.AvalEnlaceExterno ? (
+                        <a href={i.AvalEnlaceExterno} target="_blank" rel="noopener noreferrer"
                             className="text-brand-600 hover:underline flex items-center gap-1">
                             Ver enlace <ExternalLink size={11} />
-                          </a>
-                        ) : (
-                          <span className="font-mono text-gray-600">{i.AvalReferencia}</span>
-                        )
-                      ) : '—'}
+                        </a>
+                      ) : i.AvalReferencia ? <span className="font-mono text-gray-600">{i.AvalReferencia}</span> : '—'}
+                      {i.AvalCodigoExterno && <p className="font-mono text-[10px] text-gray-400 mt-1">{i.AvalCodigoExterno}</p>}
                     </td>
                     <td className="px-4 py-3 font-semibold text-brand-700 whitespace-nowrap">
                       {i.EstadoAval === 'avalado' ? fmt.usd(i.ValorAval) : '—'}
                     </td>
                     <td className="px-4 py-3">
-                      {i.EstadoAval !== 'avalado' && (
-                        <button onClick={() => openAval(i)} className="btn-primary text-xs px-3 py-1.5">
-                          Marcar Avalado
-                        </button>
-                      )}
+                      <button onClick={() => openAval(i)} className="btn-primary text-xs px-3 py-1.5">
+                        {i.EstadoAval === 'avalado' ? 'Editar aval' : 'Marcar avalado'}
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -179,22 +201,34 @@ export default function CertificadosAvalView() {
         </div>
       )}
 
-      <Modal open={!!avalTarget} onClose={() => setAvalTarget(null)} title="Marcar Certificado como Avalado" size="sm">
+      <Modal open={!!avalTarget} onClose={() => setAvalTarget(null)} title="Registrar aval institucional" size="sm">
         {avalTarget && (
           <form onSubmit={handleMarcarAval} className="space-y-4">
             <p className="text-sm text-gray-600">
               Confirmando el aval externo para <span className="font-medium">{avalTarget.ClienteNombre}</span> — {avalTarget.ServicioNombre}
             </p>
             <div>
-              <label className="label">Código de aval o enlace</label>
+              <label className="label">Referencia del aval</label>
               <input className="input" value={referencia} onChange={e => setReferencia(e.target.value)}
-                placeholder="Ej: AVAL-2026-0031 o https://..." />
+                placeholder="Ej.: AVAL-2026-0031" />
             </div>
             <div>
               <label className="label">Valor del aval (USD)</label>
               <input className="input" type="number" step="0.01" min="0" value={valorAval}
                 onChange={e => setValorAval(e.target.value)} placeholder="0.00" />
               <p className="text-xs text-gray-400 mt-1">Costo de este aval, para el pago de la factura correspondiente.</p>
+            </div>
+            <div>
+              <label className="label">Enlace de validación externo</label>
+              <input className="input" type="url" value={enlaceExterno} onChange={e => setEnlaceExterno(e.target.value)}
+                placeholder="https://institucion.example/verificar/..." />
+              <p className="text-xs text-gray-500 mt-1">Se mostrará como direccionamiento externo. No se generará un segundo QR.</p>
+            </div>
+            <div>
+              <label className="label">Código externo / Ministerio</label>
+              <input className="input" value={codigoExterno} onChange={e => setCodigoExterno(e.target.value)}
+                placeholder="Código emitido por la institución" />
+              <p className="text-xs text-gray-500 mt-1">Debe registrar al menos una referencia, código o enlace para confirmar el aval.</p>
             </div>
             <div className="flex gap-3 pt-2">
               <button type="button" onClick={() => setAvalTarget(null)} className="btn-secondary flex-1">Cancelar</button>
