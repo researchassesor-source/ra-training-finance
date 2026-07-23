@@ -268,36 +268,46 @@ export default function InscripcionesList() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap gap-2">
-          <select className="input w-auto text-sm" value={filtros.servicioId} onChange={e => setFilter('servicioId', e.target.value)}>
+      <div className="space-y-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-2">
+          <select className="input w-full min-w-0 text-sm" value={filtros.servicioId} onChange={e => setFilter('servicioId', e.target.value)}>
             <option value="">Todos los cursos</option>
             {servicios.filter(item => item.Activo === true || item.Activo === 'TRUE').map(item => <option key={item.ID} value={item.ID}>{item.Nombre}</option>)}
           </select>
           {isAdmin && (
-            <select className="input w-auto text-sm" value={filtros.vendedor} onChange={e => setFilter('vendedor', e.target.value)}>
+            <select className="input w-full min-w-0 text-sm" value={filtros.vendedor} onChange={e => setFilter('vendedor', e.target.value)}>
               <option value="">Todos los vendedores</option>
               {vendedores.map(item => <option key={item.username} value={item.username}>{item.nombre}</option>)}
             </select>
           )}
-          <select className="input w-auto text-sm" value={filtros.estadoPago} onChange={e => setFilter('estadoPago', e.target.value)}>
+          <select className="input w-full min-w-0 text-sm" value={filtros.estadoPago} onChange={e => setFilter('estadoPago', e.target.value)}>
             <option value="">Todos los pagos</option>
             <option value="pendiente">Pendiente</option><option value="pagado">Pagado</option>
             <option value="verificado">Verificado</option><option value="cancelado">Cancelado</option>
           </select>
-          <select className="input w-auto text-sm" value={filtros.estadoCertificado} onChange={e => setFilter('estadoCertificado', e.target.value)}>
+          <select className="input w-full min-w-0 text-sm" value={filtros.estadoCertificado} onChange={e => setFilter('estadoCertificado', e.target.value)}>
             <option value="">Todos los certificados</option>
             <option value="pendiente">Pendiente</option><option value="en_proceso">En proceso</option><option value="emitido">Emitido</option>
           </select>
-          <select className="input w-auto text-sm" value={filtros.tipoAval} onChange={e => setFilter('tipoAval', e.target.value)}>
+          <select className="input w-full min-w-0 text-sm" value={filtros.tipoAval} onChange={e => setFilter('tipoAval', e.target.value)}>
             <option value="">Todos los avales</option>
             <option value="sin_aval">Sin aval institucional</option>
             <option value="aval_pendiente">Con aval pendiente</option>
             <option value="avalado">Con aval completado</option>
           </select>
-          <label className="text-xs text-gray-500">Venta desde<input className="input w-36 text-sm mt-1" type="date" value={filtros.desde} onChange={e => setFilter('desde', e.target.value)} /></label>
-          <label className="text-xs text-gray-500">Venta hasta<input className="input w-36 text-sm mt-1" type="date" value={filtros.hasta} onChange={e => setFilter('hasta', e.target.value)} /></label>
         </div>
+
+        <div className="grid w-full grid-cols-1 gap-4 sm:w-fit sm:grid-cols-2 sm:gap-6">
+          <label className="block text-xs text-gray-500">
+            <span className="mb-1 block">Venta desde</span>
+            <input className="input w-full text-sm sm:w-[220px]" type="date" value={filtros.desde} onChange={e => setFilter('desde', e.target.value)} />
+          </label>
+          <label className="block text-xs text-gray-500">
+            <span className="mb-1 block">Venta hasta</span>
+            <input className="input w-full text-sm sm:w-[220px]" type="date" value={filtros.hasta} onChange={e => setFilter('hasta', e.target.value)} />
+          </label>
+        </div>
+
         <div className="flex gap-2 flex-wrap">
           {isAdmin && (
             <>
