@@ -58,18 +58,23 @@ export default function IngresosList({ soloMios = false }) {
   async function handleQuickConfirm(ing) {
     setConfirming(true)
     try {
-      await api.updateIngreso(ing.ID, {
-        fecha:      ing.Fecha,
-        tipo:       ing.Tipo,
-        modalidad:  ing.Modalidad  || 'N/A',
-        concepto:   ing.Concepto,
-        cliente:    ing.Cliente    || '',
-        contratoId: ing.ContratoID || '',
-        monto:      ing.Monto,
-        metodoPago: ing.MetodoPago,
-        estado:     'confirmado',
-        notas:      ing.Notas      || '',
-      })
+      if (ing.InscripcionID) {
+        await api.verificarPagoInscripcion(ing.InscripcionID)
+      } else {
+        await api.updateIngreso(ing.ID, {
+          fecha:      ing.Fecha,
+          tipo:       ing.Tipo,
+          modalidad:  ing.Modalidad  || 'N/A',
+          concepto:   ing.Concepto,
+          cliente:    ing.Cliente    || '',
+          contratoId: ing.ContratoID || '',
+          monto:      ing.Monto,
+          metodoPago: ing.MetodoPago,
+          estado:     'confirmado',
+          referencia: ing.Referencia || ing.Notas || '',
+          notas:      ing.Notas      || '',
+        })
+      }
       setDetail(null)
       load()
     } catch (e) { setError(e.message) }
@@ -197,10 +202,10 @@ export default function IngresosList({ soloMios = false }) {
                       </span>
                     </td>
                     {isAdmin && (
-                      <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-500">{i.CreadoPor || '—'}</td>
+                      <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-500">{i.VendedorNombre || i.CreadoPor || '—'}</td>
                     )}
-                    <td className="px-4 py-3 max-w-[160px] truncate text-xs text-gray-500 font-mono" title={i.Notas || ''}>
-                      {i.Notas || '—'}
+                    <td className="px-4 py-3 max-w-[160px] truncate text-xs text-gray-500 font-mono" title={i.Referencia || i.Notas || ''}>
+                      {i.Referencia || i.Notas || '—'}
                     </td>
                     <td className="px-4 py-3 font-semibold text-emerald-600 whitespace-nowrap">{fmt.usd(i.Monto)}</td>
                     <td className="px-4 py-3">
@@ -218,13 +223,13 @@ export default function IngresosList({ soloMios = false }) {
                             <Eye size={14} />
                           </button>
                         )}
-                        {(isAdmin || i.Estado === 'pendiente' || i.Estado === 'pendiente_verificacion') && (
+                        {!i.InscripcionID && (isAdmin || i.Estado === 'pendiente' || i.Estado === 'pendiente_verificacion') && (
                           <button onClick={() => { setSelected(i); setModal('edit') }}
                             className="p-1.5 hover:bg-brand-50 rounded text-gray-400 hover:text-brand-600 transition-colors">
                             <Pencil size={14} />
                           </button>
                         )}
-                        {(isAdmin || i.Estado === 'pendiente' || i.Estado === 'pendiente_verificacion') && (
+                        {!i.InscripcionID && (isAdmin || i.Estado === 'pendiente' || i.Estado === 'pendiente_verificacion') && (
                           <button onClick={() => setConfirm(i)}
                             title="Eliminar"
                             className="p-1.5 hover:bg-red-50 rounded text-gray-400 hover:text-red-600 transition-colors">
@@ -276,7 +281,7 @@ export default function IngresosList({ soloMios = false }) {
           <div className="space-y-4">
             {/* Info del ingreso */}
             <div className="grid grid-cols-2 gap-3 text-sm">
-              <div><p className="text-xs text-gray-500">Registrado por</p><p className="font-medium">{detail.CreadoPor || '—'}</p></div>
+              <div><p className="text-xs text-gray-500">Registrado por</p><p className="font-medium">{detail.VendedorNombre || detail.CreadoPor || '—'}</p></div>
               <div><p className="text-xs text-gray-500">Fecha</p><p className="font-medium">{fmt.date(detail.Fecha)}</p></div>
               <div><p className="text-xs text-gray-500">Tipo</p><p className="font-medium">{detail.Tipo}</p></div>
               <div><p className="text-xs text-gray-500">Monto</p><p className="font-semibold text-emerald-600 text-base">{fmt.usd(detail.Monto)}</p></div>
@@ -291,7 +296,7 @@ export default function IngresosList({ soloMios = false }) {
                 N° Referencia / Comprobante del vendedor
               </p>
               <p className="text-sm text-amber-900 whitespace-pre-wrap font-mono">
-                {detail.Notas || <span className="italic font-sans text-amber-600">Sin referencia registrada</span>}
+                {detail.Referencia || detail.Notas || <span className="italic font-sans text-amber-600">Sin referencia registrada</span>}
               </p>
             </div>
 
@@ -316,11 +321,13 @@ export default function IngresosList({ soloMios = false }) {
               <button onClick={() => setDetail(null)} className="btn-secondary flex-1">
                 Cerrar
               </button>
-              <button
-                onClick={() => { setDetail(null); setSelected(detail); setModal('edit') }}
-                className="btn-secondary flex-1">
-                <Pencil size={15} /> Editar
-              </button>
+              {!detail.InscripcionID && (
+                <button
+                  onClick={() => { setDetail(null); setSelected(detail); setModal('edit') }}
+                  className="btn-secondary flex-1">
+                  <Pencil size={15} /> Editar
+                </button>
+              )}
               <button
                 onClick={() => handleQuickConfirm(detail)}
                 disabled={confirming}

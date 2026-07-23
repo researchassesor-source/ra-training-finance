@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom'
 import { api } from '../../services/api'
 import { fmt } from '../../utils/formatters'
 import Spinner from '../UI/Spinner'
-import { TrendingUp, CheckCircle2, XCircle } from 'lucide-react'
+import { TrendingUp, CheckCircle2, ExternalLink, XCircle } from 'lucide-react'
 
 export default function VerificarCertificado() {
   const { id } = useParams()
@@ -60,11 +60,27 @@ function EstadoValido({ data }) {
         <p className="text-sm text-gray-500 mt-1">Emitido y verificado por R.A. Training</p>
       </div>
       <div className="text-left bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-2 text-sm">
+        <Campo label="Código" valor={data.codigo} mono />
         <Campo label="Participante" valor={data.nombre} />
         <Campo label="Servicio / Curso" valor={data.servicio} />
+        <Campo label="Duración" valor={data.duracion} />
         <Campo label="Modalidad" valor={data.modalidad} />
         {data.fechaInicio && <Campo label="Fecha de inicio" valor={fmt.date(data.fechaInicio)} />}
+        {data.fechaFin && <Campo label="Fecha de fin" valor={fmt.date(data.fechaFin)} />}
         {data.fechaEmision && <Campo label="Fecha de emisión" valor={fmt.date(data.fechaEmision)} />}
+        {data.institucionAval && <Campo label="Institución avaladora" valor={data.institucionAval} />}
+        {data.estadoAval && <Campo label="Estado del aval" valor={data.estadoAval === 'avalado' ? 'Avalado' : 'Pendiente'} />}
+        {data.avalReferencia && <Campo label="Referencia del aval" valor={data.avalReferencia} mono />}
+        {data.avalCodigoExterno && <Campo label="Código externo" valor={data.avalCodigoExterno} mono />}
+        {data.avalEnlaceExterno && (
+          <div className="flex justify-between gap-3">
+            <span className="text-gray-500">Validación externa</span>
+            <a href={data.avalEnlaceExterno} target="_blank" rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 font-medium text-brand-700 hover:underline">
+              Abrir enlace <ExternalLink size={13} />
+            </a>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -84,11 +100,11 @@ function EstadoInvalido({ mensaje }) {
   )
 }
 
-function Campo({ label, valor }) {
+function Campo({ label, valor, mono = false }) {
   return (
     <div className="flex justify-between gap-3">
       <span className="text-gray-500">{label}</span>
-      <span className="font-medium text-gray-900 text-right">{valor || '—'}</span>
+      <span className={`font-medium text-gray-900 text-right ${mono ? 'font-mono' : ''}`}>{valor || '—'}</span>
     </div>
   )
 }

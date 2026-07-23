@@ -7,8 +7,9 @@ import { fmt, MESES } from './formatters'
 const BRAND_COLOR = [55, 48, 163] // brand-800
 
 function addHeader(doc, title, subtitle) {
+  const pageWidth = doc.internal.pageSize.getWidth()
   doc.setFillColor(...BRAND_COLOR)
-  doc.rect(0, 0, 210, 22, 'F')
+  doc.rect(0, 0, pageWidth, 22, 'F')
   doc.setTextColor(255, 255, 255)
   doc.setFontSize(14)
   doc.setFont('helvetica', 'bold')
@@ -32,12 +33,14 @@ function addHeader(doc, title, subtitle) {
 
 function addFooter(doc) {
   const pages = doc.internal.getNumberOfPages()
+  const pageWidth = doc.internal.pageSize.getWidth()
+  const pageHeight = doc.internal.pageSize.getHeight()
   for (let i = 1; i <= pages; i++) {
     doc.setPage(i)
     doc.setFontSize(8)
     doc.setTextColor(150, 150, 150)
-    doc.text(`Generado el ${fmt.datetime(new Date())}`, 14, 290)
-    doc.text(`Página ${i} de ${pages}`, 196, 290, { align: 'right' })
+    doc.text(`Generado el ${fmt.datetime(new Date())}`, 14, pageHeight - 7)
+    doc.text(`Página ${i} de ${pages}`, pageWidth - 14, pageHeight - 7, { align: 'right' })
   }
 }
 
@@ -49,18 +52,18 @@ export function exportIngresosPDF(data, filtros = {}) {
 
   autoTable(doc, {
     startY: y,
-    head: [['Fecha', 'Tipo', 'Concepto', 'Cliente', 'Modalidad', 'Método', 'Estado', 'Monto']],
+    head: [['Fecha', 'Tipo', 'Concepto', 'Cliente', 'Modalidad', 'Método', 'Estado', 'Referencia', 'Monto']],
     body: data.map(i => [
       fmt.date(i.Fecha), i.Tipo, i.Concepto, i.Cliente || '—',
-      i.Modalidad || '—', i.MetodoPago || '—', i.Estado,
+      i.Modalidad || '—', i.MetodoPago || '—', i.Estado, i.Referencia || i.Notas || '—',
       fmt.usd(i.Monto),
     ]),
-    foot: [['', '', '', '', '', '', 'TOTAL', fmt.usd(total)]],
+    foot: [['', '', '', '', '', '', '', 'TOTAL', fmt.usd(total)]],
     headStyles: { fillColor: BRAND_COLOR, fontSize: 8 },
     footStyles: { fillColor: [240, 240, 255], fontStyle: 'bold', fontSize: 9 },
     bodyStyles: { fontSize: 8 },
     alternateRowStyles: { fillColor: [248, 249, 255] },
-    columnStyles: { 7: { halign: 'right' } },
+    columnStyles: { 8: { halign: 'right' } },
   })
 
   addFooter(doc)
@@ -423,7 +426,9 @@ export function exportInscripcionPDF(ins) {
     body: [
       ['Servicio', ins.ServicioNombre],
       ['Modalidad', ins.Modalidad],
-      ['Fecha de Inicio', fmt.date(ins.FechaInicio) || 'Por confirmar'],
+      ['Fecha de Registro', fmt.datetime(ins.FechaCreacion)],
+      ['Fecha de Inicio', ins.FechaInicio ? fmt.date(ins.FechaInicio) : 'Por confirmar'],
+      ['Fecha de Fin', ins.FechaFin ? fmt.date(ins.FechaFin) : 'Por confirmar'],
       ['', ''],
       ['DATOS DEL PARTICIPANTE', ''],
       ['Nombre', ins.ClienteNombre],
@@ -439,8 +444,13 @@ export function exportInscripcionPDF(ins) {
       ['PAGO', ''],
       ['Monto', fmt.usd(ins.Monto)],
       ['Método de Pago', ins.MetodoPago || '—'],
+      ['Número de Comprobante', ins.NumeroComprobante || ins.Notas || '—'],
+      ['Fecha de Pago', fmt.date(ins.FechaPago)],
       ['Estado de Pago', ins.EstadoPago],
       ['Estado del Certificado', ins.EstadoCertificado],
+      ['Vendedor', ins.VendedorNombre || ins.CreadoPor || 'Sin vendedor'],
+      ['Tipo de Aval', ins.RequiereAvalExterno === true || ins.RequiereAvalExterno === 'TRUE' ? 'Con aval institucional' : 'Sin aval institucional'],
+      ['Institución Avaladora', ins.InstitucionAval || '—'],
     ],
     theme: 'plain',
     columnStyles: { 0: { fontStyle: 'bold', cellWidth: 60 }, 1: {} },
@@ -454,7 +464,7 @@ export function exportInscripcionPDF(ins) {
     },
   })
 
-  if (ins.Notas) {
+  if (ins.Notas && ins.Notas !== ins.NumeroComprobante) {
     const finalY = doc.lastAutoTable.finalY + 8
     doc.setFontSize(9)
     doc.setFont('helvetica', 'bold')
@@ -464,7 +474,7 @@ export function exportInscripcionPDF(ins) {
   }
 
   addFooter(doc)
-  doc.save(`inscripcion_${ins.ID}_ra_training.pdf`)
+  doc.save(`comprobante_inscripcion_${ins.ID}.pdf`)
 }
 
 export function exportConvenioPDF(convenio) {
@@ -641,11 +651,15 @@ export function exportConvenioPDF(convenio) {
 }
 
 export function exportInscripcionesCSV(data) {
-  const headers = ['Nombre','Identificación','Email','Teléfono','Servicio','Modalidad','Fecha Inicio','Monto','Estado Pago','Estado Certificado']
+  const headers = ['Fecha de Venta','Nombre','Identificación','Email','Teléfono','Servicio','Modalidad','Fecha Inicio','Fecha Fin','Duración','Vendedor','Número de Comprobante','Fecha de Pago','Monto','Estado Pago','Estado Certificado','Tipo de Aval','Institución Avaladora','Estado Aval']
   const rows = data.map(i => [
+    fmt.datetime(i.FechaCreacion),
     i.ClienteNombre, i.ClienteID || '', i.ClienteEmail || '', i.ClienteTelefono || '',
-    i.ServicioNombre, i.Modalidad, fmt.date(i.FechaInicio), Number(i.Monto).toFixed(2),
-    i.EstadoPago, i.EstadoCertificado,
+    i.ServicioNombre, i.Modalidad, fmt.date(i.FechaInicio), fmt.date(i.FechaFin), i.Duracion || '',
+    i.VendedorNombre || i.CreadoPor || 'Sin vendedor', i.NumeroComprobante || i.Notas || '', fmt.date(i.FechaPago),
+    Number(i.Monto).toFixed(2), i.EstadoPago, i.EstadoCertificado,
+    i.RequiereAvalExterno === true || i.RequiereAvalExterno === 'TRUE' ? 'Con aval institucional' : 'Sin aval institucional',
+    i.InstitucionAval || '', i.EstadoAval || '',
   ])
   const csv = [headers, ...rows]
     .map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
@@ -662,34 +676,86 @@ export function exportInscripcionesPDF(data, filtroLabel = '') {
   const y = addHeader(doc, 'Listado de Participantes', filtroLabel || 'Para emisión de certificados')
 
   const total = data.reduce((s, i) => s + (Number(i.Monto) || 0), 0)
+  const recaudado = data.filter(i => i.EstadoPago === 'verificado').reduce((s, i) => s + (Number(i.Monto) || 0), 0)
 
   autoTable(doc, {
     startY: y,
-    head: [['Nombre','ID / Cédula','Email','Teléfono','Servicio','Modalidad','Inicio','Monto','Pago','Certificado']],
+    head: [['Venta','Participante','Servicio','Vendedor','Comprobante','Pago','Certificado','Aval','Monto']],
     body: data.map(i => [
-      i.ClienteNombre, i.ClienteID || '—', i.ClienteEmail || '—', i.ClienteTelefono || '—',
-      i.ServicioNombre, i.Modalidad, fmt.date(i.FechaInicio),
-      fmt.usd(i.Monto), i.EstadoPago, i.EstadoCertificado,
+      fmt.date(i.FechaCreacion), i.ClienteNombre, i.ServicioNombre,
+      i.VendedorNombre || i.CreadoPor || 'Sin vendedor', i.NumeroComprobante || i.Notas || '—',
+      i.EstadoPago, i.EstadoCertificado,
+      i.RequiereAvalExterno === true || i.RequiereAvalExterno === 'TRUE'
+        ? `${i.EstadoAval || 'pendiente'}${i.InstitucionAval ? ` · ${i.InstitucionAval}` : ''}`
+        : 'Sin aval',
+      fmt.usd(i.Monto),
     ]),
-    foot: [['', '', '', '', '', '', 'TOTAL', fmt.usd(total), '', '']],
+    foot: [['', '', '', '', '', '', `Recaudado: ${fmt.usd(recaudado)}`, 'VENTAS', fmt.usd(total)]],
     headStyles: { fillColor: BRAND_COLOR, fontSize: 7 },
     footStyles: { fillColor: [240, 240, 255], fontStyle: 'bold', fontSize: 8 },
     bodyStyles: { fontSize: 7 },
     alternateRowStyles: { fillColor: [248, 249, 255] },
-    columnStyles: { 7: { halign: 'right' } },
+    styles: { overflow: 'linebreak', cellPadding: 1.5 },
+    columnStyles: { 8: { halign: 'right', cellWidth: 23 } },
   })
 
   addFooter(doc)
   doc.save('inscripciones_certificados_ra_training.pdf')
 }
 
+export function exportVentasVendedorCSV({ vendedor, desde, hasta, data, summary }) {
+  const headers = ['Fecha','Participante','Curso','Número de Comprobante','Fecha de Pago','Estado de Pago','Estado del Certificado','Aval','Valor']
+  const rows = data.map(item => [
+    fmt.datetime(item.FechaCreacion), item.ClienteNombre, item.ServicioNombre,
+    item.NumeroComprobante || item.Notas || '', fmt.date(item.FechaPago), item.EstadoPago,
+    item.EstadoCertificado,
+    item.RequiereAvalExterno === true || item.RequiereAvalExterno === 'TRUE' ? (item.EstadoAval || 'pendiente') : 'Sin aval',
+    Number(item.Monto || 0).toFixed(2),
+  ])
+  rows.push([])
+  rows.push(['Vendedor', vendedor?.nombre || '', vendedor?.username || ''])
+  rows.push(['Período', desde || 'Sin límite', hasta || 'Sin límite'])
+  rows.push(['Inscripciones', summary.count, 'Ventas', summary.sold.toFixed(2), 'Recaudado', summary.collected.toFixed(2), 'Pendiente', summary.pending.toFixed(2)])
+  const csv = [headers, ...rows]
+    .map(row => row.map(value => `"${String(value ?? '').replace(/"/g, '""')}"`).join(','))
+    .join('\n')
+  saveAs(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' }), `reporte_ventas_${vendedor?.username || 'vendedor'}.csv`)
+}
+
+export function exportVentasVendedorPDF({ vendedor, desde, hasta, data, summary }) {
+  const doc = new jsPDF('landscape')
+  const periodo = `${desde ? fmt.date(desde) : 'Sin límite'} a ${hasta ? fmt.date(hasta) : 'Sin límite'}`
+  const startY = addHeader(doc, 'Reporte de ventas por vendedor', `${vendedor?.nombre || 'Sin vendedor'} (@${vendedor?.username || '—'}) · Período: ${periodo}`)
+  doc.setFontSize(8)
+  doc.setTextColor(70, 70, 70)
+  const summaryLines = doc.splitTextToSize(`Inscripciones: ${summary.count}  |  Vendido: ${fmt.usd(summary.sold)}  |  Recaudado: ${fmt.usd(summary.collected)}  |  Pendiente: ${fmt.usd(summary.pending)}  |  Certificados emitidos: ${summary.issued}  |  Aval pendiente: ${summary.avalPending}`, doc.internal.pageSize.getWidth() - 28)
+  doc.text(summaryLines, 14, startY)
+  autoTable(doc, {
+    startY: startY + (summaryLines.length * 4) + 3,
+    head: [['Fecha','Participante','Curso','Comprobante','Fecha pago','Pago','Certificado','Aval','Valor']],
+    body: data.map(item => [
+      fmt.date(item.FechaCreacion), item.ClienteNombre, item.ServicioNombre,
+      item.NumeroComprobante || item.Notas || '—', fmt.date(item.FechaPago), item.EstadoPago,
+      item.EstadoCertificado,
+      item.RequiereAvalExterno === true || item.RequiereAvalExterno === 'TRUE' ? (item.EstadoAval || 'pendiente') : 'Sin aval',
+      fmt.usd(item.Monto),
+    ]),
+    headStyles: { fillColor: BRAND_COLOR, fontSize: 7 },
+    bodyStyles: { fontSize: 7, overflow: 'linebreak' },
+    alternateRowStyles: { fillColor: [248, 249, 255] },
+    columnStyles: { 8: { halign: 'right', cellWidth: 22 } },
+  })
+  addFooter(doc)
+  doc.save(`reporte_ventas_${vendedor?.username || 'vendedor'}.pdf`)
+}
+
 export function exportCertificadosAvalExcel(data) {
-  const headers = ['Participante','Cédula','Correo','Curso','Modalidad','Horas','Fecha Inicio','Fecha Fin','Estado de Aval','Código / Enlace de Aval','Valor del Aval']
+  const headers = ['Participante','Cédula','Correo','Curso','Institución Avaladora','Modalidad','Horas','Fecha Inicio','Fecha Fin','Estado de Aval','Referencia','Enlace Externo','Código Externo','Valor del Aval']
   const rows = data.map(i => [
-    i.ClienteNombre, i.ClienteID || '', i.ClienteEmail || '', i.ServicioNombre, i.Modalidad, i.Duracion || '',
+    i.ClienteNombre, i.ClienteID || '', i.ClienteEmail || '', i.ServicioNombre, i.InstitucionAval || '', i.Modalidad, i.Duracion || '',
     fmt.date(i.FechaInicio), i.FechaFin ? fmt.date(i.FechaFin) : '',
     i.EstadoAval === 'avalado' ? 'Avalado' : 'Pendiente',
-    i.AvalReferencia || '', Number(i.ValorAval || 0).toFixed(2),
+    i.AvalReferencia || '', i.AvalEnlaceExterno || '', i.AvalCodigoExterno || '', Number(i.ValorAval || 0).toFixed(2),
   ])
   const csv = [headers, ...rows]
     .map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
@@ -710,19 +776,19 @@ export function exportCertificadosAvalPDF(data, filtroLabel = '') {
 
   autoTable(doc, {
     startY: y,
-    head: [['Participante','Cédula','Correo','Curso','Modalidad','Horas','Fecha Inicio','Fecha Fin','Estado','Código / Enlace','Valor Aval']],
+    head: [['Participante','Cédula','Correo','Curso','Institución','Modalidad','Horas','Inicio','Fin','Estado','Referencia','Código','Valor']],
     body: data.map(i => [
-      i.ClienteNombre, i.ClienteID || '—', i.ClienteEmail || '—', i.ServicioNombre, i.Modalidad, i.Duracion || '—',
+      i.ClienteNombre, i.ClienteID || '—', i.ClienteEmail || '—', i.ServicioNombre, i.InstitucionAval || '—', i.Modalidad, i.Duracion || '—',
       fmt.date(i.FechaInicio), i.FechaFin ? fmt.date(i.FechaFin) : '—',
       i.EstadoAval === 'avalado' ? 'Avalado' : 'Pendiente',
-      i.AvalReferencia || '—', fmt.usd(i.ValorAval),
+      i.AvalReferencia || i.AvalEnlaceExterno || '—', i.AvalCodigoExterno || '—', fmt.usd(i.ValorAval),
     ]),
-    foot: [['', '', '', '', '', '', '', '', '', 'TOTAL', fmt.usd(total)]],
+    foot: [['', '', '', '', '', '', '', '', '', '', '', 'TOTAL', fmt.usd(total)]],
     headStyles: { fillColor: BRAND_COLOR, fontSize: 7 },
     footStyles: { fillColor: [240, 240, 255], fontStyle: 'bold', fontSize: 8 },
     bodyStyles: { fontSize: 7 },
     alternateRowStyles: { fillColor: [248, 249, 255] },
-    columnStyles: { 10: { halign: 'right' } },
+    columnStyles: { 12: { halign: 'right' } },
   })
 
   addFooter(doc)

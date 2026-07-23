@@ -8,6 +8,11 @@ import { Plus, Pencil, ToggleLeft, ToggleRight, MessageCircle, Calendar } from '
 
 const EMPTY = { nombre: '', tipo: '', modalidad: 'N/A', precio: '', duracion: '', descripcion: '', activo: true, fechaEvento: '', fechaFinEvento: '', lugarEvento: '' }
 
+function requiereDuracionAcademica(tipo) {
+  const normalized = String(tipo || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+  return ['curso', 'certificacion', 'taller', 'certificado lms', 'capacitacion'].includes(normalized)
+}
+
 function mapInitial(initial) {
   if (!initial) return EMPTY
   return {
@@ -32,6 +37,10 @@ function ServicioForm({ initial, onSave, onCancel }) {
 
   async function handleSubmit(e) {
     e.preventDefault()
+    if (requiereDuracionAcademica(form.tipo) && !String(form.duracion || '').trim()) {
+      setError('La duración académica es obligatoria para emitir certificados de este servicio.')
+      return
+    }
     setSaving(true)
     setError('')
     try {
@@ -69,9 +78,10 @@ function ServicioForm({ initial, onSave, onCancel }) {
             value={form.precio} onChange={e => set('precio', e.target.value)} placeholder="0.00" />
         </div>
         <div>
-          <label className="label">Duración</label>
-          <input className="input" value={form.duracion}
-            onChange={e => set('duracion', e.target.value)} placeholder="Ej: 40 horas, 2 días" />
+          <label className="label">Duración académica {requiereDuracionAcademica(form.tipo) && '*'}</label>
+          <input className="input" required={requiereDuracionAcademica(form.tipo)} value={form.duracion}
+            onChange={e => set('duracion', e.target.value)} placeholder="Ej.: 40 o 40 horas" />
+          <p className="mt-1 text-xs text-gray-400">Este dato aparecerá en el certificado.</p>
         </div>
         <div className="sm:col-span-2">
           <label className="label">Descripción</label>

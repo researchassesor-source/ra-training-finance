@@ -8,7 +8,8 @@ const EMPTY = {
   servicioId: '', servicioNombre: '', modalidad: 'Virtual',
   fechaInicio: '', fechaFin: '', monto: '', metodoPago: '',
   razonSocial: '', ruc: '', direccionFactura: '',
-  estadoPago: 'pendiente', notas: '', requiereAvalExterno: false,
+  estadoPago: 'pendiente', numeroComprobante: '', fechaPago: '', notas: '',
+  requiereAvalExterno: false, institucionAval: '',
 }
 
 function mapInitial(initial) {
@@ -29,9 +30,12 @@ function mapInitial(initial) {
     ruc:             initial.RUC             || initial.ruc             || '',
     direccionFactura:initial.DireccionFactura|| initial.direccionFactura|| '',
     estadoPago:      initial.EstadoPago      || initial.estadoPago      || 'pendiente',
+    numeroComprobante: initial.NumeroComprobante || initial.numeroComprobante || initial.Notas || '',
+    fechaPago:       toDateInput(initial.FechaPago || initial.fechaPago),
     notas:           initial.Notas           || initial.notas           || '',
     requiereAvalExterno: initial.RequiereAvalExterno === true || initial.RequiereAvalExterno === 'TRUE' ||
                          initial.requiereAvalExterno === true || false,
+    institucionAval: initial.InstitucionAval || initial.institucionAval || '',
   }
 }
 
@@ -39,6 +43,7 @@ export default function InscripcionesForm({ initial, onSave, onCancel }) {
   const { isAdmin } = useAuth()
   const [form, setForm]       = useState(() => mapInitial(initial))
   const [servicios, setServicios] = useState([])
+  const [institucionesAval, setInstitucionesAval] = useState([])
   const [saving, setSaving]   = useState(false)
   const [error, setError]     = useState('')
   const [facturaIgual, setFacturaIgual] = useState(!initial)
@@ -46,6 +51,9 @@ export default function InscripcionesForm({ initial, onSave, onCancel }) {
   useEffect(() => {
     api.getServicios()
       .then(r => setServicios((r.data || []).filter(s => s.Activo)))
+      .catch(() => {})
+    api.getInstitucionesAval()
+      .then(r => setInstitucionesAval(r.data || []))
       .catch(() => {})
   }, [])
 
@@ -68,11 +76,44 @@ export default function InscripcionesForm({ initial, onSave, onCancel }) {
 
   async function handleSubmit(e) {
     e.preventDefault()
-    setSaving(true)
     setError('')
+    const monto = Number(form.monto)
+    const necesitaComprobante = ['transferencia', 'tarjeta', 'cheque']
+      .some(tipo => form.metodoPago.toLowerCase().includes(tipo))
+    if (!form.servicioId) return setError('Seleccione un servicio.')
+    if (!form.clienteNombre.trim()) return setError('Ingrese el nombre del participante.')
+    if (String(form.monto).trim() === '' || !Number.isFinite(monto) || monto < 0) return setError('Ingrese un monto válido.')
+    if (!form.metodoPago) return setError('Seleccione el método de pago.')
+    if (form.fechaInicio && form.fechaFin && form.fechaFin < form.fechaInicio) {
+      return setError('La fecha de finalización no puede ser anterior a la fecha de inicio.')
+    }
+    if (form.clienteEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.clienteEmail)) {
+      return setError('Ingrese un correo electrónico válido.')
+    }
+    if (necesitaComprobante && !form.numeroComprobante.trim()) {
+      return setError('Ingrese el número de comprobante para el método de pago seleccionado.')
+    }
+    if (form.numeroComprobante.trim() && !form.fechaPago) {
+      return setError('Ingrese la fecha del pago o transferencia.')
+    }
+    if (form.requiereAvalExterno && !form.institucionAval.trim()) {
+      return setError('Ingrese la institución avaladora.')
+    }
+    setSaving(true)
     try {
-      if (initial?.ID) await api.updateInscripcion(initial.ID, form)
-      else await api.addInscripcion(form)
+      if (initial?.ID) {
+        const result = await api.updateInscripcion(initial.ID, form)
+        if (result.warning) {
+          setError(`La inscripción se actualizó, pero no se pudo sincronizar el ingreso: ${result.warning}`)
+          return
+        }
+        if (isAdmin && form.estadoPago === 'verificado' && initial.EstadoPago !== 'verificado') {
+          await api.verificarPagoInscripcion(initial.ID, {
+            numeroComprobante: form.numeroComprobante,
+            fechaPago: form.fechaPago,
+          })
+        }
+      } else await api.addInscripcion(form)
       onSave()
     } catch (err) { setError(err.message) }
     finally { setSaving(false) }
@@ -194,17 +235,51 @@ export default function InscripcionesForm({ initial, onSave, onCancel }) {
             </div>
           )}
           <div className={isAdmin ? '' : 'sm:col-span-2'}>
-            <label className="label">Notas</label>
+            <label className="label">Número de comprobante</label>
+            <input className="input" value={form.numeroComprobante}
+              onChange={e => set('numeroComprobante', e.target.value)}
+              placeholder="Ej.: 123456789, transferencia #001234 o referencia bancaria" />
+            <p className="text-xs text-gray-400 mt-1">
+              Ingrese el número que aparece en el voucher o comprobante. La responsable financiera utilizará este dato para verificar la transferencia.
+            </p>
+          </div>
+          <div>
+            <label className="label">Fecha del pago o transferencia</label>
+            <input className="input" type="date" value={form.fechaPago}
+              onChange={e => set('fechaPago', e.target.value)} />
+          </div>
+          <div className="sm:col-span-2">
+            <label className="label">Observaciones internas</label>
             <textarea className="input" rows={2} value={form.notas}
-              onChange={e => set('notas', e.target.value)} placeholder="Observaciones..." />
+              onChange={e => set('notas', e.target.value)} placeholder="Opcional; no use este campo para el comprobante." />
           </div>
-          <div className="sm:col-span-2 flex items-center gap-2">
-            <input type="checkbox" id="requiereAval" checked={form.requiereAvalExterno}
-              onChange={e => set('requiereAvalExterno', e.target.checked)} className="w-4 h-4 accent-brand-600" />
-            <label htmlFor="requiereAval" className="text-sm text-gray-700">
-              El cliente requiere aval externo para este certificado
+          <fieldset className="sm:col-span-2 space-y-2">
+            <legend className="label">Tipo de certificado</legend>
+            <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+              <input type="radio" name="tipoCertificado" checked={!form.requiereAvalExterno}
+                onChange={() => set('requiereAvalExterno', false)} className="accent-brand-600" />
+              Certificado R.A. Training (aval propio)
             </label>
-          </div>
+            <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+              <input type="radio" name="tipoCertificado" checked={form.requiereAvalExterno}
+                onChange={() => set('requiereAvalExterno', true)} className="accent-brand-600" />
+              R.A. Training + aval institucional
+            </label>
+          </fieldset>
+          {form.requiereAvalExterno && (
+            <div className="sm:col-span-2">
+              <label className="label">Institución avaladora *</label>
+              <input className="input" required list="instituciones-aval" value={form.institucionAval}
+                onChange={e => set('institucionAval', e.target.value)}
+                placeholder="Nombre de la institución que otorgará el aval" />
+              <datalist id="instituciones-aval">
+                {institucionesAval.map(nombre => <option key={nombre} value={nombre} />)}
+              </datalist>
+              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3 mt-2">
+                El certificado quedará pendiente hasta que la institución entregue su referencia, código o enlace. El QR será únicamente el de verificación de R.A. Training.
+              </p>
+            </div>
+          )}
         </div>
       </div>
 

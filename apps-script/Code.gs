@@ -14,10 +14,10 @@ const CONFIG = {
 
 function doPost(e) {
   try {
-    const data = JSON.parse(e.postData.contents);
+    const data = JSON.parse(e && e.postData ? e.postData.contents : '{}');
     return respond(processRequest(data));
   } catch (err) {
-    return respond({ success: false, error: 'Error interno: ' + err.toString() });
+    return respond({ success: false, error: 'No se pudo procesar la solicitud.' });
   }
 }
 
@@ -28,7 +28,7 @@ function doGet(e) {
     const data = JSON.parse(payload);
     return respond(processRequest(data));
   } catch (err) {
-    return respond({ success: false, error: 'Error interno: ' + err.toString() });
+    return respond({ success: false, error: 'No se pudo procesar la solicitud.' });
   }
 }
 
@@ -48,7 +48,7 @@ function processRequest(data) {
     getIngresos:      () => getIngresos(user, params),
     addIngreso:       () => addIngreso(user, params),
     updateIngreso:    () => updateIngreso(user, params),
-    deleteIngreso:    () => deleteIfOwner(user, 'Ingresos', params.id, 'Estado'),
+    deleteIngreso:    () => deleteIngresoSeguro(user, params),
     getEgresos:       () => getEgresos(user, params),
     addEgreso:        () => addEgreso(user, params),
     updateEgreso:     () => updateEgreso(user, params),
@@ -70,6 +70,7 @@ function processRequest(data) {
     addUsuario:         () => addUsuario(user, params),
     updateUsuario:      () => updateUsuario(user, params),
     deleteUsuario:      () => deleteUsuario(user, params),
+    getInstitucionesAval: () => getInstitucionesAval(user, params),
     getCertificadosAval: () => getCertificadosAval(user, params),
     marcarAval:          () => marcarAval(user, params),
     getServicios:       () => getServicios(user, params),
@@ -78,6 +79,10 @@ function processRequest(data) {
     getInscripciones:   () => getInscripciones(user, params),
     addInscripcion:     () => addInscripcion(user, params),
     updateInscripcion:  () => updateInscripcion(user, params),
+    verificarPagoInscripcion: () => verificarPagoInscripcion(user, params),
+    emitirCertificado:  () => emitirCertificado(user, params),
+    actualizarEntregaCertificado: () => actualizarEntregaCertificado(user, params),
+    enviarCertificadoEmail: () => enviarCertificadoEmail(user, params),
     getConfigPagos:     () => getConfigPagos(user, params),
     addConfigPago:      () => addConfigPago(user, params),
     updateConfigPago:   () => updateConfigPago(user, params),
@@ -100,8 +105,12 @@ function processRequest(data) {
     deleteTimbrada:       () => deleteTimbrada(user, params),
   };
 
-  if (!handlers[action]) return { success: false, error: 'Acción no reconocida: ' + action };
-  return handlers[action]();
+  if (!handlers[action]) return { success: false, error: 'Acción no reconocida.' };
+  try {
+    return handlers[action]();
+  } catch (err) {
+    return { success: false, error: err && err.message ? err.message : 'No se pudo completar la operación.' };
+  }
 }
 
 function respond(data) {
@@ -115,15 +124,15 @@ function respond(data) {
 // ─────────────────────────────────────────────
 
 const SHEET_HEADERS = {
-  Usuarios:         ['ID','Nombre','Email','Username','PasswordHash','Rol','Activo','FechaCreacion'],
-  Ingresos:         ['ID','Fecha','Tipo','Modalidad','Concepto','Cliente','ContratoID','Monto','MetodoPago','Estado','Notas','CreadoPor','FechaCreacion','ClienteTelefono'],
+  Usuarios:         ['ID','Nombre','Email','Username','PasswordHash','Rol','Activo','FechaCreacion','InstitucionAval'],
+  Ingresos:         ['ID','Fecha','Tipo','Modalidad','Concepto','Cliente','ContratoID','Monto','MetodoPago','Estado','Notas','CreadoPor','FechaCreacion','ClienteTelefono','Referencia'],
   Egresos:          ['ID','Fecha','Categoria','Concepto','Proveedor','Monto','Estado','AprobadoPor','FechaAprobacion','Notas','CreadoPor','FechaCreacion'],
   Pagos:            ['ID','Fecha','Tipo','Beneficiario','Concepto','Referencia','Monto','MetodoPago','EgresoID','ContratoID','Estado','Notas','CreadoPor','FechaCreacion'],
   Contratos:        ['ID','Tipo','Nombre','Concepto','ValorTotal','FechaInicio','FechaFin','Estado','Notas','CreadoPor','FechaCreacion'],
   Proyecciones:     ['ID','Evento','Tipo','FechaEstimada','MontoProyectado','MontoReal','Estado','Notas','CreadoPor','FechaCreacion'],
   Categorias:       ['ID','Nombre','Tipo','Activo'],
   Servicios:        ['ID','Nombre','Tipo','Modalidad','Precio','Duracion','Descripcion','Activo','FechaCreacion','FechaEvento','FechaFinEvento','LugarEvento'],
-  Inscripciones:    ['ID','ClienteNombre','ClienteID','ClienteEmail','ClienteTelefono','ServicioID','ServicioNombre','Modalidad','FechaInicio','Monto','MetodoPago','RazonSocial','RUC','DireccionFactura','EstadoPago','EstadoCertificado','IngresoID','Notas','CreadoPor','FechaCreacion','FechaEmisionCertificado','RequiereAvalExterno','EstadoAval','AvalReferencia','FechaAval','ValorAval','FechaFin'],
+  Inscripciones:    ['ID','ClienteNombre','ClienteID','ClienteEmail','ClienteTelefono','ServicioID','ServicioNombre','Modalidad','FechaInicio','Monto','MetodoPago','RazonSocial','RUC','DireccionFactura','EstadoPago','EstadoCertificado','IngresoID','Notas','CreadoPor','FechaCreacion','FechaEmisionCertificado','RequiereAvalExterno','EstadoAval','AvalReferencia','FechaAval','ValorAval','FechaFin','NumeroComprobante','FechaPago','FechaVerificacionPago','VerificadoPor','InstitucionAval','CodigoCertificado','EmitidoPor','EstadoEntrega','FechaEntregaCertificado','EntregadoPor','AvalEnlaceExterno','AvalCodigoExterno'],
   Sesiones:         ['Token','Username','UserID','Rol','Nombre','Expira'],
   ConfigPagos:      ['ID','Nombre','Tipo','Detalles','Instrucciones','Activo','FechaCreacion'],
   Convenios:        ['ID','Organizacion','Representante','Cargo','Objeto','ObligacionesRA','ObligacionesAliado','Vigencia','FechaInicio','FechaFin','Estado','Notas','CreadoPor','FechaCreacion'],
@@ -223,6 +232,78 @@ function isAdmin(user)    { return user.Rol === 'admin'; }
 function isVendedor(user) { return user.Rol === 'vendedor' || user.Rol === 'admin'; }
 function isAval(user)     { return user.Rol === 'aval'; }
 
+function esVerdadero(value) {
+  return value === true || String(value).toLowerCase() === 'true';
+}
+
+function emailValido(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || '').trim());
+}
+
+function requiereComprobante(metodo) {
+  const normalizado = String(metodo || '').toLowerCase();
+  return normalizado.indexOf('transfer') > -1 ||
+    normalizado.indexOf('tarjeta') > -1 ||
+    normalizado.indexOf('cheque') > -1;
+}
+
+function fechaLimite(value, finDelDia) {
+  if (!value) return null;
+  const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const d = match
+    ? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), finDelDia ? 23 : 0, finDelDia ? 59 : 0, finDelDia ? 59 : 0, finDelDia ? 999 : 0)
+    : new Date(value);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function fechaSolo(value) {
+  if (!value) return '';
+  return String(value).slice(0, 10);
+}
+
+function tipoIngresoPorModalidad(modalidad) {
+  const mod = String(modalidad || '').toLowerCase();
+  if (mod === 'virtual') return 'Curso virtual';
+  if (mod === 'presencial') return 'Curso presencial';
+  if (mod.indexOf('brid') > -1) return 'Curso híbrido';
+  return 'Otro';
+}
+
+function mapaUsuariosPorUsername() {
+  const mapa = {};
+  sheetToObjects(getSheet('Usuarios')).forEach(function(u) {
+    mapa[u.Username] = {
+      ID: u.ID,
+      Nombre: u.Nombre,
+      Email: u.Email,
+      Username: u.Username,
+      Rol: u.Rol,
+      InstitucionAval: u.InstitucionAval || '',
+    };
+  });
+  return mapa;
+}
+
+function institucionAvalDelUsuario(user) {
+  const row = sheetToObjects(getSheet('Usuarios')).find(function(u) {
+    return u.ID === user.ID || u.Username === user.Username;
+  });
+  return row ? String(row.InstitucionAval || '').trim() : '';
+}
+
+function mismaInstitucionAval(a, b) {
+  return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+}
+
+function enriquecerVendedor(row, usuarios) {
+  const usuario = usuarios[row.CreadoPor] || {};
+  return Object.assign({}, row, {
+    VendedorNombre: usuario.Nombre || row.CreadoPor || 'Sin vendedor',
+    VendedorID: usuario.ID || '',
+    VendedorUsername: usuario.Username || row.CreadoPor || '',
+  });
+}
+
 // ─────────────────────────────────────────────
 // AUTH
 // ─────────────────────────────────────────────
@@ -275,15 +356,25 @@ function handleVerificarCertificado({ id } = {}) {
   if (!id) return { success: true, valido: false };
   const row = sheetToObjects(getSheet('Inscripciones')).find(r => r.ID === id);
   if (!row || row.EstadoCertificado !== 'emitido') return { success: true, valido: false };
+  const duracionDe = mapaDuracionServicios();
+  const avalActivo = esVerdadero(row.RequiereAvalExterno) && row.EstadoAval === 'avalado';
   return {
     success: true,
     valido: true,
     data: {
-      nombre:       row.ClienteNombre,
-      servicio:     row.ServicioNombre,
-      modalidad:    row.Modalidad,
-      fechaInicio:  row.FechaInicio,
-      fechaEmision: row.FechaEmisionCertificado || '',
+      codigo:          row.CodigoCertificado || codigoCertificadoEstable(row),
+      nombre:          row.ClienteNombre,
+      servicio:        row.ServicioNombre,
+      duracion:        duracionDe(row),
+      modalidad:       row.Modalidad,
+      fechaInicio:     row.FechaInicio,
+      fechaFin:        row.FechaFin || '',
+      fechaEmision:    row.FechaEmisionCertificado || '',
+      institucionAval: avalActivo ? (row.InstitucionAval || '') : '',
+      estadoAval:      avalActivo ? 'avalado' : '',
+      avalReferencia:  avalActivo ? (row.AvalReferencia || '') : '',
+      avalCodigoExterno: avalActivo ? (row.AvalCodigoExterno || '') : '',
+      avalEnlaceExterno: avalActivo ? (row.AvalEnlaceExterno || '') : '',
     },
   };
 }
@@ -302,6 +393,7 @@ function getDashboard(user, { year } = {}) {
   const pagos        = sheetToObjects(getSheet('Pagos'));
   const contratos    = sheetToObjects(getSheet('Contratos'));
   const proyecciones = sheetToObjects(getSheet('Proyecciones'));
+  const inscripciones = sheetToObjects(getSheet('Inscripciones'));
 
   // Solo ingresos CONFIRMADOS cuentan como dinero real recibido
   const ingAño = ingresos.filter(function(i) {
@@ -346,6 +438,15 @@ function getDashboard(user, { year } = {}) {
   });
 
   const proyFuturas = proyecciones.filter(function(p) { return p.Estado === 'proyectado'; });
+  const inscripcionesAnio = inscripciones.filter(function(i) {
+    var d = new Date(i.FechaCreacion || i.FechaInicio);
+    return !isNaN(d.getTime()) && d.getFullYear() === filterYear;
+  });
+  const certificadosEmitidos = inscripciones.filter(function(i) {
+    if (i.EstadoCertificado !== 'emitido') return false;
+    var d = new Date(i.FechaEmisionCertificado || i.FechaCreacion);
+    return !isNaN(d.getTime()) && d.getFullYear() === filterYear;
+  }).length;
 
   return {
     success: true,
@@ -361,6 +462,16 @@ function getDashboard(user, { year } = {}) {
           return i.Estado === 'pendiente' || i.Estado === 'pendiente_verificacion';
         }).length,
         totalProyectado:   sum(proyFuturas, 'MontoProyectado'),
+        inscripciones:     inscripcionesAnio.length,
+        certificadosRaPendientes: inscripcionesAnio.filter(function(i) {
+          return i.EstadoPago === 'verificado'
+            && !esVerdadero(i.RequiereAvalExterno)
+            && i.EstadoCertificado !== 'emitido';
+        }).length,
+        certificadosAvalPendientes: inscripcionesAnio.filter(function(i) {
+          return esVerdadero(i.RequiereAvalExterno) && i.EstadoAval !== 'avalado';
+        }).length,
+        certificadosEmitidos: certificadosEmitidos,
       },
       ingresosXMes,
       pagosXMes,
@@ -386,8 +497,18 @@ function getIngresos(user, { filtros = {} } = {}) {
   if (!isAdmin(user)) data = data.filter(i => i.CreadoPor === user.Username);
   if (filtros.tipo)   data = data.filter(i => i.Tipo === filtros.tipo);
   if (filtros.estado) data = data.filter(i => i.Estado === filtros.estado);
-  if (filtros.desde)  data = data.filter(i => new Date(i.Fecha) >= new Date(filtros.desde));
-  if (filtros.hasta)  data = data.filter(i => new Date(i.Fecha) <= new Date(filtros.hasta));
+  const desde = fechaLimite(filtros.desde, false);
+  const hasta = fechaLimite(filtros.hasta, true);
+  if (desde) data = data.filter(i => new Date(i.Fecha).getTime() >= desde.getTime());
+  if (hasta) data = data.filter(i => new Date(i.Fecha).getTime() <= hasta.getTime());
+  const usuarios = mapaUsuariosPorUsername();
+  const inscripcionPorIngreso = {};
+  sheetToObjects(getSheet('Inscripciones')).forEach(function(ins) {
+    if (ins.IngresoID) inscripcionPorIngreso[ins.IngresoID] = ins.ID;
+  });
+  data = data.map(function(i) {
+    return Object.assign(enriquecerVendedor(i, usuarios), { InscripcionID: inscripcionPorIngreso[i.ID] || '' });
+  });
   return { success: true, data };
 }
 
@@ -403,6 +524,7 @@ function addIngreso(user, { ingreso }) {
     Number(ingreso.monto) || 0, ingreso.metodoPago,
     estado, ingreso.notas || '', user.Username, now,
     ingreso.clienteTelefono || '',
+    ingreso.referencia || '',
   ]);
   return { success: true, id };
 }
@@ -413,6 +535,10 @@ function updateIngreso(user, { id, ingreso }) {
   const row   = sheetToObjects(sheet).find(r => r.ID === id);
   if (!row) return { success: false, error: 'Ingreso no encontrado.' };
   if (!isAdmin(user) && row.CreadoPor !== user.Username) return { success: false, error: 'No autorizado.' };
+  const vinculada = sheetToObjects(getSheet('Inscripciones')).find(function(ins) { return ins.IngresoID === id; });
+  if (vinculada) {
+    return { success: false, error: 'Este ingreso está vinculado a una inscripción. Edítelo desde el módulo Inscripciones.' };
+  }
   updateRow(sheet, row, {
     Fecha: ingreso.fecha, Tipo: ingreso.tipo, Modalidad: ingreso.modalidad,
     Concepto: ingreso.concepto, Cliente: ingreso.cliente, ContratoID: ingreso.contratoId,
@@ -420,6 +546,7 @@ function updateIngreso(user, { id, ingreso }) {
     Estado: isAdmin(user) ? ingreso.estado : row.Estado,
     Notas: ingreso.notas,
     ClienteTelefono: ingreso.clienteTelefono || '',
+    Referencia: ingreso.referencia,
   });
   return { success: true };
 }
@@ -664,6 +791,7 @@ function getUsuarios(user) {
   const data = sheetToObjects(getSheet('Usuarios')).map(u => ({
     ID: u.ID, Nombre: u.Nombre, Email: u.Email, Username: u.Username,
     Rol: u.Rol, Activo: u.Activo, FechaCreacion: u.FechaCreacion,
+    InstitucionAval: u.InstitucionAval || '',
   }));
   return { success: true, data };
 }
@@ -676,10 +804,15 @@ function addUsuario(user, { usuario }) {
     return { success: false, error: 'El nombre de usuario ya existe.' };
   if (existing.length >= 10)
     return { success: false, error: 'Límite máximo de 10 usuarios alcanzado.' };
+  const rol = usuario.rol || 'usuario';
+  const institucionAval = rol === 'aval' ? String(usuario.institucionAval || '').trim() : '';
+  if (rol === 'aval' && !institucionAval) {
+    return { success: false, error: 'Asigne una institucion al usuario de aval.' };
+  }
   const id   = generateId('USR');
   const hash = hashPassword(usuario.password);
   const now  = new Date().toISOString();
-  sheet.appendRow([id, usuario.nombre, usuario.email || '', usuario.username, hash, usuario.rol || 'usuario', true, now]);
+  sheet.appendRow([id, usuario.nombre, usuario.email || '', usuario.username, hash, rol, true, now, institucionAval]);
   return { success: true, id };
 }
 
@@ -689,9 +822,16 @@ function updateUsuario(user, { id, usuario }) {
   const rows  = sheetToObjects(sheet);
   const row   = rows.find(function(u) { return u.ID === id; });
   if (!row) return { success: false, error: 'Usuario no encontrado.' };
+  const rol = usuario.rol || row.Rol;
+  const institucionAval = rol === 'aval'
+    ? String(usuario.institucionAval !== undefined ? usuario.institucionAval : row.InstitucionAval || '').trim()
+    : '';
+  if (rol === 'aval' && !institucionAval) {
+    return { success: false, error: 'Asigne una institucion al usuario de aval.' };
+  }
   const fields = {
     Nombre: usuario.nombre, Email: usuario.email,
-    Rol: usuario.rol, Activo: usuario.activo,
+    Rol: rol, Activo: usuario.activo, InstitucionAval: institucionAval,
   };
   // Permitir cambio de username con verificación de unicidad
   if (usuario.username && usuario.username !== row.Username) {
@@ -740,8 +880,16 @@ function getServicios(user, params) {
   });
 }
 
+function servicioRequiereDuracion(tipo) {
+  const normalized = String(tipo || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  return ['curso', 'certificacion', 'taller', 'certificado lms', 'capacitacion'].indexOf(normalized) !== -1;
+}
+
 function addServicio(user, { servicio }) {
   requireAdmin(user);
+  if (servicioRequiereDuracion(servicio.tipo) && !String(servicio.duracion || '').trim()) {
+    return { success: false, error: 'La duración académica es obligatoria para este tipo de servicio.' };
+  }
   const sheet = getSheet('Servicios');
   const id    = generateId('SRV');
   const now   = new Date().toISOString();
@@ -752,6 +900,7 @@ function addServicio(user, { servicio }) {
     servicio.fechaEvento || '', servicio.fechaFinEvento || '', servicio.lugarEvento || '',
   ]);
   bustSheet('servicios');
+  bustSheet('inscripciones');
   return { success: true, id };
 }
 
@@ -760,6 +909,11 @@ function updateServicio(user, { id, servicio }) {
   const sheet = getSheet('Servicios');
   const row   = sheetToObjects(sheet).find(r => r.ID === id);
   if (!row) return { success: false, error: 'Servicio no encontrado.' };
+  const tipo = servicio.tipo === undefined ? row.Tipo : servicio.tipo;
+  const duracion = servicio.duracion === undefined ? row.Duracion : servicio.duracion;
+  if (servicioRequiereDuracion(tipo) && !String(duracion || '').trim()) {
+    return { success: false, error: 'La duración académica es obligatoria para este tipo de servicio.' };
+  }
   updateRow(sheet, row, {
     Nombre: servicio.nombre, Tipo: servicio.tipo, Modalidad: servicio.modalidad,
     Precio: Number(servicio.precio) || 0, Duracion: servicio.duracion,
@@ -768,6 +922,7 @@ function updateServicio(user, { id, servicio }) {
     LugarEvento: servicio.lugarEvento || '',
   });
   bustSheet('servicios');
+  bustSheet('inscripciones');
   return { success: true };
 }
 
@@ -852,26 +1007,97 @@ function mapaDuracionServicios() {
   };
 }
 
+function inscripcionEnriquecida(row, duracionDe, usuarios) {
+  return Object.assign(enriquecerVendedor(row, usuarios), {
+    Duracion: duracionDe(row),
+    NumeroComprobanteMostrado: row.NumeroComprobante || row.Notas || '',
+  });
+}
+
+function validarDatosInscripcion(inscripcion) {
+  if (!inscripcion) return 'Los datos de la inscripción son obligatorios.';
+  if (!inscripcion.servicioId && !inscripcion.servicioNombre) return 'Seleccione un servicio.';
+  if (!String(inscripcion.clienteNombre || '').trim()) return 'Ingrese el nombre del participante.';
+  const monto = Number(inscripcion.monto);
+  if (String(inscripcion.monto === undefined ? '' : inscripcion.monto).trim() === '' || !isFinite(monto) || monto < 0) return 'Ingrese un monto válido.';
+  if (!String(inscripcion.metodoPago || '').trim()) return 'Seleccione el método de pago.';
+  if (inscripcion.clienteEmail && !emailValido(inscripcion.clienteEmail)) return 'Ingrese un correo electrónico válido.';
+  if (inscripcion.fechaInicio && inscripcion.fechaFin && fechaSolo(inscripcion.fechaFin) < fechaSolo(inscripcion.fechaInicio)) {
+    return 'La fecha de finalización no puede ser anterior a la fecha de inicio.';
+  }
+  const comprobante = String(inscripcion.numeroComprobante || '').trim();
+  if (requiereComprobante(inscripcion.metodoPago) && !comprobante) {
+    return 'Ingrese el número de comprobante para el método de pago seleccionado.';
+  }
+  if (comprobante && !inscripcion.fechaPago) return 'Ingrese la fecha del pago o transferencia.';
+  if (inscripcion.requiereAvalExterno && !String(inscripcion.institucionAval || '').trim()) {
+    return 'Ingrese la institución avaladora.';
+  }
+  return '';
+}
+
+function estadoIngresoDesdePago(estadoPago) {
+  if (estadoPago === 'verificado') return 'confirmado';
+  if (estadoPago === 'cancelado') return 'cancelado';
+  return 'pendiente_verificacion';
+}
+
+function sincronizarIngresoInscripcion(inscripcion) {
+  if (!inscripcion.IngresoID) return { sincronizado: false, motivo: 'La inscripción no tiene un ingreso vinculado.' };
+  const ingSheet = getSheet('Ingresos');
+  const ingRow = sheetToObjects(ingSheet).find(function(r) { return r.ID === inscripcion.IngresoID; });
+  if (!ingRow) return { sincronizado: false, motivo: 'El ingreso vinculado no existe.' };
+  updateRow(ingSheet, ingRow, {
+    Fecha: fechaSolo(inscripcion.FechaPago || inscripcion.FechaCreacion),
+    Tipo: tipoIngresoPorModalidad(inscripcion.Modalidad),
+    Modalidad: inscripcion.Modalidad || 'N/A',
+    Concepto: 'Inscripción: ' + inscripcion.ClienteNombre + ' — ' + inscripcion.ServicioNombre,
+    Cliente: inscripcion.ClienteNombre,
+    ClienteTelefono: inscripcion.ClienteTelefono || '',
+    Monto: Number(inscripcion.Monto) || 0,
+    MetodoPago: inscripcion.MetodoPago || '',
+    Referencia: inscripcion.NumeroComprobante || inscripcion.Notas || '',
+    Estado: estadoIngresoDesdePago(inscripcion.EstadoPago),
+  });
+  return { sincronizado: true };
+}
+
 function getInscripciones(user, { filtros = {} } = {}) {
+  if (!isVendedor(user)) throw new Error('Acceso denegado.');
   let data = sheetToObjects(getSheet('Inscripciones'));
   if (!isAdmin(user)) data = data.filter(i => i.CreadoPor === user.Username);
+  if (filtros.vendedor && isAdmin(user)) data = data.filter(i => i.CreadoPor === filtros.vendedor);
   if (filtros.estadoPago)        data = data.filter(i => i.EstadoPago === filtros.estadoPago);
   if (filtros.estadoCertificado) data = data.filter(i => i.EstadoCertificado === filtros.estadoCertificado);
   if (filtros.servicioId)        data = data.filter(i => i.ServicioID === filtros.servicioId);
-  if (filtros.desde)             data = data.filter(i => new Date(i.FechaCreacion) >= new Date(filtros.desde));
-  if (filtros.hasta)             data = data.filter(i => new Date(i.FechaCreacion) <= new Date(filtros.hasta));
+  if (filtros.servicio)          data = data.filter(i => i.ServicioNombre === filtros.servicio);
+  if (filtros.tipoAval === 'sin_aval') data = data.filter(i => !esVerdadero(i.RequiereAvalExterno));
+  if (filtros.tipoAval === 'aval_pendiente') data = data.filter(i => esVerdadero(i.RequiereAvalExterno) && i.EstadoAval !== 'avalado');
+  if (filtros.tipoAval === 'avalado') data = data.filter(i => esVerdadero(i.RequiereAvalExterno) && i.EstadoAval === 'avalado');
+  const desde = fechaLimite(filtros.desde, false);
+  const hasta = fechaLimite(filtros.hasta, true);
+  if (desde) data = data.filter(i => new Date(i.FechaCreacion).getTime() >= desde.getTime());
+  if (hasta) data = data.filter(i => new Date(i.FechaCreacion).getTime() <= hasta.getTime());
+  data.sort(function(a, b) { return new Date(b.FechaCreacion || 0) - new Date(a.FechaCreacion || 0); });
   const duracionDe = mapaDuracionServicios();
-  data = data.map(function(i) { return Object.assign({}, i, { Duracion: duracionDe(i) }); });
+  const usuarios = mapaUsuariosPorUsername();
+  data = data.map(function(i) { return inscripcionEnriquecida(i, duracionDe, usuarios); });
   return { success: true, data };
 }
 
 function addInscripcion(user, { inscripcion }) {
   if (!isVendedor(user)) throw new Error('Acceso denegado.');
+  const validationError = validarDatosInscripcion(inscripcion);
+  if (validationError) return { success: false, error: validationError };
   const sheet    = getSheet('Inscripciones');
   const id       = generateId('INS');
   const now      = new Date().toISOString();
-  const estadoPago = isAdmin(user) ? (inscripcion.estadoPago || 'pagado') : 'pendiente';
+  const estadosPago = ['pendiente', 'pagado', 'verificado', 'cancelado'];
+  const estadoSolicitado = estadosPago.indexOf(inscripcion.estadoPago) > -1 ? inscripcion.estadoPago : 'pendiente';
+  const estadoPago = isAdmin(user) ? estadoSolicitado : 'pendiente';
   const requiereAval = !!inscripcion.requiereAvalExterno;
+  const numeroComprobante = String(inscripcion.numeroComprobante || '').trim();
+  const fechaPago = fechaSolo(inscripcion.fechaPago);
 
   sheet.appendRow([
     id,
@@ -888,21 +1114,27 @@ function addInscripcion(user, { inscripcion }) {
     '',                                    // FechaAval
     0,                                     // ValorAval
     inscripcion.fechaFin || '',            // FechaFin
+    numeroComprobante,                     // NumeroComprobante
+    fechaPago,                             // FechaPago
+    estadoPago === 'verificado' ? now : '',// FechaVerificacionPago
+    estadoPago === 'verificado' ? user.Username : '', // VerificadoPor
+    requiereAval ? String(inscripcion.institucionAval || '').trim() : '', // InstitucionAval
+    '',                                    // CodigoCertificado
+    '',                                    // EmitidoPor
+    'pendiente',                           // EstadoEntrega
+    '',                                    // FechaEntregaCertificado
+    '',                                    // EntregadoPor
+    '',                                    // AvalEnlaceExterno
+    '',                                    // AvalCodigoExterno
   ]);
 
   // Auto-crear ingreso vinculado — columnas deben coincidir exactamente con SHEET_HEADERS.Ingresos
   const ingresoId = generateId('ING');
-  const estadoIngreso = isAdmin(user) ? 'confirmado' : 'pendiente_verificacion';
-  // Derivar Tipo de ingreso desde modalidad del servicio
-  var modLower = (inscripcion.modalidad || '').toLowerCase();
-  var tipoIngreso = modLower === 'virtual'     ? 'Curso virtual'
-                  : modLower === 'presencial'  ? 'Curso presencial'
-                  : modLower.indexOf('brid') > -1 ? 'Curso híbrido'
-                  : 'Otro';
+  const estadoIngreso = estadoPago === 'verificado' ? 'confirmado' : 'pendiente_verificacion';
   getSheet('Ingresos').appendRow([
     ingresoId,                    // ID
-    now.slice(0, 10),             // Fecha (YYYY-MM-DD)
-    tipoIngreso,                  // Tipo (valor válido del dropdown)
+    fechaPago || now.slice(0, 10),// Fecha (YYYY-MM-DD)
+    tipoIngresoPorModalidad(inscripcion.modalidad), // Tipo
     inscripcion.modalidad || 'N/A', // Modalidad
     'Inscripción: ' + inscripcion.clienteNombre + ' — ' + inscripcion.servicioNombre, // Concepto
     inscripcion.clienteNombre,    // Cliente
@@ -914,13 +1146,14 @@ function addInscripcion(user, { inscripcion }) {
     user.Username,                // CreadoPor
     now,                          // FechaCreacion
     inscripcion.clienteTelefono || '', // ClienteTelefono
+    numeroComprobante,            // Referencia
   ]);
 
   // Actualizar IngresoID en la inscripción
   const inscRow = sheetToObjects(sheet).find(r => r.ID === id);
   if (inscRow) updateRow(sheet, inscRow, { IngresoID: ingresoId });
 
-  return { success: true, id };
+  return { success: true, id, ingresoId };
 }
 
 function updateInscripcion(user, { id, inscripcion }) {
@@ -929,50 +1162,196 @@ function updateInscripcion(user, { id, inscripcion }) {
   const row   = sheetToObjects(sheet).find(r => r.ID === id);
   if (!row) return { success: false, error: 'Inscripción no encontrada.' };
   if (!isAdmin(user) && row.CreadoPor !== user.Username) return { success: false, error: 'No autorizado.' };
+  const validationError = validarDatosInscripcion(inscripcion);
+  if (validationError) return { success: false, error: validationError };
 
-  // Primera vez que el certificado pasa a 'emitido' → registrar fecha de emisión
-  const emiteAhora = inscripcion.estadoCertificado === 'emitido' && row.EstadoCertificado !== 'emitido';
-  // Primera vez que se activa "requiere aval externo" → arranca en 'pendiente'
-  const activaAvalAhora = !!inscripcion.requiereAvalExterno &&
-    !(row.RequiereAvalExterno === true || row.RequiereAvalExterno === 'TRUE');
+  const requiereAval = inscripcion.requiereAvalExterno !== undefined
+    ? !!inscripcion.requiereAvalExterno
+    : esVerdadero(row.RequiereAvalExterno);
+  const institucionAval = requiereAval ? String(inscripcion.institucionAval || row.InstitucionAval || '').trim() : '';
+  const cambiaConfiguracionAval = requiereAval !== esVerdadero(row.RequiereAvalExterno)
+    || (requiereAval && !mismaInstitucionAval(institucionAval, row.InstitucionAval));
+  if (row.EstadoCertificado === 'emitido' && cambiaConfiguracionAval) {
+    return { success: false, error: 'No puede cambiar el tipo o la institución de aval de un certificado ya emitido.' };
+  }
+  let estadoPago = row.EstadoPago;
+  if (isAdmin(user) && inscripcion.estadoPago && inscripcion.estadoPago !== 'verificado') estadoPago = inscripcion.estadoPago;
+  if (row.EstadoPago === 'verificado') estadoPago = 'verificado';
 
   updateRow(sheet, row, {
     ClienteNombre: inscripcion.clienteNombre, ClienteID: inscripcion.clienteID,
     ClienteEmail: inscripcion.clienteEmail, ClienteTelefono: inscripcion.clienteTelefono,
-    ServicioNombre: inscripcion.servicioNombre, Modalidad: inscripcion.modalidad,
+    ServicioID: inscripcion.servicioId, ServicioNombre: inscripcion.servicioNombre, Modalidad: inscripcion.modalidad,
     FechaInicio: inscripcion.fechaInicio, FechaFin: inscripcion.fechaFin,
     Monto: Number(inscripcion.monto) || 0,
     MetodoPago: inscripcion.metodoPago, RazonSocial: inscripcion.razonSocial,
     RUC: inscripcion.ruc, DireccionFactura: inscripcion.direccionFactura,
-    EstadoPago: inscripcion.estadoPago, EstadoCertificado: inscripcion.estadoCertificado,
-    Notas: inscripcion.notas,
-    FechaEmisionCertificado: emiteAhora ? new Date().toISOString() : undefined,
-    RequiereAvalExterno: inscripcion.requiereAvalExterno !== undefined ? !!inscripcion.requiereAvalExterno : undefined,
-    EstadoAval: activaAvalAhora ? 'pendiente' : undefined,
+    EstadoPago: estadoPago,
+    Notas: inscripcion.notas !== undefined ? inscripcion.notas : row.Notas,
+    NumeroComprobante: inscripcion.numeroComprobante !== undefined ? String(inscripcion.numeroComprobante).trim() : row.NumeroComprobante,
+    FechaPago: inscripcion.fechaPago !== undefined ? fechaSolo(inscripcion.fechaPago) : row.FechaPago,
+    RequiereAvalExterno: requiereAval,
+    InstitucionAval: institucionAval,
+    EstadoAval: requiereAval ? (cambiaConfiguracionAval ? 'pendiente' : (row.EstadoAval || 'pendiente')) : '',
+    AvalReferencia: cambiaConfiguracionAval ? '' : row.AvalReferencia,
+    FechaAval: cambiaConfiguracionAval ? '' : row.FechaAval,
+    ValorAval: cambiaConfiguracionAval ? 0 : row.ValorAval,
+    AvalEnlaceExterno: cambiaConfiguracionAval ? '' : row.AvalEnlaceExterno,
+    AvalCodigoExterno: cambiaConfiguracionAval ? '' : row.AvalCodigoExterno,
   });
+  const updated = sheetToObjects(sheet).find(function(r) { return r.ID === id; });
+  const sync = sincronizarIngresoInscripcion(updated);
+  const duracionDe = mapaDuracionServicios();
+  const usuarios = mapaUsuariosPorUsername();
+  return {
+    success: true,
+    data: inscripcionEnriquecida(updated, duracionDe, usuarios),
+    warning: sync.sincronizado ? '' : sync.motivo,
+  };
+}
 
-  // Sincronizar ingreso vinculado cuando cambia el estado de pago o el monto
-  var ingresoId = row.IngresoID;
-  var nuevoPago = inscripcion.estadoPago;
-  if (ingresoId && nuevoPago && nuevoPago !== row.EstadoPago) {
-    var estadoIngresoMap = {
-      'pagado':    'confirmado',
-      'verificado':'confirmado',
-      'pendiente': 'pendiente_verificacion',
-      'cancelado': 'cancelado',
-    };
-    var nuevoEstadoIngreso = estadoIngresoMap[nuevoPago] || 'pendiente_verificacion';
-    var ingSheet = getSheet('Ingresos');
-    var ingRow   = sheetToObjects(ingSheet).find(function(r) { return r.ID === ingresoId; });
-    if (ingRow) {
-      updateRow(ingSheet, ingRow, {
-        Estado: nuevoEstadoIngreso,
-        Monto:  Number(inscripcion.monto) || ingRow.Monto,
-        MetodoPago: inscripcion.metodoPago || ingRow.MetodoPago,
-      });
-    }
+function verificarPagoInscripcion(user, { id, numeroComprobante, fechaPago } = {}) {
+  requireAdmin(user);
+  const sheet = getSheet('Inscripciones');
+  const row = sheetToObjects(sheet).find(function(r) { return r.ID === id; });
+  if (!row) return { success: false, error: 'Inscripción no encontrada.' };
+  if (!row.IngresoID) return { success: false, error: 'La inscripción no tiene un ingreso vinculado. Revise el registro antes de continuar.' };
+  const ingresoExiste = sheetToObjects(getSheet('Ingresos')).some(function(i) { return i.ID === row.IngresoID; });
+  if (!ingresoExiste) return { success: false, error: 'El ingreso vinculado no existe. Revise el registro antes de continuar.' };
+  const comprobanteActual = String(row.NumeroComprobante || row.Notas || '').trim();
+  const comprobanteSolicitado = numeroComprobante !== undefined
+    ? String(numeroComprobante || '').trim()
+    : comprobanteActual;
+  if (numeroComprobante !== undefined && comprobanteActual && comprobanteSolicitado !== comprobanteActual) {
+    return { success: false, error: 'El número de comprobante no coincide con el registro existente. Edite primero la inscripción y vuelva a verificar el pago.' };
   }
+  const comprobante = numeroComprobante !== undefined
+    ? comprobanteSolicitado
+    : comprobanteActual;
+  const fecha = fechaPago !== undefined ? fechaSolo(fechaPago) : fechaSolo(row.FechaPago);
+  if (requiereComprobante(row.MetodoPago) && !comprobante) {
+    return { success: false, error: 'Registre el número de comprobante antes de verificar el pago.' };
+  }
+  if (comprobante && !fecha) return { success: false, error: 'Registre la fecha del pago antes de verificarlo.' };
 
+  const ahora = new Date().toISOString();
+  updateRow(sheet, row, {
+    NumeroComprobante: comprobante,
+    FechaPago: fecha,
+    EstadoPago: 'verificado',
+    FechaVerificacionPago: row.FechaVerificacionPago || ahora,
+    VerificadoPor: row.VerificadoPor || user.Username,
+  });
+  const updated = sheetToObjects(sheet).find(function(r) { return r.ID === id; });
+  const sync = sincronizarIngresoInscripcion(updated);
+  if (!sync.sincronizado) return { success: false, error: sync.motivo + ' Revise el registro antes de continuar.' };
+  return { success: true, data: inscripcionEnriquecida(updated, mapaDuracionServicios(), mapaUsuariosPorUsername()) };
+}
+
+function codigoCertificadoEstable(row) {
+  const fecha = row.FechaEmisionCertificado ? new Date(row.FechaEmisionCertificado) : new Date();
+  let fragmento = String(row.ID || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(-10);
+  while (fragmento.length < 8) fragmento = '0' + fragmento;
+  return 'RA-' + fecha.getFullYear() + '-' + fragmento;
+}
+
+function datosFaltantesCertificado(row) {
+  const duracion = mapaDuracionServicios()(row);
+  const campos = [
+    ['participante', row.ClienteNombre],
+    ['identificación', row.ClienteID],
+    ['curso', row.ServicioNombre],
+    ['duración', duracion],
+    ['fecha de inicio', row.FechaInicio],
+    ['fecha de fin', row.FechaFin],
+    ['modalidad', row.Modalidad],
+  ];
+  return campos.filter(function(item) { return !String(item[1] || '').trim(); }).map(function(item) { return item[0]; });
+}
+
+function emitirCertificado(user, { id, codigoCertificado } = {}) {
+  requireAdmin(user);
+  const sheet = getSheet('Inscripciones');
+  const row = sheetToObjects(sheet).find(function(r) { return r.ID === id; });
+  if (!row) return { success: false, error: 'Inscripción no encontrada.' };
+  if (row.EstadoPago !== 'verificado') return { success: false, error: 'El pago debe estar verificado antes de emitir el certificado.' };
+  if (esVerdadero(row.RequiereAvalExterno) && row.EstadoAval !== 'avalado') {
+    return { success: false, error: 'El certificado requiere el aval institucional antes de poder emitirse.' };
+  }
+  const faltantes = datosFaltantesCertificado(row);
+  if (faltantes.length) return { success: false, error: 'Faltan los siguientes datos para generar el certificado: ' + faltantes.join(', ') + '.' };
+
+  const propuesto = String(codigoCertificado || '').trim().toUpperCase();
+  const codigo = /^RA-\d{4}-[A-Z0-9_-]{5,32}$/.test(propuesto) ? propuesto : codigoCertificadoEstable(row);
+  updateRow(sheet, row, {
+    EstadoCertificado: 'emitido',
+    CodigoCertificado: row.CodigoCertificado || codigo,
+    FechaEmisionCertificado: row.FechaEmisionCertificado || new Date().toISOString(),
+    EmitidoPor: row.EmitidoPor || user.Username,
+    EstadoEntrega: row.EstadoEntrega || 'pendiente',
+  });
+  const updated = sheetToObjects(sheet).find(function(r) { return r.ID === id; });
+  return { success: true, data: inscripcionEnriquecida(updated, mapaDuracionServicios(), mapaUsuariosPorUsername()) };
+}
+
+function actualizarEntregaCertificado(user, { id, estadoEntrega } = {}) {
+  if (!isVendedor(user)) throw new Error('Acceso denegado.');
+  const permitidos = ['descargado', 'compartido'];
+  if (permitidos.indexOf(estadoEntrega) === -1) return { success: false, error: 'Estado de entrega no válido.' };
+  const sheet = getSheet('Inscripciones');
+  const row = sheetToObjects(sheet).find(function(r) { return r.ID === id; });
+  if (!row) return { success: false, error: 'Inscripción no encontrada.' };
+  if (!isAdmin(user) && row.CreadoPor !== user.Username) return { success: false, error: 'No autorizado.' };
+  if (row.EstadoCertificado !== 'emitido') return { success: false, error: 'El certificado todavía no ha sido emitido.' };
+  updateRow(sheet, row, {
+    EstadoEntrega: estadoEntrega,
+    FechaEntregaCertificado: new Date().toISOString(),
+    EntregadoPor: user.Username,
+  });
+  return { success: true };
+}
+
+function deleteIngresoSeguro(user, { id } = {}) {
+  const vinculada = sheetToObjects(getSheet('Inscripciones')).find(function(ins) { return ins.IngresoID === id; });
+  if (vinculada) return { success: false, error: 'No se puede eliminar un ingreso vinculado a una inscripción.' };
+  return deleteIfOwner(user, 'Ingresos', id, 'Estado');
+}
+
+function enviarCertificadoEmail(user, { id, pdfBase64, mimeType, filename, email } = {}) {
+  requireAdmin(user);
+  const sheet = getSheet('Inscripciones');
+  const row = sheetToObjects(sheet).find(function(r) { return r.ID === id; });
+  if (!row) return { success: false, error: 'Inscripción no encontrada.' };
+  if (row.EstadoCertificado !== 'emitido') return { success: false, error: 'El certificado todavía no ha sido emitido.' };
+  const destinatario = String(email || row.ClienteEmail || '').trim();
+  if (!emailValido(destinatario)) return { success: false, error: 'La inscripción no tiene un correo electrónico válido.' };
+  if (mimeType !== 'application/pdf') return { success: false, error: 'Solo se aceptan certificados en formato PDF.' };
+  if (!pdfBase64 || typeof pdfBase64 !== 'string') return { success: false, error: 'No se recibió el archivo PDF.' };
+  let bytes;
+  try { bytes = Utilities.base64Decode(pdfBase64); }
+  catch (err) { return { success: false, error: 'El archivo PDF recibido no es válido.' }; }
+  if (bytes.length > 3 * 1024 * 1024) return { success: false, error: 'El PDF supera el límite permitido de 3 MB.' };
+  if (bytes.length < 5 || bytes[0] !== 37 || bytes[1] !== 80 || bytes[2] !== 68 || bytes[3] !== 70 || bytes[4] !== 45) {
+    return { success: false, error: 'El archivo recibido no contiene un PDF válido.' };
+  }
+  const nombreArchivo = String(filename || ('certificado_' + row.ID + '.pdf')).replace(/[^a-zA-Z0-9._-]/g, '_');
+  const blob = Utilities.newBlob(bytes, 'application/pdf', nombreArchivo);
+  try {
+    MailApp.sendEmail({
+      to: destinatario,
+      subject: 'Certificado académico - R.A. Training',
+      body: 'Estimado/a ' + row.ClienteNombre + ',\n\nAdjuntamos su certificado académico del curso ' + row.ServicioNombre + '.\n\nCódigo: ' + (row.CodigoCertificado || '') + '\n\nR.A. Training',
+      name: 'R.A. Training',
+      attachments: [blob],
+    });
+  } catch (err) {
+    return { success: false, error: 'No se pudo enviar el correo. Revise la autorización de MailApp y vuelva a intentarlo.' };
+  }
+  updateRow(sheet, row, {
+    EstadoEntrega: 'enviado_email',
+    FechaEntregaCertificado: new Date().toISOString(),
+    EntregadoPor: user.Username,
+  });
   return { success: true };
 }
 
@@ -980,12 +1359,42 @@ function updateInscripcion(user, { id, inscripcion }) {
 // AVAL EXTERNO — superficie minima para el rol 'aval'
 // ─────────────────────────────────────────────
 
+function getInstitucionesAval(user) {
+  if (!isVendedor(user)) throw new Error('Acceso denegado.');
+  const instituciones = [];
+  sheetToObjects(getSheet('Usuarios')).forEach(function(u) {
+    if (u.Rol === 'aval' && esVerdadero(u.Activo) && String(u.InstitucionAval || '').trim()) {
+      instituciones.push(String(u.InstitucionAval).trim());
+    }
+  });
+  sheetToObjects(getSheet('Inscripciones')).forEach(function(i) {
+    if (esVerdadero(i.RequiereAvalExterno) && String(i.InstitucionAval || '').trim()) {
+      instituciones.push(String(i.InstitucionAval).trim());
+    }
+  });
+  const unicas = [];
+  instituciones.sort().forEach(function(nombre) {
+    if (!unicas.some(function(actual) { return mismaInstitucionAval(actual, nombre); })) unicas.push(nombre);
+  });
+  return { success: true, data: unicas };
+}
+
 function getCertificadosAval(user, { filtros = {} } = {}) {
   if (!isAval(user) && !isAdmin(user)) throw new Error('Acceso denegado.');
   let data = sheetToObjects(getSheet('Inscripciones'))
-    .filter(function(i) { return i.RequiereAvalExterno === true || i.RequiereAvalExterno === 'TRUE'; });
+    .filter(function(i) { return esVerdadero(i.RequiereAvalExterno); });
+  if (isAval(user)) {
+    const institucionUsuario = institucionAvalDelUsuario(user);
+    if (!institucionUsuario) {
+      return { success: false, error: 'Su usuario de aval no tiene una institución asignada. Solicite la configuración al administrador.' };
+    }
+    data = data.filter(function(i) { return mismaInstitucionAval(i.InstitucionAval, institucionUsuario); });
+  }
   if (filtros.estadoAval) {
     data = data.filter(function(i) { return (i.EstadoAval || 'pendiente') === filtros.estadoAval; });
+  }
+  if (filtros.institucionAval && isAdmin(user)) {
+    data = data.filter(function(i) { return mismaInstitucionAval(i.InstitucionAval, filtros.institucionAval); });
   }
   // Los ultimos registros ingresados primero (por fecha de creacion, no por
   // fecha del curso — un curso futuro no deberia "esconder" lo recien creado).
@@ -1004,8 +1413,11 @@ function getCertificadosAval(user, { filtros = {} } = {}) {
       FechaInicio: i.FechaInicio,
       FechaFin: i.FechaFin || '',
       Duracion: duracionDe(i),
+      InstitucionAval: i.InstitucionAval || '',
       EstadoAval: i.EstadoAval || 'pendiente',
       AvalReferencia: i.AvalReferencia || '',
+      AvalEnlaceExterno: i.AvalEnlaceExterno || '',
+      AvalCodigoExterno: i.AvalCodigoExterno || '',
       FechaAval: i.FechaAval || '',
       ValorAval: Number(i.ValorAval) || 0,
     };
@@ -1013,19 +1425,39 @@ function getCertificadosAval(user, { filtros = {} } = {}) {
   return { success: true, data: out };
 }
 
-function marcarAval(user, { id, avalReferencia, valorAval } = {}) {
+function marcarAval(user, { id, avalReferencia, valorAval, avalEnlaceExterno, avalCodigoExterno } = {}) {
   if (!isAval(user) && !isAdmin(user)) throw new Error('Acceso denegado.');
   const sheet = getSheet('Inscripciones');
   const row   = sheetToObjects(sheet).find(function(r) { return r.ID === id; });
   if (!row) return { success: false, error: 'Registro no encontrado.' };
-  if (!(row.RequiereAvalExterno === true || row.RequiereAvalExterno === 'TRUE')) {
+  if (!esVerdadero(row.RequiereAvalExterno)) {
     return { success: false, error: 'Este registro no requiere aval externo.' };
+  }
+  if (isAval(user)) {
+    const institucionUsuario = institucionAvalDelUsuario(user);
+    if (!institucionUsuario || !mismaInstitucionAval(row.InstitucionAval, institucionUsuario)) {
+      return { success: false, error: 'No está autorizado para gestionar certificados de otra institución.' };
+    }
+  }
+  if (valorAval !== undefined && (!isFinite(Number(valorAval)) || Number(valorAval) < 0)) {
+    return { success: false, error: 'Ingrese un valor de aval válido.' };
+  }
+  const referencia = avalReferencia !== undefined ? String(avalReferencia || '').trim() : String(row.AvalReferencia || '').trim();
+  const enlace = avalEnlaceExterno !== undefined ? String(avalEnlaceExterno || '').trim() : String(row.AvalEnlaceExterno || '').trim();
+  const codigo = avalCodigoExterno !== undefined ? String(avalCodigoExterno || '').trim() : String(row.AvalCodigoExterno || '').trim();
+  if (!referencia && !enlace && !codigo) {
+    return { success: false, error: 'Ingrese al menos una referencia, un código externo o un enlace de validación.' };
+  }
+  if (enlace && !/^https?:\/\//i.test(enlace)) {
+    return { success: false, error: 'El enlace externo debe comenzar con http:// o https://.' };
   }
   updateRow(sheet, row, {
     EstadoAval: 'avalado',
-    AvalReferencia: avalReferencia || '',
-    FechaAval: new Date().toISOString(),
-    ValorAval: Number(valorAval) || 0,
+    AvalReferencia: referencia,
+    FechaAval: row.FechaAval || new Date().toISOString(),
+    ValorAval: valorAval !== undefined ? (Number(valorAval) || 0) : (Number(row.ValorAval) || 0),
+    AvalEnlaceExterno: enlace,
+    AvalCodigoExterno: codigo,
   });
   return { success: true };
 }
@@ -1397,6 +1829,44 @@ function updateActividadFlujo(user, { id, actividad } = {}) {
   if (actividad.evidencia   !== undefined) fields.Evidencia = actividad.evidencia;
   updateRow(sheet, row, fields);
   return { success: true };
+}
+
+// Migración manual e idempotente para ejecutar exclusivamente en el proyecto
+// de Apps Script de pruebas. No crea registros ni modifica estados de pago.
+function migrarInscripcionesCertificadosV2() {
+  const insSheet = getSheet('Inscripciones');
+  const ingSheet = getSheet('Ingresos');
+  const inscripciones = sheetToObjects(insSheet);
+  const ingresos = sheetToObjects(ingSheet);
+  let comprobantesMigrados = 0;
+  let referenciasMigradas = 0;
+  const comprobantePorIngreso = {};
+
+  inscripciones.forEach(function(ins) {
+    const comprobante = ins.NumeroComprobante || ins.Notas || '';
+    if (!ins.NumeroComprobante && ins.Notas) {
+      updateRow(insSheet, ins, { NumeroComprobante: ins.Notas });
+      comprobantesMigrados++;
+    }
+    if (ins.IngresoID && comprobante) comprobantePorIngreso[ins.IngresoID] = comprobante;
+  });
+
+  ingresos.forEach(function(ingreso) {
+    if (ingreso.Referencia) return;
+    const referencia = comprobantePorIngreso[ingreso.ID] || ingreso.Notas || '';
+    if (!referencia) return;
+    updateRow(ingSheet, ingreso, { Referencia: referencia });
+    referenciasMigradas++;
+  });
+
+  const resumen = {
+    inscripcionesRevisadas: inscripciones.length,
+    ingresosRevisados: ingresos.length,
+    comprobantesMigrados: comprobantesMigrados,
+    referenciasMigradas: referenciasMigradas,
+  };
+  Logger.log(JSON.stringify(resumen));
+  return resumen;
 }
 
 // ─────────────────────────────────────────────
