@@ -1,10 +1,13 @@
 import { createContext, useContext, useState, useCallback } from 'react'
 import { api } from '../services/api'
+import { getLocalFiscalDemoUser } from '../utils/fiscalFeature'
 
 const AuthContext = createContext(null)
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(() => {
+    const localFiscalUser = getLocalFiscalDemoUser()
+    if (localFiscalUser) return localFiscalUser
     try {
       const s = localStorage.getItem('rat_user')
       return s ? JSON.parse(s) : null

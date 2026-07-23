@@ -6,3 +6,12 @@ dist/
 .vercel
 .env.*
 !.env.example
+!.env.local.example
+*.p12
+*.pfx
+*.pem
+*.key
+*.crt
+certs/
+secrets/
+fiscal-service/var/

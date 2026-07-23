@@ -5,7 +5,9 @@ import {
   FileText, BarChart2, BookOpen, Users, X, TrendingUp as Logo,
   GraduationCap, Briefcase, Settings, HeartHandshake, CalendarDays,
   Clock, ListChecks, ShieldCheck,
+  Receipt,
 } from 'lucide-react'
+import { sriBillingEnabled } from '../utils/fiscalFeature'
 
 const adminLinks = [
   { to: '/dashboard',      icon: LayoutDashboard, label: 'Dashboard' },
@@ -16,6 +18,7 @@ const adminLinks = [
   { to: '/aval-externo',   icon: ShieldCheck,     label: 'Avales Institucionales' },
   { to: '/servicios',      icon: Briefcase,       label: 'Servicios' },
   { to: '/pagos',          icon: CreditCard,      label: 'Pagos' },
+  ...(sriBillingEnabled ? [{ to: '/facturacion', icon: Receipt, label: 'Facturación' }] : []),
   { to: '/contratos',      icon: FileText,        label: 'Contratos' },
   { to: '/convenios',      icon: HeartHandshake,  label: 'Convenios' },
   { to: '/proyecciones',   icon: BarChart2,       label: 'Proyecciones' },

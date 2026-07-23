@@ -20,6 +20,8 @@ import AsistenciaView from './components/Asistencia/AsistenciaView'
 import FlujosView from './components/Flujos/FlujosView'
 import VerificarCertificado from './components/Verificacion/VerificarCertificado'
 import CertificadosAvalView from './components/Aval/CertificadosAvalView'
+import FacturacionView from './components/Facturacion/FacturacionView'
+import { sriBillingEnabled } from './utils/fiscalFeature'
 
 function RequireAuth({ children }) {
   const { user } = useAuth()
@@ -90,6 +92,7 @@ function AppRoutes() {
         <Route path="/reportes"      element={<RequireAdmin><ReportesView /></RequireAdmin>} />
         <Route path="/usuarios"      element={<RequireAdmin><UsuariosView /></RequireAdmin>} />
         <Route path="/config-pagos"  element={<RequireAdmin><ConfigPagosView /></RequireAdmin>} />
+        {sriBillingEnabled && <Route path="/facturacion" element={<RequireAdmin><FacturacionView /></RequireAdmin>} />}
         <Route path="/convenios"     element={<RequireAdmin><ConveniosList /></RequireAdmin>} />
         <Route path="/calendario"    element={<RequireVendedor><CalendarView /></RequireVendedor>} />
 
