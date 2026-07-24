@@ -8,6 +8,7 @@ import { fiscalStatusLabel, nextFiscalAction } from '../../utils/fiscalFeature'
 
 const successfulStates = ['AUTHORIZED']
 const failureStates = ['VALIDATION_FAILED', 'RETURNED', 'NOT_AUTHORIZED', 'ERROR']
+const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Guayaquil' }).format(new Date())
 
 function StatusBadge({ status }) {
   const style = successfulStates.includes(status) ? 'badge-green' : failureStates.includes(status) ? 'badge-red' : status === 'DRAFT' ? 'badge-gray' : 'badge-blue'
@@ -35,7 +36,7 @@ function FlowStepper({ document }) {
 export default function InvoiceDetailModal({ document, events, transmissions, readiness, loading, onClose, onStep, onRefresh, onDownload, onLoadXml, onCreateCredit, onSimulateDelivery }) {
   const [tab, setTab] = useState('resumen')
   const [xml, setXml] = useState('')
-  const [credit, setCredit] = useState({ reason: 'Devolución ficticia parcial', modifiedValue: '10.00', issueDate: '2026-07-23' })
+  const [credit, setCredit] = useState({ reason: 'Devolución ficticia parcial', modifiedValue: '10.00', issueDate: today() })
   useEffect(() => { setTab('resumen'); setXml('') }, [document?.id])
   const action = nextFiscalAction(document)
   const typePath = document?.documentType === 'CREDIT_NOTE' ? 'credit-notes' : 'invoices'

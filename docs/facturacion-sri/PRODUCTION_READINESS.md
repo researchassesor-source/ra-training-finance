@@ -24,3 +24,7 @@
 - [ ] Monitoreo, respaldos, restauración, continuidad y seguridad operacional.
 
 No cambiar este estado con base en pruebas mock o `pg-mem`.
+
+## Aclaración sobre Vercel Preview
+
+La demostración en navegador no reduce ninguno de estos bloqueadores. Su `localStorage`, firma ficticia, XML demostrativo, autorización simulada y RIDE con marca de agua no son componentes productivos. El selector bloquea la demo en el dominio oficial y con contexto `production`; las variables de Preview nunca deben copiarse al entorno Production.

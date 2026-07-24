@@ -22,3 +22,13 @@ La aplicación deberá entregar usuario, rol, token de sesión validado server-s
 MFA, gestor de secretos, TLS/red privada, RBAC server-side corporativo, almacenamiento cifrado, rotación, monitoreo, backups y pruebas de penetración.
 
 El audit del servicio fiscal quedó en cero vulnerabilidades. El proyecto raíz conserva 8 hallazgos heredados (1 bajo, 4 moderados, 2 altos y 1 crítico), principalmente en jsPDF, Vite y React Router. Requieren una actualización mayor separada con regresión de certificados, rutas y build; no se aplicó `npm audit fix --force`.
+
+## Controles específicos de Preview
+
+- Requiere simultáneamente módulo habilitado, bandera de demo, contexto explícito `preview`, host no oficial y sesión normal de administrador.
+- Una configuración accidental de demo en producción queda bloqueada y no cae al adaptador HTTP.
+- El adaptador Preview no usa `fetch` ni importa código Node o `fiscal-service`.
+- La clave `ra-training:fiscal-preview:v1` contiene solo información ficticia; no incluye sesión, credenciales, tokens, certificados o datos reales.
+- El reinicio elimina únicamente esa clave y conserva la sesión y los demás datos de la aplicación.
+- `localStorage` y su coordinación entre pestañas son suficientes solo para demostración, no para secuencias productivas.
+- XML y PDF incluyen advertencias inequívocas de falta de validez tributaria y conexión SRI.

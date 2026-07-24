@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   AlertCircle, BookOpenCheck, CheckCircle2, ChevronLeft, ChevronRight,
-  FilePlus2, FileText, Filter, Loader2, Receipt, RefreshCw, Search, Settings2,
+  Database, FilePlus2, FileText, Filter, Loader2, Receipt, RefreshCw, Search, Settings2,
   ShieldCheck, TrendingUp, UserRoundCheck, X,
 } from 'lucide-react'
 import { fiscalApi } from '../../services/fiscalApi'
@@ -127,6 +127,17 @@ export default function FacturacionView() {
     } catch (err) { setError(err.message) } finally { setActionLoading(false) }
   }
 
+  async function resetPreviewDemo() {
+    if (!globalThis.confirm('¿Reiniciar únicamente los datos fiscales ficticios guardados en este navegador? La sesión y los demás datos de la aplicación no se modificarán.')) return
+    setActionLoading(true); setError(''); setNotice('')
+    try {
+      await fiscalApi.resetDemo()
+      setSelected(null); setSelectedSource(null); setTab('panel')
+      setNotice('Demostración fiscal reiniciada con su semilla original. La sesión permaneció activa.')
+      await load()
+    } catch (err) { setError(err.message) } finally { setActionLoading(false) }
+  }
+
   const sortedDocuments = useMemo(() => [...documents].sort((a, b) => String(b.updatedAt || b.createdAt || b.issueDate).localeCompare(String(a.updatedAt || a.createdAt || a.issueDate))), [documents])
   const filtered = useMemo(() => sortedDocuments.filter((document) => {
     const search = filters.search.trim().toLowerCase()
@@ -154,12 +165,13 @@ export default function FacturacionView() {
 
   return <div className="space-y-5">
     <FiscalBanner config={config} readiness={readiness} />
+    {config?.previewDemo && <div className="flex items-start gap-2 rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900"><Database size={18} className="mt-0.5 shrink-0" /><div><strong>Datos fiscales ficticios guardados temporalmente en este navegador.</strong><p className="mt-0.5 text-xs">No se consulta Google Sheets, Apps Script, el servicio fiscal local ni el SRI. Puedes reiniciar únicamente esta demostración desde Configuración fiscal.</p></div></div>}
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div><h1 className="text-xl font-bold text-gray-900">Gestión de facturación electrónica</h1><p className="mt-1 text-sm text-gray-500">Documentos de prueba, catálogo fiscal, XML, RIDE y auditoría controlada.</p></div>
       <button className="btn-secondary justify-center" onClick={load} disabled={loading}><RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> Actualizar</button>
     </div>
 
-    {error && <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800"><AlertCircle size={18} className="mt-0.5 shrink-0" /><div><strong>No se completó la acción.</strong><p>{error}</p><p className="mt-1 text-xs">Verifica que el servicio fiscal de pruebas esté activo.</p></div></div>}
+    {error && <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800"><AlertCircle size={18} className="mt-0.5 shrink-0" /><div><strong>No se completó la acción.</strong><p>{error}</p><p className="mt-1 text-xs">{config?.previewDemo ? 'La demostración funciona íntegramente en el navegador; vuelve a intentar o reinicia solo sus datos.' : 'Verifica que el servicio fiscal de pruebas esté activo.'}</p></div></div>}
     {notice && <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800"><CheckCircle2 size={18} /> {notice}</div>}
 
     <nav className="flex flex-wrap gap-2 border-b border-gray-200 pb-3" aria-label="Secciones de facturación">
@@ -208,7 +220,7 @@ export default function FacturacionView() {
       {tab === 'fuentes' && <section className="space-y-4"><div><h2 className="text-lg font-semibold">Inscripciones de prueba</h2><p className="text-sm text-gray-500">Solo las verificadas y completas pueden originar un borrador. No se consulta Google Sheets.</p></div><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{sources.map((source) => { const eligible = source.paymentStatus === 'VERIFIED' && source.fiscalStatus === 'ELIGIBLE'; return <article key={source.id} className={`card border-l-4 ${eligible ? 'border-l-emerald-500' : 'border-l-gray-300'}`}><div className="flex items-start justify-between gap-3"><div><p className="text-xs font-semibold text-brand-700">{source.id}</p><h3 className="mt-1 font-semibold">{source.participantName}</h3><p className="mt-1 text-sm text-gray-500">{source.serviceName}</p></div><strong>${source.amount}</strong></div><div className="mt-3 flex flex-wrap gap-2"><span className={source.paymentStatus === 'VERIFIED' ? 'badge-green' : 'badge-yellow'}>{source.paymentStatus === 'VERIFIED' ? 'Pago verificado' : 'Pago pendiente'}</span><span className={eligible ? 'badge-blue' : 'badge-gray'}>{eligible ? 'Elegible' : 'No elegible'}</span></div><p className="mt-3 min-h-8 text-xs text-gray-500">{source.issueNote}</p><button className="btn-primary mt-4 w-full justify-center" disabled={!eligible} onClick={() => setSelectedSource(source)}><FilePlus2 size={16} /> Crear borrador</button></article> })}</div></section>}
 
       {tab === 'catalogo' && <FiscalCatalogPanel catalog={catalog} />}
-      {tab === 'config' && config && <FiscalConfigurationPanel config={config} readiness={readiness} />}
+      {tab === 'config' && config && <FiscalConfigurationPanel config={config} readiness={readiness} onResetDemo={resetPreviewDemo} resetLoading={actionLoading} />}
     </>}
 
     <InvoiceFormModal source={selectedSource} config={config} readiness={readiness} paymentMethods={paymentMethods} onClose={() => setSelectedSource(null)} onSubmit={createInvoice} loading={actionLoading} />

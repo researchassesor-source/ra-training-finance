@@ -47,3 +47,19 @@ npm --prefix fiscal-service run test:postgres-memory
 ```
 
 El backend se reinicia en memoria; los documentos se pierden. La red oficial, correo y datos remotos permanecen deshabilitados.
+
+## Frontend simulando Vercel Preview (sin servicio fiscal)
+
+No inicies `fiscal-service`. En una terminal nueva:
+
+```powershell
+$env:VITE_ENABLE_SRI_BILLING="true"
+$env:VITE_FISCAL_RUNTIME_CONTEXT="preview"
+$env:VITE_FISCAL_PREVIEW_DEMO="true"
+$env:VITE_FISCAL_USE_EXISTING_APP_DATA="false"
+Remove-Item Env:VITE_FISCAL_API_URL -ErrorAction SilentlyContinue
+Remove-Item Env:VITE_LOCAL_FISCAL_DEMO_AUTH -ErrorAction SilentlyContinue
+npm run dev -- --host 127.0.0.1
+```
+
+Inicia sesión con un administrador normal de la aplicación. El módulo funciona desde el navegador, sin el puerto 4010. Consulta [PREVIEW_DEMO.md](PREVIEW_DEMO.md).

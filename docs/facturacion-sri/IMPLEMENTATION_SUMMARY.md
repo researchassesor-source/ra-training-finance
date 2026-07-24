@@ -26,3 +26,13 @@ El módulo está avanzado localmente y preparado para configuración institucion
 ## Referencia técnica
 
 El brief cita ficha 2.32/noviembre de 2025, pero el portal oficial observado el 24 de julio de 2026 publica 2.33/julio de 2026. La discrepancia está documentada y requiere confirmación directa antes de certificación. Los XSD locales continúan en versión 1.1.0.
+
+## Demostración de Preview en navegador
+
+- Selector central entre adaptador HTTP local y adaptador de Preview.
+- Store versionado y recuperable en `localStorage`, con semilla 100 % ficticia y reinicio aislado.
+- Facturas, notas de crédito, flujo determinista, auditoría, transmisiones, XML UTF-8 y RIDE A4 generados en el navegador.
+- Autenticación normal de administrador y bloqueo por contexto/dominio para impedir activación accidental en producción.
+- Cero dependencias de `fiscal-service`, localhost, Apps Script fiscal, Sheets o SRI durante Preview.
+
+Esta capacidad es exclusivamente demostrativa y no cambia el estado bloqueado para producción.

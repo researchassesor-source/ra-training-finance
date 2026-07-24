@@ -4,12 +4,12 @@
 
 | Comando | Resultado |
 |---|---|
-| `npm test` | 3 archivos, 10 pruebas aprobadas |
-| `npm run build` | aprobado; 2697 módulos transformados; advertencia conocida por chunk de 1.63 MB |
+| `npm test` | 6 archivos, 31 pruebas aprobadas |
+| `npm run build` | aprobado; 2704 módulos transformados; advertencia conocida por chunk grande |
 | `npm --prefix fiscal-service run typecheck` | aprobado |
 | `npm --prefix fiscal-service run build` | aprobado |
 | `npm --prefix fiscal-service run lint` | aprobado |
-| `npm --prefix fiscal-service test` | 11 archivos, 47 pruebas aprobadas |
+| `npm --prefix fiscal-service test` | 12 archivos, 49 pruebas aprobadas |
 | `npm --prefix fiscal-service run test:postgres-memory` | 1 archivo, 1 prueba aprobada |
 | `npm audit --json` | 8 hallazgos heredados: 1 bajo, 4 moderados, 2 altos y 1 crítico |
 | `npm --prefix fiscal-service audit --json` | 0 vulnerabilidades |
@@ -27,3 +27,9 @@ Firma criptográfica/verificación, PKCS#12 negativo, SOAP/fixtures, múltiples 
 - Evidencias del ajuste visual y arquitectónico final: `docs/facturacion-sri/evidence-v3/`.
 
 No existen pruebas contra SRI real, correo real, Apps Script, Sheets, Vercel ni PostgreSQL real. Los hallazgos del audit raíz requieren una actualización separada y controlada de jsPDF, Vite y React Router; no se aplicaron cambios mayores automáticos.
+
+## Demostración de Preview
+
+Se añadieron pruebas unitarias del selector seguro, rol administrador, store versionado, recuperación/reset, API sin `fetch`, cálculos exactos, flujo y resultados simulados, persistencia, factura/nota de crédito, saldo, XML escapado y descargas Blob XML/PDF.
+
+La validación de navegador se ejecutó con `fiscal-service` apagado en 1440 × 900, 900 × 900 y 390 × 844. Se recorrieron creación/proceso de factura, XML, RIDE, nota de crédito, recarga, persistencia y reset aislado; no hubo errores ni advertencias de consola y no existió desbordamiento horizontal. Las ocho capturas y el detalle del recorrido están en `evidence-preview/README.md`.
