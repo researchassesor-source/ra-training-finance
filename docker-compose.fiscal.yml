@@ -1,0 +1,22 @@
+services:
+  fiscal-postgres:
+    image: postgres:17-alpine
+    container_name: ra-training-fiscal-postgres
+    environment:
+      POSTGRES_DB: ra_training_fiscal
+      POSTGRES_USER: fiscal_local
+      POSTGRES_PASSWORD: fiscal_local
+      TZ: America/Guayaquil
+    ports:
+      - "127.0.0.1:5434:5432"
+    volumes:
+      - ra_training_fiscal_pgdata:/var/lib/postgresql/data
+      - ./fiscal-service/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fiscal_local -d ra_training_fiscal"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+volumes:
+  ra_training_fiscal_pgdata:

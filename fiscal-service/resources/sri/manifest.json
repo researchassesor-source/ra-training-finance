@@ -1,0 +1,32 @@
+{
+  "generatedAt": "2026-07-24",
+  "hashAlgorithm": "SHA-256",
+  "technicalReferenceDiscrepancy": {
+    "briefBaseline": "2.32 - noviembre de 2025",
+    "officialPortalObserved": "2.33 - julio de 2026",
+    "observedAt": "2026-07-24",
+    "status": "REQUIERE VERIFICACIÓN DIRECTA CON EL SRI",
+    "localInvoiceXsd": "1.1.0",
+    "localCreditNoteXsd": "1.1.0"
+  },
+  "files": [
+    { "path": "original-downloads/Ficha-Tecnica-Comprobantes-Electronicos-Offline-v2.33.pdf", "source": "https://www.sri.gob.ec/o/sri-portlet-biblioteca-alfresco-internet/descargar/5a547488-80f3-4966-a2a4-841f2e951986/FICHA%20TE%CC%81CNICA%20COMPROBANTES%20ELECTRO%CC%81NICOS%20ESQUEMA%20OFFLINE%20Versio%CC%81n%202.33.pdf", "sha256": "c839adb17844a971cc09f4ac245d4ee96d9758221155c105c56ca65b88f1b251" },
+    { "path": "original-downloads/Guia-anulacion-comprobantes-electronicos-marzo-2025.pdf", "source": "https://www.sri.gob.ec/o/sri-portlet-biblioteca-alfresco-internet/descargar/c97242e6-c271-4eb8-8f6a-f687313118ba/Guia%20para%20contribuyentes%20de%20anulaci%C3%B3n%20de%20comprobantes%20electr%C3%B3nicos.pdf", "sha256": "7a99c0267e2bc70b8e3e668d42d9bf15fff4a5d985520be040d0b6210ee8b25b" },
+    { "path": "original-downloads/XML-y-XSD-Factura.zip", "source": "https://www.sri.gob.ec/o/sri-portlet-biblioteca-alfresco-internet/descargar/05546998-6f29-4870-be3b-62650f312a6c/XML%20y%20XSD%20Factura.zip", "sha256": "ba1ff0c4e329fe759c3f88dc75f2975780b315b6eb3d0069071b77c1f26fec03" },
+    { "path": "original-downloads/XML-y-XSD-Nota-Credito.zip", "source": "https://www.sri.gob.ec/o/sri-portlet-biblioteca-alfresco-internet/descargar/dfc944cd-5f18-4433-a626-3cc64cfc4549/XML%20y%20XSD%20Nota%20de%20Cr%c3%a9dito.zip", "sha256": "9b7e9c1a240ae39a858aa8fbaf91c41c761417e7bd763ccb20ffc0b81ad1bd43" },
+    { "path": "samples/factura_V1.0.0.xml", "source": "XML-y-XSD-Factura.zip", "sha256": "1c4dc567581af0554476602a7ea69e16f2605a6ae7a14f72f4a36e60b67597c9" },
+    { "path": "samples/factura_V1.1.0.xml", "source": "XML-y-XSD-Factura.zip", "sha256": "3a74fd9c446cb12736cedfa2c8228349b31f94c07607c1699d331d8b03bf7970" },
+    { "path": "samples/factura_V2.0.0.xml", "source": "XML-y-XSD-Factura.zip", "sha256": "841c7fd4dddbcb6bf30d9b35de0beccb4e5e9e036435484bf0a39739c00ff17d" },
+    { "path": "samples/factura_V2.1.0.xml", "source": "XML-y-XSD-Factura.zip", "sha256": "c329f927b71044a6582b58bcabe7de80e7f4b2417375b77fec2fe9cde21dc39d" },
+    { "path": "samples/NotaCredito_V1.0.0.xml", "source": "XML-y-XSD-Nota-Credito.zip", "sha256": "8a2b579340d754adb813e96c122b105f0c3f26b20ddcfb4bab89f518769f1723" },
+    { "path": "samples/NotaCredito_V1.1.0.xml", "source": "XML-y-XSD-Nota-Credito.zip", "sha256": "4baca13d7f3f1d241cb01dc68ce8f5dc9e6052ec41e08ef5eba88550d9d00f72" },
+    { "path": "xsd/factura_V1.0.0.xsd", "source": "XML-y-XSD-Factura.zip", "sha256": "0c2d62f15c9ed03f5e5d3559dc556dd254396396247f3ea919e63473b4299442" },
+    { "path": "xsd/factura_V1.1.0.xsd", "source": "XML-y-XSD-Factura.zip", "sha256": "62db9bf0ecceb00ef2b7ed136e59224815e5e5e33c77efc6a0552001e052eb8b" },
+    { "path": "xsd/factura_V2.0.0.xsd", "source": "XML-y-XSD-Factura.zip", "sha256": "cf1bbd68f43d594f51f9983e8ca2d756e7dfc745ae63ec8ea6301c22d05a1479" },
+    { "path": "xsd/factura_V2.1.0.xsd", "source": "XML-y-XSD-Factura.zip", "sha256": "5f2c37bc1a58bb40e8bbbc366cabe05d5dc199598aeea1561137370f8bd4eace" },
+    { "path": "xsd/NotaCredito_V1.0.0.xsd", "source": "XML-y-XSD-Nota-Credito.zip", "sha256": "8a4c3ec4e0b0dace9316d9cb5825b14f4e60b1d8c8189a0ac994dce2863d9e07" },
+    { "path": "xsd/NotaCredito_V1.1.0.xsd", "source": "XML-y-XSD-Nota-Credito.zip", "sha256": "379e9f270d71ab4578f130a736c9abe5eb1d7969375ecdef55d2973583ec5ab0" },
+    { "path": "xsd/xmldsig-core-schema.xsd", "source": "https://www.w3.org/TR/xmldsig-core/xmldsig-core-schema.xsd", "sha256": "d102ad3df7664c307e0c2c776ba4a90513b1969974d8a940bae1a77f9f21e15d" },
+    { "path": "catalogs/payment-methods.json", "source": "https://www.sri.gob.ec/facturacion-electronica", "sha256": "b4991e3d547c634410d02ed35b9306453b125dfd36d14f6698b674bb4d627982" }
+  ]
+}

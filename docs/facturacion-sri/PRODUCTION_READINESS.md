@@ -1,0 +1,30 @@
+# Preparación para producción
+
+**BLOQUEADO.** Esta etapa no realiza emisión oficial.
+
+## Cerrado localmente
+
+- Arquitectura aislada, API y UI administrativas.
+- XML/XSD 1.1.0, cálculos, idempotencia, auditoría y archivos.
+- XAdES-BES efímero verificable y lector/firmador PKCS#12 preparado.
+- SOAP oficial implementado con fixtures y red doblemente bloqueada.
+- Esquema/adaptador PostgreSQL probado con `pg-mem`.
+- Catálogo, readiness, notas de crédito parciales y RIDE mejorado.
+
+## Bloqueadores
+
+- [ ] Dirección oficial y obligación contable confirmadas.
+- [ ] Clasificación tributaria por servicio aprobada por responsable contable.
+- [ ] Secuencial real conciliado y firmado por responsable.
+- [ ] Certificado institucional vigente y custodia de secretos.
+- [ ] Persistencia fiscal segura, almacenamiento privado, autenticación y correo productivos.
+- [ ] Definir proveedor institucional; PostgreSQL está recomendado, pero se admiten alternativas que garanticen integridad, concurrencia, auditoría y respaldos.
+- [ ] Pruebas en certificación SRI, revisión del RIDE/XML y autorización institucional.
+- [ ] Confirmación directa de ficha, XSD, WSDL y endpoints inmediatamente antes de certificar.
+- [ ] Monitoreo, respaldos, restauración, continuidad y seguridad operacional.
+
+No cambiar este estado con base en pruebas mock o `pg-mem`.
+
+## Aclaración sobre Vercel Preview
+
+La demostración en navegador no reduce ninguno de estos bloqueadores. Su `localStorage`, firma ficticia, XML demostrativo, autorización simulada y RIDE con marca de agua no son componentes productivos. El selector bloquea la demo en el dominio oficial y con contexto `production`; las variables de Preview nunca deben copiarse al entorno Production.

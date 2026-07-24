@@ -1,0 +1,15 @@
+{
+  "source": "Ficha técnica de comprobantes electrónicos esquema off-line, tabla Formas de pago",
+  "officialPage": "https://www.sri.gob.ec/facturacion-electronica",
+  "consultedAt": "2026-07-24",
+  "items": [
+    { "code": "01", "officialDescription": "SIN UTILIZACION DEL SISTEMA FINANCIERO", "shortDescription": "Efectivo / sin sistema financiero", "validFrom": "2013-01-01" },
+    { "code": "15", "officialDescription": "COMPENSACIÓN DE DEUDAS", "shortDescription": "Compensación", "validFrom": "2013-01-01" },
+    { "code": "16", "officialDescription": "TARJETA DE DÉBITO", "shortDescription": "Tarjeta de débito", "validFrom": "2016-06-01" },
+    { "code": "17", "officialDescription": "DINERO ELECTRÓNICO", "shortDescription": "Dinero electrónico", "validFrom": "2016-06-01" },
+    { "code": "18", "officialDescription": "TARJETA PREPAGO", "shortDescription": "Tarjeta prepago", "validFrom": "2016-06-01" },
+    { "code": "19", "officialDescription": "TARJETA DE CRÉDITO", "shortDescription": "Tarjeta de crédito", "validFrom": "2016-06-01" },
+    { "code": "20", "officialDescription": "OTROS CON UTILIZACION DEL SISTEMA FINANCIERO", "shortDescription": "Transferencia / sistema financiero", "validFrom": "2016-06-01" },
+    { "code": "21", "officialDescription": "ENDOSO DE TÍTULOS", "shortDescription": "Endoso de títulos", "validFrom": "2016-06-01" }
+  ]
+}

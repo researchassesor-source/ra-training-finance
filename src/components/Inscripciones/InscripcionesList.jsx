@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { saveAs } from 'file-saver'
 import {
   Award, CheckCircle, Download, FileText, MailCheck, MessageCircle,
-  Pencil, Plus, QrCode, ShoppingBag, Trash2,
+  Pencil, Plus, QrCode, Receipt, ShoppingBag, Trash2,
 } from 'lucide-react'
 import { api } from '../../services/api'
 import { useAuth } from '../../context/AuthContext'
@@ -17,6 +18,7 @@ import InscripcionesForm from './InscripcionesForm'
 import VentasVendedorModal from './VentasVendedorModal'
 import EntregaCertificadoModal from './EntregaCertificadoModal'
 import EnvioMasivoCertificadosModal from './EnvioMasivoCertificadosModal'
+import { sriBillingEnabled } from '../../utils/fiscalFeature'
 
 const EMPTY_FILTERS = {
   servicioId: '', vendedor: '', estadoPago: '', estadoCertificado: '', tipoAval: '', desde: '', hasta: '',
@@ -24,6 +26,7 @@ const EMPTY_FILTERS = {
 
 export default function InscripcionesList() {
   const { isAdmin, user } = useAuth()
+  const navigate = useNavigate()
   const [data, setData] = useState([])
   const [servicios, setServicios] = useState([])
   const [vendedores, setVendedores] = useState([])
@@ -439,6 +442,8 @@ export default function InscripcionesList() {
                         <Action icon={Download} label="Descargar comprobante de inscripción" onClick={() => exportInscripcionPDF(item)} disabled={rowBusy} />
                         <Action icon={Pencil} label="Editar inscripción" onClick={() => { setSelected(item); setModal('edit') }} disabled={rowBusy} />
                         {isAdmin && canVerifyPayment && <Action icon={CheckCircle} label="Verificar pago" onClick={() => setConfirm({ type: 'verify', item })} disabled={rowBusy} css="hover:text-emerald-600 hover:bg-emerald-50" />}
+                        {sriBillingEnabled && isAdmin && item.EstadoPago === 'verificado' && <Action icon={Receipt}
+                          label="Abrir facturación local (la POC no envía datos reales)" onClick={() => navigate('/facturacion')} disabled={rowBusy} css="hover:text-brand-700 hover:bg-brand-50" />}
                         {isAdmin && item.EstadoPago === 'verificado' && item.EstadoCertificado !== 'emitido' && <Action icon={Award}
                           label={avalReady ? 'Generar y emitir certificado académico' : `Pendiente del aval institucional${item.InstitucionAval ? ` de ${item.InstitucionAval}` : ''}`}
                           onClick={() => emitCertificate(item)} disabled={rowBusy || !avalReady} css="hover:text-amber-600 hover:bg-amber-50" />}

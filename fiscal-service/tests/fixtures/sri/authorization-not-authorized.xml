@@ -1,0 +1,2 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"><soap:Body><RespuestaAutorizacionComprobante><autorizaciones><autorizacion><estado>NO AUTORIZADO</estado><mensajes><mensaje><identificador>70</identificador><mensaje>CLAVE DE ACCESO EN PROCESAMIENTO</mensaje><tipo>ERROR</tipo></mensaje><mensaje><identificador>99</identificador><mensaje>MENSAJE DE PRUEBA</mensaje><tipo>ERROR</tipo></mensaje></mensajes></autorizacion></autorizaciones></RespuestaAutorizacionComprobante></soap:Body></soap:Envelope>

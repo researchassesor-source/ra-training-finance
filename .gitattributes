@@ -1,0 +1,2 @@
+# Preserve official SRI/W3C resources byte-for-byte; their original whitespace is part of the recorded hash.
+fiscal-service/resources/sri/** -text -whitespace

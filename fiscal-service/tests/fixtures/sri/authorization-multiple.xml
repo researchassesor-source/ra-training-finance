@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <RespuestaAutorizacionComprobante>
+      <claveAccesoConsultada>2407202601999999999900110010010000000011234567811</claveAccesoConsultada>
+      <numeroComprobantes>2</numeroComprobantes>
+      <autorizaciones>
+        <autorizacion>
+          <estado>NO AUTORIZADO</estado>
+          <mensajes><mensaje><mensaje>INTENTO PREVIO FICTICIO</mensaje></mensaje></mensajes>
+        </autorizacion>
+        <autorizacion>
+          <estado>AUTORIZADO</estado>
+          <numeroAutorizacion>2407202601999999999900110010010000000011234567811</numeroAutorizacion>
+          <fechaAutorizacion>2026-07-24T08:00:00-05:00</fechaAutorizacion>
+        </autorizacion>
+      </autorizaciones>
+    </RespuestaAutorizacionComprobante>
+  </soap:Body>
+</soap:Envelope>
