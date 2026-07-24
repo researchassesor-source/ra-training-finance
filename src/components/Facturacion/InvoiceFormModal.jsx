@@ -58,13 +58,13 @@ export default function InvoiceFormModal({ source, config, paymentMethods = [], 
 
   const blockers = readiness?.officialBlockers || ['Configuración institucional incompleta', 'Conexión oficial deshabilitada']
   const issuer = config?.issuer || {}
-  return <Modal open={Boolean(source)} onClose={onClose} title="Nueva factura - flujo local" size="xl">
+  return <Modal open={Boolean(source)} onClose={onClose} title="Nueva factura de prueba" size="xl">
     {source && <form onSubmit={submit} className="space-y-4">
-      <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-800"><p className="flex items-center gap-2 font-semibold"><ShieldAlert size={16} /> AMBIENTE LOCAL - SIN VALIDEZ TRIBUTARIA</p><p className="mt-1">La organización funcional toma como referencia el Facturador SRI, con identidad visual propia y datos de prueba.</p></div>
+      <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-800"><p className="flex items-center gap-2 font-semibold"><ShieldAlert size={16} /> DOCUMENTO DE PRUEBA - SIN VALIDEZ TRIBUTARIA</p><p className="mt-1">La organización funcional toma como referencia el Facturador SRI, con identidad visual propia y datos de prueba.</p></div>
 
-      <Section letter="A" title="Datos de emisión" hint="Serie local; el secuencial oficial continúa bloqueado.">
+      <Section letter="A" title="Datos de emisión" hint="Serie de prueba; el secuencial oficial continúa bloqueado.">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <label><span className="label">Establecimiento</span><input className="input bg-gray-50" value={`${config?.establishment?.code || '001'} - ${issuer.tradeName || 'Emisor local'}`} readOnly /></label>
+          <label><span className="label">Establecimiento</span><input className="input bg-gray-50" value={`${config?.establishment?.code || '001'} - ${issuer.tradeName || 'Emisor de prueba'}`} readOnly /></label>
           <label><span className="label">Punto de emisión</span><input className="input bg-gray-50" value={config?.emissionPoint?.code || '001'} readOnly /></label>
           <label><span className="label">Fecha de emisión</span><input className="input" type="date" value={form.issueDate} onChange={(event) => set('issueDate', event.target.value)} required /></label>
           <label><span className="label">Guía de remisión (opcional)</span><input className="input" value={form.remissionGuide} onChange={(event) => set('remissionGuide', event.target.value)} placeholder="001-001-000000001" /></label>
@@ -128,7 +128,7 @@ export default function InvoiceFormModal({ source, config, paymentMethods = [], 
           <Section letter="G" title="Acciones">
             <div className="space-y-2"><button type="submit" className="btn-primary w-full justify-center" disabled={loading || paymentDifference !== 0}><FilePlus2 size={17} /> {loading ? 'Guardando...' : 'Guardar borrador'}</button><button type="button" className="btn-secondary w-full justify-center" disabled><ShieldAlert size={16} /> Firmar y enviar</button></div>
             <details className="mt-3 rounded-lg bg-amber-50 p-3 text-xs text-amber-900"><summary className="cursor-pointer font-semibold">¿Por qué está bloqueado?</summary><ul className="mt-2 space-y-1 pl-4">{blockers.map((blocker) => <li key={blocker} className="list-disc">{blocker}</li>)}</ul></details>
-            <p className="mt-3 flex gap-1 text-[11px] text-gray-500"><Info size={14} className="shrink-0" /> “Completar flujo local” estará disponible después de guardar.</p>
+            <p className="mt-3 flex gap-1 text-[11px] text-gray-500"><Info size={14} className="shrink-0" /> “Completar flujo de prueba” estará disponible después de guardar.</p>
           </Section>
         </aside>
       </div>

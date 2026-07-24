@@ -12,6 +12,6 @@
 
 ## Visuales
 
-Probar Panel, Documentos, Inscripciones ficticias, Catálogo, Configuración, Nueva factura, detalle, pagos, XML, RIDE, nota, auditoría y readiness en 1440, 900 y 390 px. Cero scroll horizontal en tareas comunes, errores nuevos de consola o llamadas externas.
+Probar Resumen, Documentos de prueba, Inscripciones de prueba, Catálogo fiscal, Configuración fiscal, Nueva factura, detalle, pagos, XML, RIDE, nota, auditoría y preparación en 1440, 900 y 390 px. Cero scroll horizontal en tareas comunes, errores nuevos de consola o llamadas externas.
 
 Las evidencias deben usar perfil ficticio o datos enmascarados.

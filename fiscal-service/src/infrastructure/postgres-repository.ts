@@ -144,3 +144,5 @@ export class PostgresFiscalRepository implements FiscalRepository {
     return result.rows[0]?.resource_id
   }
 }
+
+export { PostgresFiscalRepository as PostgreSqlFiscalRepository }

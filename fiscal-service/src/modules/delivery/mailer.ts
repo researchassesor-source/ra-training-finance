@@ -1,5 +1,5 @@
 import type { FiscalDocument } from '../../domain/types.js'
-import type { FiscalFileStorage } from '../../infrastructure/file-storage.js'
+import type { FiscalStorageProvider } from '../../infrastructure/file-storage.js'
 
 export interface FiscalDocumentMailer {
   preview(document: FiscalDocument): Promise<string>
@@ -7,7 +7,7 @@ export interface FiscalDocumentMailer {
 }
 
 export class FileFiscalMailer implements FiscalDocumentMailer {
-  constructor(private readonly storage: FiscalFileStorage) {}
+  constructor(private readonly storage: FiscalStorageProvider) {}
   async preview(document: FiscalDocument): Promise<string> {
     const body = [
       'ENVÍO SIMULADO - NO SE ENVIÓ NINGÚN CORREO',

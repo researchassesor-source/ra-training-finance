@@ -8,10 +8,13 @@ describe('estructura visual del módulo fiscal', () => {
     expect(source).toContain('Firmar y enviar'); expect(source).toContain('disabled')
     expect(source).toContain('Agregar línea manual'); expect(source).toContain('Agregar forma de pago')
   })
-  it('incluye catálogo, configuración, readiness y modo local explícito', async () => {
+  it('separa resumen, documentos, filtros y configuración fiscal', async () => {
     const view = await readFile(new URL('./FacturacionView.jsx', import.meta.url), 'utf8')
     const banner = await readFile(new URL('./FiscalBanner.jsx', import.meta.url), 'utf8')
-    expect(view).toContain('Catálogo fiscal'); expect(view).toContain('Configuración local')
-    expect(banner).toContain('AMBIENTE LOCAL'); expect(banner).toContain('NO CONECTADO AL SRI')
+    const runtime = await readFile(new URL('../../utils/fiscalRuntimeContext.js', import.meta.url), 'utf8')
+    expect(view).toContain('Resumen'); expect(view).toContain('Documentos de prueba')
+    expect(view).toContain('Emisión desde'); expect(view).toContain('Emisión hasta'); expect(view).toContain('Limpiar filtros')
+    expect(view).toContain('Configuración fiscal'); expect(banner).toContain('resolveFiscalRuntimeContext')
+    expect(runtime).toContain('ENTORNO LOCAL DE DESARROLLO'); expect(runtime).toContain('NO CONECTADO AL SRI')
   })
 })

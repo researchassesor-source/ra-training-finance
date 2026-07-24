@@ -6,7 +6,7 @@ export function canAccessFiscalModule({ enabled = sriBillingEnabled, isAdmin = f
 
 export function getLocalFiscalDemoUser({ isDev = import.meta.env.DEV, enabled = sriBillingEnabled, demoAuth = import.meta.env.VITE_LOCAL_FISCAL_DEMO_AUTH === 'true', hostname = globalThis.location?.hostname || '' } = {}) {
   if (!isDev || !enabled || !demoAuth || !['localhost', '127.0.0.1', '::1'].includes(hostname)) return null
-  return { username: 'admin-local-fiscal', nombre: 'Administración local ficticia', rol: 'admin', localFiscalDemo: true }
+  return { username: 'admin-local-fiscal', nombre: 'Administrador de prueba', rol: 'admin', localFiscalDemo: true }
 }
 
 export const fiscalStatusLabel = {
@@ -22,7 +22,7 @@ export const fiscalStatusLabel = {
   RETURNED: 'Devuelto (simulado)',
   NOT_AUTHORIZED: 'No autorizado (simulado)',
   RETRY_PENDING: 'Reintento pendiente',
-  ERROR: 'Error local',
+  ERROR: 'Error de prueba',
   CREDIT_NOTE_PENDING: 'Nota de crédito pendiente',
   CANCELLATION_REQUESTED: 'Cancelación interna solicitada',
   CANCELLED_INTERNAL: 'Cancelado internamente',

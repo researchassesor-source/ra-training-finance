@@ -16,7 +16,7 @@ import type {
   SriTransmission,
 } from '../domain/types.js'
 import type { BillingSourceProvider } from '../infrastructure/fixtures.js'
-import type { FiscalFileStorage } from '../infrastructure/file-storage.js'
+import type { FiscalStorageProvider } from '../infrastructure/file-storage.js'
 import { InvoiceXmlBuilder, CreditNoteXmlBuilder, escapeXml } from '../modules/xml/builders.js'
 import type { OfficialXsdValidator, XmlValidationResult } from '../modules/xml/validator.js'
 import type { XmlSigner } from '../modules/signing/signer.js'
@@ -31,7 +31,7 @@ export class FiscalValidationError extends Error {}
 export interface DocumentServiceDependencies {
   repository: FiscalRepository
   billingSource: BillingSourceProvider
-  storage: FiscalFileStorage
+  storage: FiscalStorageProvider
   signer: XmlSigner
   sri: SriGateway
   ride: LocalRideGenerator

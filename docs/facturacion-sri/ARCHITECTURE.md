@@ -11,7 +11,8 @@ React administrativo (feature flag + sesión admin)
       -> XmlSigner (mock | XAdES efímero | PKCS#12 futuro)
       -> SriGateway (mock | oficial doblemente bloqueado)
       -> RIDE + almacenamiento + preview de correo
-      -> Repository (inmemory | PostgreSQL)
+      -> FiscalRepository (memoria | PostgreSQL | proveedor institucional futuro)
+      -> FiscalStorageProvider (local de prueba | almacenamiento privado futuro)
 ```
 
 ## Límites
@@ -26,7 +27,7 @@ React administrativo (feature flag + sesión admin)
 
 | Puerto | Local | Preparado |
 |---|---|---|
-| Repositorio | memoria / `pg-mem` | PostgreSQL real |
+| Repositorio | memoria / `pg-mem` | Persistencia fiscal segura; PostgreSQL recomendado o alternativa institucional equivalente |
 | Servicios | `MockOperationalServicesProvider` | aplicación existente / server-side |
 | Firma | mock y XAdES efímero | PKCS#12 / gestor de secretos |
 | SRI | simulador | SOAP oficial bloqueado |

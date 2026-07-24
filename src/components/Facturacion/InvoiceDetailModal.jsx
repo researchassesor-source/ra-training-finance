@@ -47,11 +47,11 @@ export default function InvoiceDetailModal({ document, events, transmissions, re
     if (!xml && document?.xmlUnsignedPath) setXml(await onLoadXml(document.id, typePath))
   }
 
-  return <Modal open={Boolean(document)} onClose={onClose} title={document?.documentType === 'CREDIT_NOTE' ? 'Detalle de nota de crédito local' : 'Detalle de factura local'} size="xl">
+  return <Modal open={Boolean(document)} onClose={onClose} title={document?.documentType === 'CREDIT_NOTE' ? 'Detalle de nota de crédito de prueba' : 'Detalle de factura de prueba'} size="xl">
     {document && <div className="space-y-5">
       <div className="flex flex-col gap-3 rounded-xl bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">{document.documentType === 'INVOICE' ? 'Factura ficticia' : 'Nota de crédito ficticia'}</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">{document.documentType === 'INVOICE' ? 'Factura de prueba' : 'Nota de crédito de prueba'}</p>
           <p className="mt-1 text-lg font-bold text-brand-900">{number}</p>
           <p className="mt-1 break-all font-mono text-[10px] text-gray-500">{document.accessKey || 'Clave pendiente'}</p>
         </div>
@@ -86,7 +86,7 @@ export default function InvoiceDetailModal({ document, events, transmissions, re
         {document.creditBalance && <div className="grid gap-2 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm sm:grid-cols-4">{[['Total original', document.creditBalance.originalTotal], ['Notas previas', document.creditBalance.previousCredits], ['Nuevo valor', document.creditBalance.modifiedValue], ['Saldo restante', document.creditBalance.remainingBalance]].map(([label, value]) => <div key={label}><p className="text-xs text-amber-700">{label}</p><p className="font-bold text-amber-950">${value}</p></div>)}</div>}
 
         {document.status === 'AUTHORIZED' && document.documentType === 'INVOICE' && <form className="rounded-xl border border-amber-200 bg-amber-50 p-4" onSubmit={(event) => { event.preventDefault(); onCreateCredit(credit) }}>
-          <p className="flex items-center gap-2 font-semibold text-amber-900"><FileBadge size={17} /> Crear nota de crédito ficticia</p>
+          <p className="flex items-center gap-2 font-semibold text-amber-900"><FileBadge size={17} /> Crear nota de crédito de prueba</p>
           <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_130px_150px_auto]">
             <input className="input" value={credit.reason} onChange={(event) => setCredit((value) => ({ ...value, reason: event.target.value }))} placeholder="Motivo" required />
             <input className="input" value={credit.modifiedValue} onChange={(event) => setCredit((value) => ({ ...value, modifiedValue: event.target.value }))} inputMode="decimal" required />
@@ -103,12 +103,12 @@ export default function InvoiceDetailModal({ document, events, transmissions, re
 
       {tab === 'xml' && <div>
         {!document.xmlUnsignedPath ? <div className="rounded-xl bg-gray-50 p-8 text-center text-sm text-gray-500">El XML aún no ha sido generado.</div> :
-          <pre className="max-h-[420px] overflow-auto whitespace-pre-wrap break-all rounded-xl bg-slate-950 p-4 text-[11px] leading-relaxed text-emerald-200">{xml || 'Cargando XML local...'}</pre>}
+          <pre className="max-h-[420px] overflow-auto whitespace-pre-wrap break-all rounded-xl bg-slate-950 p-4 text-[11px] leading-relaxed text-emerald-200">{xml || 'Cargando XML de prueba...'}</pre>}
       </div>}
 
       {tab === 'archivos' && <div className="grid gap-3 sm:grid-cols-2">
         <button className="btn-secondary justify-center py-4" disabled={!document.authorizedXmlPath} onClick={() => onDownload(document.id, 'xml', typePath)}><Download size={18} /> Descargar XML autorizado simulado</button>
-        <button className="btn-secondary justify-center py-4" disabled={!document.ridePath} onClick={() => onDownload(document.id, 'ride', typePath)}><Download size={18} /> Descargar RIDE local</button>
+        <button className="btn-secondary justify-center py-4" disabled={!document.ridePath} onClick={() => onDownload(document.id, 'ride', typePath)}><Download size={18} /> Descargar RIDE de prueba</button>
         <button className="btn-secondary justify-center py-4" disabled={document.status !== 'AUTHORIZED' || loading} onClick={() => onSimulateDelivery(document.id, 'simulate', typePath)}><Send size={18} /> Simular envío por correo</button>
         <button className="btn-secondary justify-center py-4" disabled={document.status !== 'AUTHORIZED' || loading} onClick={() => onSimulateDelivery(document.id, 'resend', typePath)}><RotateCcw size={18} /> Simular reenvío</button>
         <div className="sm:col-span-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-800"><p className="flex items-center gap-2 font-semibold"><ShieldAlert size={16} /> Estos archivos no tienen validez tributaria. Las acciones de correo no realizan ningún envío real.</p></div>
@@ -118,7 +118,7 @@ export default function InvoiceDetailModal({ document, events, transmissions, re
         <p className="flex items-center gap-2 text-xs text-gray-500"><Clock3 size={15} /> Cada transición queda registrada.</p>
         <div className="flex flex-col gap-2 sm:flex-row">
           {action && <button className="btn-primary justify-center" disabled={loading} onClick={() => onStep(document.id, action.key, typePath)}>{loading ? <Loader2 className="animate-spin" size={17} /> : action.key === 'submit' ? <Send size={17} /> : <Play size={17} />} {loading ? 'Procesando...' : action.label}</button>}
-          {!['AUTHORIZED', 'RETURNED', 'NOT_AUTHORIZED', 'ERROR'].includes(document.status) && <button className="btn-secondary justify-center" disabled={loading} onClick={() => onStep(document.id, 'process', typePath)}><Play size={17} /> Completar flujo local</button>}
+          {!['AUTHORIZED', 'RETURNED', 'NOT_AUTHORIZED', 'ERROR'].includes(document.status) && <button className="btn-secondary justify-center" disabled={loading} onClick={() => onStep(document.id, 'process', typePath)}><Play size={17} /> Completar flujo de prueba</button>}
           <button className="btn-secondary justify-center" disabled title={(readiness?.officialBlockers || []).join(' · ')}><ShieldAlert size={17} /> Firmar y enviar al SRI</button>
         </div>
       </div>

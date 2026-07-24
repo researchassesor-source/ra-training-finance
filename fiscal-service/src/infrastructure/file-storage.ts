@@ -9,15 +9,18 @@ export interface StoredFile {
   size: number
 }
 
-export interface FiscalFileStorage {
+export interface FiscalStorageProvider {
   write(documentId: string, type: DocumentType, issueDate: string, relativeName: string, data: Buffer | string): Promise<StoredFile>
   read(relativePath: string): Promise<Buffer>
 }
 
+/** @deprecated Use FiscalStorageProvider in new application boundaries. */
+export type FiscalFileStorage = FiscalStorageProvider
+
 const safeDocumentId = /^FD-[a-f0-9-]{36}$/
 const safeRelativeName = /^(?:[a-z0-9-]+\/)*[a-z0-9.-]+$/
 
-export class LocalFileStorage implements FiscalFileStorage {
+export class LocalFileStorage implements FiscalStorageProvider {
   private readonly root: string
 
   constructor(root = resolve(process.cwd(), 'var')) {
@@ -62,6 +65,10 @@ export class LocalFileStorage implements FiscalFileStorage {
   }
 }
 
-export interface FuturePrivateObjectStorage extends FiscalFileStorage {
+export interface FuturePrivateObjectStorage extends FiscalStorageProvider {
   readonly encryptedPrivateStorageRequired: true
+}
+
+export interface FutureInstitutionalStorageProvider extends FiscalStorageProvider {
+  readonly institutionalProviderPending: true
 }

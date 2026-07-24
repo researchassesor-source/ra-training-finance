@@ -1,6 +1,6 @@
 # Informe de preparación
 
-`FiscalReadinessService` evalúa emisor, dirección, obligación, establecimiento, punto, secuencial, catálogo, certificado, PostgreSQL, gateway, autenticación, almacenamiento y correo.
+`FiscalReadinessService` organiza la evaluación en requisitos para certificación, requisitos previos a producción e infraestructura recomendada. Revisa datos tributarios, numeración, catálogo, firma, adaptador SRI, autenticación, persistencia segura, archivos privados, respaldos, auditoría, correo y recuperación.
 
 ## Resultado local
 
@@ -9,7 +9,8 @@
 - Dirección, obligación y secuencial: requieren confirmación.
 - Catálogo: requiere revisión tributaria.
 - Firma: requiere certificado.
-- PostgreSQL real, autenticación, almacenamiento y correo: bloqueados.
+- Persistencia fiscal segura, autenticación, almacenamiento privado y correo: pendientes o bloqueados.
+- PostgreSQL: recomendado por integridad y concurrencia, no exigido como requisito tributario.
 - Gateway: preparado y deshabilitado.
 - Certificación: pendiente.
 

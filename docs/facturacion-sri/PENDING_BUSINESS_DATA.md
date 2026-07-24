@@ -11,7 +11,7 @@ Falta confirmar:
 - clasificación tributaria aprobada de cada servicio/curso;
 - archivo de firma .p12/.pfx y contraseña configurada en un proveedor de secretos;
 - proveedor, titular, vigencia, renovación y custodia de la firma;
-- ejecución contra PostgreSQL real privado;
+- selección y validación de una persistencia fiscal segura; PostgreSQL es la opción recomendada, no la única arquitectura compatible;
 - autenticación, permisos, almacenamiento y correo productivos;
 - validación formal en certificación del SRI y confirmación de la ficha técnica aplicable.
 

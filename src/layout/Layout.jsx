@@ -11,7 +11,7 @@ const TITLES = {
   '/aval-externo': 'Avales Institucionales',
   '/servicios':    'Servicios de Capacitación',
   '/pagos':        'Pagos',
-  '/facturacion':  'Facturación electrónica local',
+  '/facturacion':  'Facturación electrónica',
   '/contratos':    'Contratos',
   '/proyecciones': 'Proyecciones de Ingreso',
   '/reportes':     'Reportes',

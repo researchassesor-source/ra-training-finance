@@ -23,6 +23,7 @@ Firma criptográfica/verificación, PKCS#12 negativo, SOAP/fixtures, múltiples 
 - Navegador local: 1440 px, 900 px y 390 px; sin desbordamiento horizontal móvil y sin errores de consola.
 - RIDE renderizado con Poppler: A4, una página, datos ficticios, advertencia local y sin valores privados del emisor real.
 - Se corrigió una segunda página vacía causada por el pie y el solapamiento de formas de pago multilínea.
-- Evidencias: `docs/facturacion-sri/evidence-v2/`.
+- Evidencias funcionales anteriores: `docs/facturacion-sri/evidence-v2/`.
+- Evidencias del ajuste visual y arquitectónico final: `docs/facturacion-sri/evidence-v3/`.
 
 No existen pruebas contra SRI real, correo real, Apps Script, Sheets, Vercel ni PostgreSQL real. Los hallazgos del audit raíz requieren una actualización separada y controlada de jsPDF, Vite y React Router; no se aplicaron cambios mayores automáticos.

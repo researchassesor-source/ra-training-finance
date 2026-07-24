@@ -17,7 +17,8 @@
 - [ ] Clasificación tributaria por servicio aprobada por responsable contable.
 - [ ] Secuencial real conciliado y firmado por responsable.
 - [ ] Certificado institucional vigente y custodia de secretos.
-- [ ] PostgreSQL real, almacenamiento privado, autenticación y correo productivos.
+- [ ] Persistencia fiscal segura, almacenamiento privado, autenticación y correo productivos.
+- [ ] Definir proveedor institucional; PostgreSQL está recomendado, pero se admiten alternativas que garanticen integridad, concurrencia, auditoría y respaldos.
 - [ ] Pruebas en certificación SRI, revisión del RIDE/XML y autorización institucional.
 - [ ] Confirmación directa de ficha, XSD, WSDL y endpoints inmediatamente antes de certificar.
 - [ ] Monitoreo, respaldos, restauración, continuidad y seguridad operacional.
