@@ -24,9 +24,17 @@ export interface IssuerConfig {
   businessName: string
   tradeName: string
   headOfficeAddress: string
+  establishmentAddress?: string
+  city?: string
+  phone?: string
+  email?: string
   accountingObligation: 'SI' | 'NO'
+  accountingObligationConfirmed?: boolean
   specialTaxpayerCode?: string
+  retentionAgent?: string
   regimeInformation?: string
+  establishmentCode?: string
+  emissionPointCode?: string
   environment: EnvironmentCode
   currency: 'DOLAR'
   timezone: 'America/Guayaquil'
@@ -83,6 +91,8 @@ export interface FiscalDocumentItem {
   unitPrice: string
   discount: string
   subtotal: string
+  fiscalClassificationValidated?: boolean
+  taxCategory?: 'GENERAL' | 'IVA_5' | 'IVA_0' | 'EXEMPT' | 'NOT_SUBJECT' | 'SPECIAL'
   createdAt: string
 }
 
@@ -101,9 +111,15 @@ export interface FiscalPaymentMethod {
   id: string
   documentId: string
   methodCode: string
+  methodDescription?: string
   amount: string
   term?: number
   timeUnit?: string
+}
+
+export interface FiscalAdditionalField {
+  name: string
+  value: string
 }
 
 export interface CreditNoteReference {
@@ -140,7 +156,13 @@ export interface FiscalDocument {
   items: FiscalDocumentItem[]
   taxes: FiscalTaxLine[]
   payments: FiscalPaymentMethod[]
+  additionalFields?: FiscalAdditionalField[]
+  participantName?: string
+  remissionGuide?: string
+  negotiableInvoice?: boolean
+  tip?: string
   creditNoteReference?: CreditNoteReference
+  creditBalance?: { originalTotal: string; previousCredits: string; modifiedValue: string; remainingBalance: string }
   xmlUnsignedPath?: string
   xmlSignedPath?: string
   authorizedXmlPath?: string
@@ -205,6 +227,8 @@ export interface DraftItemInput {
   taxCode: string
   percentageCode: string
   rate: string
+  fiscalClassificationValidated?: boolean
+  taxCategory?: 'GENERAL' | 'IVA_5' | 'IVA_0' | 'EXEMPT' | 'NOT_SUBJECT' | 'SPECIAL'
 }
 
 export interface CreateInvoiceInput {
@@ -212,7 +236,13 @@ export interface CreateInvoiceInput {
   customer: Omit<FiscalCustomer, 'id' | 'createdAt' | 'updatedAt'>
   issueDate: string
   items: DraftItemInput[]
-  paymentMethodCode: string
+  payments?: Array<{ methodCode: string; amount: string; term?: number; timeUnit?: string }>
+  paymentMethodCode?: string
+  additionalFields?: FiscalAdditionalField[]
+  participantName?: string
+  remissionGuide?: string
+  negotiableInvoice?: boolean
+  tip?: string
 }
 
 export interface CreateCreditNoteInput {

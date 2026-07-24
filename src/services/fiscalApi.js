@@ -28,6 +28,9 @@ const post = (path, body, idempotencyKey) => request(path, {
 
 export const fiscalApi = {
   config: () => request('/config/status'),
+  readiness: () => request('/readiness/detail'),
+  catalog: () => request('/fiscal-catalog'),
+  paymentMethods: () => request('/payment-methods'),
   sources: () => request('/billing-sources'),
   invoices: () => request('/invoices'),
   creditNotes: () => request('/credit-notes'),
@@ -35,6 +38,7 @@ export const fiscalApi = {
   getInvoice: (id) => request(`/invoices/${id}`),
   getDocument: (id, type = 'invoices') => request(`/${type}/${id}`),
   step: (id, action, type = 'invoices') => post(`/${type}/${id}/${action}`),
+  simulateDelivery: (id, action = 'simulate', type = 'invoices', outcome = 'SUCCESS') => post(`/${type}/${id}/delivery/${action}`, { outcome }),
   events: (id, type = 'invoices') => request(`/${type}/${id}/events`),
   transmissions: (id, type = 'invoices') => request(`/${type}/${id}/transmissions`),
   createCreditNote: (invoiceId, data) => post(`/invoices/${invoiceId}/credit-notes`, data, `ui-credit-${crypto.randomUUID()}`),

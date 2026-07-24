@@ -1,0 +1,2 @@
+operational_id,main_code,auxiliary_code,operational_name,invoice_description,reference_price,price_includes_tax,tax_code,percentage_code,rate,exempt,not_subject,fiscal_category,active_for_billing,status,validated_at,validated_by
+SVC-FAKE-001,FISC-DEMO-01,,Curso ficticio,Servicio de demostración,100.00,false,,,,false,false,,false,REQUIRES_TAX_REVIEW,,

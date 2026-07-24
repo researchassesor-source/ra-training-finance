@@ -1,6 +1,11 @@
+import { config as loadDotEnv } from 'dotenv'
+import { fileURLToPath } from 'node:url'
 import { buildApp } from './app.js'
 import { loadConfig } from './config/env.js'
 
+if (process.env.NODE_ENV !== 'test') {
+  loadDotEnv({ path: fileURLToPath(new URL('../.env.local', import.meta.url)), quiet: true })
+}
 const config = loadConfig()
 const app = await buildApp({ config })
 

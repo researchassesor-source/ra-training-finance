@@ -6,8 +6,9 @@ const { Pool } = pg
 
 export class PostgresFiscalRepository implements FiscalRepository {
   private readonly pool: pg.Pool
-  constructor(connectionString: string) {
-    this.pool = new Pool({ connectionString, max: 8, application_name: 'ra-training-fiscal-local' })
+  private sequenceQueue: Promise<void> = Promise.resolve()
+  constructor(connectionString: string, injectedPool?: pg.Pool) {
+    this.pool = injectedPool ?? new Pool({ connectionString, max: 8, application_name: 'ra-training-fiscal-local' })
   }
 
   async close(): Promise<void> { await this.pool.end() }
@@ -91,6 +92,15 @@ export class PostgresFiscalRepository implements FiscalRepository {
   }
 
   async reserveSequential(type: DocumentType, establishment: string, point: string): Promise<string> {
+    let release: () => void = () => undefined
+    const previous = this.sequenceQueue
+    this.sequenceQueue = new Promise<void>((resolve) => { release = resolve })
+    await previous
+    try { return await this.reserveSequentialTransaction(type, establishment, point) }
+    finally { release() }
+  }
+
+  private async reserveSequentialTransaction(type: DocumentType, establishment: string, point: string): Promise<string> {
     const client = await this.pool.connect()
     try {
       await client.query('BEGIN')

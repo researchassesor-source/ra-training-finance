@@ -11,6 +11,7 @@ describe('bandera y permisos de facturación local', () => {
   })
   it('el usuario de demostración no puede activarse fuera de desarrollo', () => {
     expect(getLocalFiscalDemoUser({ isDev: false, enabled: true, demoAuth: true })).toBeNull()
-    expect(getLocalFiscalDemoUser({ isDev: true, enabled: true, demoAuth: true })?.rol).toBe('admin')
+    expect(getLocalFiscalDemoUser({ isDev: true, enabled: true, demoAuth: true, hostname: 'localhost' })?.rol).toBe('admin')
+    expect(getLocalFiscalDemoUser({ isDev: true, enabled: true, demoAuth: true, hostname: 'example.com' })).toBeNull()
   })
 })

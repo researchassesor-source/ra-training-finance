@@ -63,6 +63,8 @@ export function calculateDocument(
       unitPrice: unitPrice.toFixed(6).replace(/\.?0+$/, ''),
       discount: moneyString(discount),
       subtotal: moneyString(taxableBase),
+      fiscalClassificationValidated: item.fiscalClassificationValidated ?? false,
+      ...(item.taxCategory ? { taxCategory: item.taxCategory } : {}),
       createdAt: now,
     })
     taxes.push({

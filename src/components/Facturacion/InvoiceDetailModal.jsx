@@ -19,8 +19,8 @@ function FlowStepper({ document }) {
     { label: 'Borrador', done: true },
     { label: 'Validación', done: Boolean(document.sequential), failed: document.status === 'VALIDATION_FAILED' },
     { label: 'XML', done: Boolean(document.xmlUnsignedPath) },
-    { label: 'Firma mock', done: Boolean(document.xmlSignedPath) },
-    { label: 'Recepción', done: ['RECEIVED', 'PROCESSING', 'AUTHORIZED'].includes(document.status) || Boolean(document.sriStatus) },
+    { label: 'Firma de demostración', done: Boolean(document.xmlSignedPath) },
+    { label: 'Recepción simulada', done: ['RECEIVED', 'PROCESSING', 'AUTHORIZED'].includes(document.status) || Boolean(document.sriStatus) },
     { label: 'Autorización simulada', done: document.status === 'AUTHORIZED' },
     { label: 'RIDE', done: Boolean(document.ridePath) },
   ]
@@ -32,7 +32,7 @@ function FlowStepper({ document }) {
   </ol>
 }
 
-export default function InvoiceDetailModal({ document, events, transmissions, loading, onClose, onStep, onRefresh, onDownload, onLoadXml, onCreateCredit }) {
+export default function InvoiceDetailModal({ document, events, transmissions, readiness, loading, onClose, onStep, onRefresh, onDownload, onLoadXml, onCreateCredit, onSimulateDelivery }) {
   const [tab, setTab] = useState('resumen')
   const [xml, setXml] = useState('')
   const [credit, setCredit] = useState({ reason: 'Devolución ficticia parcial', modifiedValue: '10.00', issueDate: '2026-07-23' })
@@ -81,7 +81,11 @@ export default function InvoiceDetailModal({ document, events, transmissions, lo
           <span className="border-t pt-2 font-bold">TOTAL</span><strong className="border-t pt-2 text-right text-brand-800">${document.grandTotal}</strong>
         </div>
 
-        {document.status === 'AUTHORIZED' && document.documentType === 'INVOICE' && !document.creditNoteReference && <form className="rounded-xl border border-amber-200 bg-amber-50 p-4" onSubmit={(event) => { event.preventDefault(); onCreateCredit(credit) }}>
+        {document.payments.length > 0 && <div className="rounded-xl border border-gray-200 p-4"><h3 className="text-sm font-bold text-brand-900">Formas de pago</h3><div className="mt-3 space-y-2">{document.payments.map((payment) => <div key={payment.id} className="flex flex-col justify-between gap-1 rounded-lg bg-slate-50 p-3 text-sm sm:flex-row"><span><strong>{payment.methodCode}</strong> - {payment.methodDescription || 'Descripción oficial disponible en catálogo'}</span><span className="font-semibold">${payment.amount}{payment.term !== undefined ? ` · ${payment.term} ${payment.timeUnit || ''}` : ''}</span></div>)}</div></div>}
+
+        {document.creditBalance && <div className="grid gap-2 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm sm:grid-cols-4">{[['Total original', document.creditBalance.originalTotal], ['Notas previas', document.creditBalance.previousCredits], ['Nuevo valor', document.creditBalance.modifiedValue], ['Saldo restante', document.creditBalance.remainingBalance]].map(([label, value]) => <div key={label}><p className="text-xs text-amber-700">{label}</p><p className="font-bold text-amber-950">${value}</p></div>)}</div>}
+
+        {document.status === 'AUTHORIZED' && document.documentType === 'INVOICE' && <form className="rounded-xl border border-amber-200 bg-amber-50 p-4" onSubmit={(event) => { event.preventDefault(); onCreateCredit(credit) }}>
           <p className="flex items-center gap-2 font-semibold text-amber-900"><FileBadge size={17} /> Crear nota de crédito ficticia</p>
           <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_130px_150px_auto]">
             <input className="input" value={credit.reason} onChange={(event) => setCredit((value) => ({ ...value, reason: event.target.value }))} placeholder="Motivo" required />
@@ -105,7 +109,9 @@ export default function InvoiceDetailModal({ document, events, transmissions, lo
       {tab === 'archivos' && <div className="grid gap-3 sm:grid-cols-2">
         <button className="btn-secondary justify-center py-4" disabled={!document.authorizedXmlPath} onClick={() => onDownload(document.id, 'xml', typePath)}><Download size={18} /> Descargar XML autorizado simulado</button>
         <button className="btn-secondary justify-center py-4" disabled={!document.ridePath} onClick={() => onDownload(document.id, 'ride', typePath)}><Download size={18} /> Descargar RIDE local</button>
-        <div className="sm:col-span-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-800"><p className="flex items-center gap-2 font-semibold"><ShieldAlert size={16} /> Estos archivos no tienen validez tributaria.</p></div>
+        <button className="btn-secondary justify-center py-4" disabled={document.status !== 'AUTHORIZED' || loading} onClick={() => onSimulateDelivery(document.id, 'simulate', typePath)}><Send size={18} /> Simular envío por correo</button>
+        <button className="btn-secondary justify-center py-4" disabled={document.status !== 'AUTHORIZED' || loading} onClick={() => onSimulateDelivery(document.id, 'resend', typePath)}><RotateCcw size={18} /> Simular reenvío</button>
+        <div className="sm:col-span-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-800"><p className="flex items-center gap-2 font-semibold"><ShieldAlert size={16} /> Estos archivos no tienen validez tributaria. Las acciones de correo no realizan ningún envío real.</p></div>
       </div>}
 
       <div className="flex flex-col gap-2 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
@@ -113,6 +119,7 @@ export default function InvoiceDetailModal({ document, events, transmissions, lo
         <div className="flex flex-col gap-2 sm:flex-row">
           {action && <button className="btn-primary justify-center" disabled={loading} onClick={() => onStep(document.id, action.key, typePath)}>{loading ? <Loader2 className="animate-spin" size={17} /> : action.key === 'submit' ? <Send size={17} /> : <Play size={17} />} {loading ? 'Procesando...' : action.label}</button>}
           {!['AUTHORIZED', 'RETURNED', 'NOT_AUTHORIZED', 'ERROR'].includes(document.status) && <button className="btn-secondary justify-center" disabled={loading} onClick={() => onStep(document.id, 'process', typePath)}><Play size={17} /> Completar flujo local</button>}
+          <button className="btn-secondary justify-center" disabled title={(readiness?.officialBlockers || []).join(' · ')}><ShieldAlert size={17} /> Firmar y enviar al SRI</button>
         </div>
       </div>
     </div>}

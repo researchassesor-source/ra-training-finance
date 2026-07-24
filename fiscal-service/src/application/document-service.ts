@@ -2,14 +2,15 @@ import { createHash, randomUUID } from 'node:crypto'
 import { Decimal } from 'decimal.js'
 import type { FiscalRepository } from './repository.js'
 import { buildAccessKey } from '../domain/access-key.js'
-import { calculateDocument, compareMoney, formatMoney } from '../domain/money.js'
-import { createCreditNoteSchema, createInvoiceSchema, patchInvoiceSchema } from '../domain/schemas.js'
+import { calculateDocument, formatMoney } from '../domain/money.js'
+import { createCreditNoteSchema, createInvoiceSchema, patchInvoiceSchema, paymentCatalog } from '../domain/schemas.js'
 import { assertTransition } from '../domain/state-machine.js'
 import type {
   CreateCreditNoteInput,
   CreateInvoiceInput,
   FiscalDocument,
   FiscalEvent,
+  FiscalPaymentMethod,
   FiscalStatus,
   IssuerConfig,
   SriTransmission,
@@ -45,6 +46,28 @@ const documentNumber = (document: FiscalDocument): string =>
 const numericCode = (id: string): string => {
   const hash = createHash('sha256').update(id).digest('hex').slice(0, 12)
   return (BigInt(`0x${hash}`) % 100_000_000n).toString().padStart(8, '0')
+}
+
+const buildPayments = (
+  documentId: string,
+  total: string,
+  requested?: Array<{ methodCode: string; amount: string; term?: number; timeUnit?: string }>,
+  fallbackCode = '20',
+): FiscalPaymentMethod[] => {
+  const source = requested?.length ? requested : [{ methodCode: fallbackCode, amount: total }]
+  const sum = source.reduce((value, item) => value.plus(new Decimal(item.amount)), new Decimal(0))
+  if (!sum.toDecimalPlaces(2).eq(new Decimal(total).toDecimalPlaces(2))) {
+    throw new FiscalValidationError(`La suma de formas de pago (${sum.toFixed(2)}) debe coincidir con el total (${total})`)
+  }
+  return source.map((item) => ({
+    id: `PAY-${randomUUID()}`,
+    documentId,
+    methodCode: item.methodCode,
+    methodDescription: paymentCatalog.find((method) => method.code === item.methodCode)?.label ?? item.methodCode,
+    amount: formatMoney(item.amount),
+    ...(item.term !== undefined ? { term: item.term } : {}),
+    ...(item.timeUnit ? { timeUnit: item.timeUnit } : {}),
+  }))
 }
 
 export class FiscalDocumentService {
@@ -108,6 +131,8 @@ export class FiscalDocumentService {
     const id = `FD-${randomUUID()}`
     const timestamp = now()
     const calculation = calculateDocument(id, input.items, timestamp)
+    const tip = formatMoney(input.tip)
+    const grandTotal = formatMoney(new Decimal(calculation.grandTotal).plus(tip))
     const customer = { ...input.customer, id: `CUS-${randomUUID()}`, createdAt: timestamp, updatedAt: timestamp }
     const document: FiscalDocument = {
       id,
@@ -118,13 +143,19 @@ export class FiscalDocumentService {
       customer,
       environment: '1',
       issueDate: input.issueDate,
-      establishmentCode: '001',
-      emissionPointCode: '001',
+      establishmentCode: this.deps.issuer.establishmentCode ?? '001',
+      emissionPointCode: this.deps.issuer.emissionPointCode ?? '001',
       currency: 'DOLAR',
       status: 'DRAFT',
       ...calculation,
+      grandTotal,
+      tip,
       paymentStatus: 'VERIFIED',
-      payments: [{ id: `PAY-${randomUUID()}`, documentId: id, methodCode: input.paymentMethodCode, amount: calculation.grandTotal }],
+      payments: buildPayments(id, grandTotal, input.payments, input.paymentMethodCode),
+      additionalFields: input.additionalFields ?? [],
+      participantName: input.participantName ?? source.participantName,
+      ...(input.remissionGuide ? { remissionGuide: input.remissionGuide } : {}),
+      negotiableInvoice: input.negotiableInvoice,
       createdBy: actor,
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -154,16 +185,27 @@ export class FiscalDocumentService {
         taxCode: tax.taxCode,
         percentageCode: tax.percentageCode,
         rate: tax.rate,
+        fiscalClassificationValidated: item.fiscalClassificationValidated ?? false,
+        ...(item.taxCategory ? { taxCategory: item.taxCategory } : {}),
       }
     })
     const calculation = calculateDocument(document.id, itemsInput)
     const paymentMethodCode = patch.paymentMethodCode ?? document.payments[0]?.methodCode ?? '20'
+    const tip = formatMoney(patch.tip ?? document.tip ?? '0.00')
+    const grandTotal = formatMoney(new Decimal(calculation.grandTotal).plus(tip))
+    const requestedPayments = patch.payments ?? (document.payments.length > 1 ? document.payments : undefined)
     const updated: FiscalDocument = {
       ...document,
       ...(patch.customer ? { customer: { ...document.customer, ...patch.customer, updatedAt: now() } } : {}),
       ...(patch.issueDate ? { issueDate: patch.issueDate } : {}),
       ...calculation,
-      payments: [{ id: document.payments[0]?.id ?? `PAY-${randomUUID()}`, documentId: id, methodCode: paymentMethodCode, amount: calculation.grandTotal }],
+      grandTotal,
+      tip,
+      payments: buildPayments(id, grandTotal, requestedPayments, paymentMethodCode),
+      ...(patch.additionalFields ? { additionalFields: patch.additionalFields } : {}),
+      ...(patch.participantName !== undefined ? { participantName: patch.participantName } : {}),
+      ...(patch.remissionGuide !== undefined ? { remissionGuide: patch.remissionGuide } : {}),
+      ...(patch.negotiableInvoice !== undefined ? { negotiableInvoice: patch.negotiableInvoice } : {}),
       status: 'DRAFT',
       updatedAt: now(),
     }
@@ -323,6 +365,26 @@ export class FiscalDocumentService {
     return document
   }
 
+  async simulateDelivery(id: string, action: 'SEND' | 'RESEND', outcome: 'SUCCESS' | 'ERROR', actor = 'local-admin') {
+    const document = await this.get(id)
+    if (document.status !== 'AUTHORIZED' || !document.authorizedXmlPath || !document.ridePath) {
+      throw new FiscalConflictError('La entrega simulada requiere XML autorizado simulado y RIDE local')
+    }
+    try {
+      const evidencePath = await this.deps.mailer.simulate(document, action, outcome)
+      const eventType = action === 'SEND' ? 'DELIVERY_SEND_SIMULATED' : 'DELIVERY_RESEND_SIMULATED'
+      await this.event(id, eventType, actor, { evidencePath, realEmailSent: false })
+      return { action, outcome: 'SUCCESS' as const, simulated: true, realEmailSent: false, evidencePath }
+    } catch (error) {
+      await this.event(id, 'DELIVERY_ERROR_SIMULATED', actor, {
+        action,
+        realEmailSent: false,
+        message: error instanceof Error ? error.message : 'Error simulado',
+      })
+      return { action, outcome: 'ERROR' as const, simulated: true, realEmailSent: false }
+    }
+  }
+
   async retry(id: string, actor = 'local-admin'): Promise<FiscalDocument> {
     const before = await this.get(id)
     if (!['RETRY_PENDING', 'RETURNED', 'NOT_AUTHORIZED', 'ERROR'].includes(before.status)) {
@@ -354,12 +416,14 @@ export class FiscalDocumentService {
     if (invoice.documentType !== 'INVOICE' || invoice.status !== 'AUTHORIZED') {
       throw new FiscalConflictError('La nota de crédito requiere una factura autorizada simulada')
     }
-    if (compareMoney(input.modifiedValue, invoice.grandTotal) > 0) {
-      throw new FiscalValidationError('La nota de crédito no puede superar el total de la factura')
-    }
     if (new Decimal(input.modifiedValue).lte(0)) throw new FiscalValidationError('El valor modificado debe ser mayor que cero')
-    const duplicate = await this.deps.repository.findBySource('CREDIT_NOTE', invoice.id)
-    if (duplicate) throw new FiscalConflictError('Ya existe una nota de crédito para esta solicitud')
+    const priorCredits = (await this.deps.repository.listDocuments()).filter((item) =>
+      item.documentType === 'CREDIT_NOTE' && item.sourceId === invoice.id && !['CANCELLED_INTERNAL', 'RETURNED', 'NOT_AUTHORIZED'].includes(item.status))
+    const previousCredits = priorCredits.reduce((sum, item) => sum.plus(item.creditNoteReference?.modifiedValue ?? item.grandTotal), new Decimal(0))
+    const remainingBefore = new Decimal(invoice.grandTotal).minus(previousCredits)
+    if (new Decimal(input.modifiedValue).gt(remainingBefore)) {
+      throw new FiscalValidationError(`La nota de crédito no puede superar el saldo modificable de ${remainingBefore.toFixed(2)}`)
+    }
     const id = `FD-${randomUUID()}`
     const timestamp = now()
     const itemInput = [{
@@ -398,6 +462,12 @@ export class FiscalDocumentService {
         originalIssueDate: invoice.issueDate,
         reason: input.reason,
         modifiedValue: formatMoney(input.modifiedValue),
+      },
+      creditBalance: {
+        originalTotal: invoice.grandTotal,
+        previousCredits: formatMoney(previousCredits),
+        modifiedValue: formatMoney(input.modifiedValue),
+        remainingBalance: formatMoney(remainingBefore.minus(input.modifiedValue)),
       },
       createdBy: actor,
       createdAt: timestamp,

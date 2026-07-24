@@ -6,15 +6,18 @@ import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify'
 import { ZodError } from 'zod'
 import { FiscalDocumentService, FiscalConflictError, FiscalNotFoundError, FiscalValidationError } from './application/document-service.js'
 import type { FiscalRepository } from './application/repository.js'
+import { FiscalCatalogService, MockOperationalServicesProvider } from './application/operational-services.js'
+import { FiscalReadinessService } from './application/readiness-service.js'
 import { isLoopback, loadConfig, type FiscalConfig } from './config/env.js'
+import { loadIssuerConfig, publicIssuerConfig } from './config/issuer.js'
 import { paymentCatalog, taxCatalog } from './domain/schemas.js'
-import { MockBillingSourceProvider, fakeIssuer } from './infrastructure/fixtures.js'
+import { MockBillingSourceProvider } from './infrastructure/fixtures.js'
 import { LocalFileStorage } from './infrastructure/file-storage.js'
 import { InMemoryFiscalRepository } from './infrastructure/in-memory-repository.js'
 import { PostgresFiscalRepository } from './infrastructure/postgres-repository.js'
 import { FileFiscalMailer } from './modules/delivery/mailer.js'
 import { LocalRideGenerator } from './modules/ride/ride-generator.js'
-import { MockXmlSigner } from './modules/signing/signer.js'
+import { EphemeralTestXadesBesSigner, MockXmlSigner, Pkcs12XadesBesSigner } from './modules/signing/signer.js'
 import { MockSriGateway } from './modules/sri/gateway.js'
 import { OfficialXsdValidator } from './modules/xml/validator.js'
 
@@ -26,6 +29,7 @@ export interface BuildAppOptions {
   config?: FiscalConfig
   repository?: FiscalRepository
   storageRoot?: string
+  issuer?: ReturnType<typeof loadIssuerConfig>
 }
 
 export interface FiscalApp extends FastifyInstance {
@@ -85,16 +89,21 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FiscalApp
   const repository = options.repository ?? postgresRepository ?? new InMemoryFiscalRepository()
   const storage = new LocalFileStorage(options.storageRoot)
   const sri = new MockSriGateway(config.FISCAL_MOCK_SRI_SCENARIO)
+  const issuer = options.issuer ?? loadIssuerConfig(config)
+  const catalogService = new FiscalCatalogService(new MockOperationalServicesProvider())
+  const signer = config.FISCAL_XADES_SIGNER === 'ephemeral-test' ? new EphemeralTestXadesBesSigner()
+    : config.FISCAL_XADES_SIGNER === 'pkcs12' ? new Pkcs12XadesBesSigner(config.FISCAL_CERT_PATH as string, config.FISCAL_CERT_PASSWORD as string)
+      : new MockXmlSigner()
   const fiscalService = new FiscalDocumentService({
     repository,
     billingSource: new MockBillingSourceProvider(),
     storage,
-    signer: new MockXmlSigner(),
+    signer,
     sri,
     ride: new LocalRideGenerator(),
     mailer: new FileFiscalMailer(storage),
     xsdValidator: new OfficialXsdValidator(),
-    issuer: fakeIssuer,
+    issuer,
   })
   app.fiscalService = fiscalService
 
@@ -110,9 +119,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FiscalApp
   }
 
   app.get('/api/v1/health', async () => ({ status: 'ok', service: 'fiscal-local', sriConnection: false }))
-  app.get('/api/v1/readiness', async () => ({
-    status: 'ready', storage: config.FISCAL_STORAGE, persistent: config.FISCAL_STORAGE === 'postgres', sriConnection: false,
-  }))
+  app.get('/api/v1/readiness', async () => ({ status: 'ok-local', storage: config.FISCAL_STORAGE, persistent: config.FISCAL_STORAGE === 'postgres', sriConnection: false }))
 
   app.register(async (api) => {
     api.addHook('preHandler', localAdmin)
@@ -122,13 +129,20 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FiscalApp
       storage: config.FISCAL_STORAGE,
       persistent: config.FISCAL_STORAGE === 'postgres',
       realSriConnectionEnabled: false,
-      signer: 'MOCK_NON_CRYPTOGRAPHIC',
+      signer: config.FISCAL_XADES_SIGNER === 'mock' ? 'Firma de demostración' : config.FISCAL_XADES_SIGNER,
+      signerTechnical: config.FISCAL_XADES_SIGNER,
       xsd: 'SRI factura y nota de crédito 1.1.0',
-      issuer: fakeIssuer,
+      issuer: publicIssuerConfig(issuer, config.FISCAL_MASK_PRIVATE_DATA_IN_EVIDENCE),
+      establishment: { code: config.FISCAL_ESTABLISHMENT_CODE, address: issuer.establishmentAddress, status: issuer.establishmentAddress === 'PENDING_CONFIRMATION' ? 'REQUIRES_CONFIRMATION' : 'READY' },
+      emissionPoint: { code: config.FISCAL_EMISSION_POINT_CODE, sequenceStart: config.FISCAL_SEQUENCE_START, status: config.FISCAL_SEQUENCE_START === 'PENDING_CONFIRMATION' ? 'REQUIRES_CONFIRMATION' : 'READY' },
+      certificate: { configured: Boolean(config.FISCAL_CERT_PATH), alias: config.FISCAL_CERT_ALIAS || 'PENDIENTE', passwordConfigured: Boolean(config.FISCAL_CERT_PASSWORD) },
+      sri: { environment: config.FISCAL_SRI_ENVIRONMENT, realConnectionEnabled: false, confirmed: false },
     }))
+    api.get('/readiness/detail', async () => new FiscalReadinessService(config, issuer).evaluate(await catalogService.list()))
     api.get('/billing-sources', async () => new MockBillingSourceProvider().list())
-    api.get('/tax-catalog', async () => ({ source: 'Ficha técnica SRI 2.33, tabla 17; aplicabilidad tributaria pendiente', items: taxCatalog }))
-    api.get('/payment-methods', async () => ({ source: 'Ficha técnica SRI 2.33, tabla 24', items: paymentCatalog }))
+    api.get('/fiscal-catalog', async () => ({ provider: 'MockOperationalServicesProvider', remoteDataUsed: false, items: await catalogService.list() }))
+    api.get('/tax-catalog', async () => ({ source: 'Esquemas SRI; aplicabilidad tributaria pendiente de validación institucional', items: taxCatalog }))
+    api.get('/payment-methods', async () => ({ source: 'Ficha técnica oficial SRI, tabla de formas de pago; consulta 2026-07-24', items: paymentCatalog }))
     api.get('/document-types', async () => ([{ code: '01', type: 'INVOICE' }, { code: '04', type: 'CREDIT_NOTE' }]))
 
     api.get('/invoices', async () => (await fiscalService.list()).filter((item) => item.documentType === 'INVOICE'))
@@ -144,6 +158,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FiscalApp
     api.post('/invoices/:id/submit', async (request) => fiscalService.submit((request.params as { id: string }).id))
     api.post('/invoices/:id/check-authorization', async (request) => fiscalService.checkAuthorization((request.params as { id: string }).id))
     api.post('/invoices/:id/process', async (request) => fiscalService.process((request.params as { id: string }).id))
+    api.post('/invoices/:id/delivery/simulate', async (request) => fiscalService.simulateDelivery((request.params as { id: string }).id, 'SEND', ((request.body as { outcome?: 'SUCCESS' | 'ERROR' } | undefined)?.outcome ?? 'SUCCESS')))
+    api.post('/invoices/:id/delivery/resend', async (request) => fiscalService.simulateDelivery((request.params as { id: string }).id, 'RESEND', ((request.body as { outcome?: 'SUCCESS' | 'ERROR' } | undefined)?.outcome ?? 'SUCCESS')))
     api.post('/invoices/:id/retry', async (request) => fiscalService.retry((request.params as { id: string }).id))
     api.get('/invoices/:id/events', async (request) => fiscalService.events((request.params as { id: string }).id))
     api.get('/invoices/:id/transmissions', async (request) => fiscalService.transmissions((request.params as { id: string }).id))
@@ -176,6 +192,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FiscalApp
     api.post('/credit-notes/:id/submit', async (request) => fiscalService.submit((request.params as { id: string }).id))
     api.post('/credit-notes/:id/check-authorization', async (request) => fiscalService.checkAuthorization((request.params as { id: string }).id))
     api.post('/credit-notes/:id/process', async (request) => fiscalService.process((request.params as { id: string }).id))
+    api.post('/credit-notes/:id/delivery/simulate', async (request) => fiscalService.simulateDelivery((request.params as { id: string }).id, 'SEND', ((request.body as { outcome?: 'SUCCESS' | 'ERROR' } | undefined)?.outcome ?? 'SUCCESS')))
+    api.post('/credit-notes/:id/delivery/resend', async (request) => fiscalService.simulateDelivery((request.params as { id: string }).id, 'RESEND', ((request.body as { outcome?: 'SUCCESS' | 'ERROR' } | undefined)?.outcome ?? 'SUCCESS')))
     api.get('/credit-notes/:id/events', async (request) => fiscalService.events((request.params as { id: string }).id))
     api.get('/credit-notes/:id/transmissions', async (request) => fiscalService.transmissions((request.params as { id: string }).id))
     api.get('/credit-notes/:id/xml', async (request, reply) => {

@@ -1,6 +1,14 @@
 {
-  "generatedAt": "2026-07-23",
+  "generatedAt": "2026-07-24",
   "hashAlgorithm": "SHA-256",
+  "technicalReferenceDiscrepancy": {
+    "briefBaseline": "2.32 - noviembre de 2025",
+    "officialPortalObserved": "2.33 - julio de 2026",
+    "observedAt": "2026-07-24",
+    "status": "REQUIERE VERIFICACIÓN DIRECTA CON EL SRI",
+    "localInvoiceXsd": "1.1.0",
+    "localCreditNoteXsd": "1.1.0"
+  },
   "files": [
     { "path": "original-downloads/Ficha-Tecnica-Comprobantes-Electronicos-Offline-v2.33.pdf", "source": "https://www.sri.gob.ec/o/sri-portlet-biblioteca-alfresco-internet/descargar/5a547488-80f3-4966-a2a4-841f2e951986/FICHA%20TE%CC%81CNICA%20COMPROBANTES%20ELECTRO%CC%81NICOS%20ESQUEMA%20OFFLINE%20Versio%CC%81n%202.33.pdf", "sha256": "c839adb17844a971cc09f4ac245d4ee96d9758221155c105c56ca65b88f1b251" },
     { "path": "original-downloads/Guia-anulacion-comprobantes-electronicos-marzo-2025.pdf", "source": "https://www.sri.gob.ec/o/sri-portlet-biblioteca-alfresco-internet/descargar/c97242e6-c271-4eb8-8f6a-f687313118ba/Guia%20para%20contribuyentes%20de%20anulaci%C3%B3n%20de%20comprobantes%20electr%C3%B3nicos.pdf", "sha256": "7a99c0267e2bc70b8e3e668d42d9bf15fff4a5d985520be040d0b6210ee8b25b" },
@@ -18,6 +26,7 @@
     { "path": "xsd/factura_V2.1.0.xsd", "source": "XML-y-XSD-Factura.zip", "sha256": "5f2c37bc1a58bb40e8bbbc366cabe05d5dc199598aeea1561137370f8bd4eace" },
     { "path": "xsd/NotaCredito_V1.0.0.xsd", "source": "XML-y-XSD-Nota-Credito.zip", "sha256": "8a4c3ec4e0b0dace9316d9cb5825b14f4e60b1d8c8189a0ac994dce2863d9e07" },
     { "path": "xsd/NotaCredito_V1.1.0.xsd", "source": "XML-y-XSD-Nota-Credito.zip", "sha256": "379e9f270d71ab4578f130a736c9abe5eb1d7969375ecdef55d2973583ec5ab0" },
-    { "path": "xsd/xmldsig-core-schema.xsd", "source": "https://www.w3.org/TR/xmldsig-core/xmldsig-core-schema.xsd", "sha256": "d102ad3df7664c307e0c2c776ba4a90513b1969974d8a940bae1a77f9f21e15d" }
+    { "path": "xsd/xmldsig-core-schema.xsd", "source": "https://www.w3.org/TR/xmldsig-core/xmldsig-core-schema.xsd", "sha256": "d102ad3df7664c307e0c2c776ba4a90513b1969974d8a940bae1a77f9f21e15d" },
+    { "path": "catalogs/payment-methods.json", "source": "https://www.sri.gob.ec/facturacion-electronica", "sha256": "b4991e3d547c634410d02ed35b9306453b125dfd36d14f6698b674bb4d627982" }
   ]
 }

@@ -13,7 +13,11 @@ describe('controles locales', () => {
     expect(() => loadConfig({ NODE_ENV: 'production', FISCAL_LOCAL_DEV_MODE: 'true' })).toThrow('producción')
   })
   it('rechaza cualquier intento de conexión real al SRI', () => {
-    expect(() => loadConfig({ NODE_ENV: 'development', FISCAL_SRI_REAL_CONNECTION_ENABLED: 'true' })).toThrow('deshabilitada')
+    expect(() => loadConfig({ NODE_ENV: 'development', FISCAL_SRI_REAL_CONNECTION_ENABLED: 'true' })).toThrow('bloqueada')
+    expect(() => loadConfig({ NODE_ENV: 'development', FISCAL_SRI_CONFIRM_REAL_CALL: 'true' })).toThrow('bloqueada')
+  })
+  it('rechaza firmador PKCS#12 incompleto', () => {
+    expect(() => loadConfig({ NODE_ENV: 'development', FISCAL_XADES_SIGNER: 'pkcs12' })).toThrow('PKCS#12')
   })
   it('previene path traversal e IDs arbitrarios', async () => {
     const root = await mkdtemp(join(tmpdir(), 'fiscal-storage-'))

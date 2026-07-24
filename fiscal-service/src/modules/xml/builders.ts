@@ -92,18 +92,37 @@ const detailsXml = (document: FiscalDocument, creditNote: boolean): string => do
   ].join('')
 }).join('')
 
+const paymentsXml = (document: FiscalDocument): string => document.payments.map((payment) => [
+  '<pago>',
+  `<formaPago>${payment.methodCode}</formaPago>`,
+  `<total>${payment.amount}</total>`,
+  payment.term !== undefined ? `<plazo>${payment.term}</plazo>` : '',
+  payment.timeUnit ? `<unidadTiempo>${escapeXml(payment.timeUnit)}</unidadTiempo>` : '',
+  '</pago>',
+].join('')).join('')
+
+const additionalInfoXml = (document: FiscalDocument): string => {
+  const fields = [
+    { name: 'Correo', value: document.customer.email },
+    ...(document.participantName ? [{ name: 'Participante', value: document.participantName }] : []),
+    ...(document.additionalFields ?? []).filter((field) => field.name.toLowerCase() !== 'correo'),
+    { name: 'Entorno', value: 'DEMOSTRACION LOCAL SIN VALIDEZ TRIBUTARIA' },
+  ]
+  return fields.map((field) => `<campoAdicional nombre="${escapeXml(field.name)}">${escapeXml(field.value)}</campoAdicional>`).join('')
+}
+
 export class InvoiceXmlBuilder {
   build(document: FiscalDocument, issuer: IssuerConfig): string {
     if (document.documentType !== 'INVOICE') throw new Error('InvoiceXmlBuilder solo admite facturas')
-    const payment = document.payments[0]
-    if (!payment) throw new Error('La factura requiere forma de pago')
+    if (!document.payments.length) throw new Error('La factura requiere forma de pago')
     return [
       '<?xml version="1.0" encoding="UTF-8"?>',
       '<factura id="comprobante" version="1.1.0">',
       infoTributaria(document, issuer),
       '<infoFactura>',
       `<fechaEmision>${dateXml(document.issueDate)}</fechaEmision>`,
-      `<dirEstablecimiento>${escapeXml(issuer.headOfficeAddress)}</dirEstablecimiento>`,
+      `<dirEstablecimiento>${escapeXml(issuer.establishmentAddress ?? issuer.headOfficeAddress)}</dirEstablecimiento>`,
+      document.remissionGuide ? `<guiaRemision>${escapeXml(document.remissionGuide)}</guiaRemision>` : '',
       `<obligadoContabilidad>${issuer.accountingObligation}</obligadoContabilidad>`,
       `<tipoIdentificacionComprador>${document.customer.identificationType}</tipoIdentificacionComprador>`,
       `<razonSocialComprador>${escapeXml(document.customer.legalName)}</razonSocialComprador>`,
@@ -112,12 +131,13 @@ export class InvoiceXmlBuilder {
       `<totalSinImpuestos>${document.totalWithoutTaxes}</totalSinImpuestos>`,
       `<totalDescuento>${document.totalDiscount}</totalDescuento>`,
       `<totalConImpuestos>${totalsXml(document.taxes, true)}</totalConImpuestos>`,
+      `<propina>${document.tip ?? '0.00'}</propina>`,
       `<importeTotal>${document.grandTotal}</importeTotal>`,
       '<moneda>DOLAR</moneda>',
-      `<pagos><pago><formaPago>${payment.methodCode}</formaPago><total>${payment.amount}</total></pago></pagos>`,
+      `<pagos>${paymentsXml(document)}</pagos>`,
       '</infoFactura>',
       `<detalles>${detailsXml(document, false)}</detalles>`,
-      `<infoAdicional><campoAdicional nombre="Correo">${escapeXml(document.customer.email)}</campoAdicional><campoAdicional nombre="Entorno">DEMOSTRACION LOCAL SIN VALIDEZ TRIBUTARIA</campoAdicional></infoAdicional>`,
+      `<infoAdicional>${additionalInfoXml(document)}</infoAdicional>`,
       '</factura>',
     ].join('')
   }
@@ -135,7 +155,7 @@ export class CreditNoteXmlBuilder {
       infoTributaria(document, issuer),
       '<infoNotaCredito>',
       `<fechaEmision>${dateXml(document.issueDate)}</fechaEmision>`,
-      `<dirEstablecimiento>${escapeXml(issuer.headOfficeAddress)}</dirEstablecimiento>`,
+      `<dirEstablecimiento>${escapeXml(issuer.establishmentAddress ?? issuer.headOfficeAddress)}</dirEstablecimiento>`,
       `<tipoIdentificacionComprador>${document.customer.identificationType}</tipoIdentificacionComprador>`,
       `<razonSocialComprador>${escapeXml(document.customer.legalName)}</razonSocialComprador>`,
       `<identificacionComprador>${escapeXml(document.customer.identification)}</identificacionComprador>`,
@@ -150,7 +170,7 @@ export class CreditNoteXmlBuilder {
       `<motivo>${escapeXml(ref.reason)}</motivo>`,
       '</infoNotaCredito>',
       `<detalles>${detailsXml(document, true)}</detalles>`,
-      `<infoAdicional><campoAdicional nombre="Entorno">DEMOSTRACION LOCAL SIN VALIDEZ TRIBUTARIA</campoAdicional></infoAdicional>`,
+      `<infoAdicional>${additionalInfoXml(document)}</infoAdicional>`,
       '</notaCredito>',
     ].join('')
   }

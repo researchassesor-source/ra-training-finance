@@ -1,42 +1,17 @@
-# Plan de pruebas local
+# Plan de pruebas
 
-## Objetivos
+## Automatizadas
 
-Demostrar la vertical ficticia sin producción: exactitud monetaria, concurrencia, clave, XSD, estados, idempotencia, controles de seguridad, API, archivos, factura, nota de crédito, interfaz y ausencia de llamadas externas.
+- UI/feature flags: admin, vendedor, producción, host externo, secciones A-G y botón oficial bloqueado.
+- Dominio: varias líneas/tarifas, descuento, redondeo, pagos, campos, comprador/participante y readiness.
+- Firma: XAdES efímero, verificación, alteración, PKCS#12, contraseña, archivo, extensión, vencimiento y secreto.
+- SRI: construcción SOAP, Base64, recibida, devuelta, autorizada, no autorizada, procesamiento, mensajes, inválida y bloqueo de red.
+- PostgreSQL emulado: migraciones, restricciones, transacciones, idempotencia, factura, auditoría y 100 reservas.
+- Archivos: XML/RIDE por documento y path traversal.
+- Nota de crédito: varias parciales y límite por saldo.
 
-## Automatización
+## Visuales
 
-| Nivel | Casos |
-|---|---|
-| Dominio | sumas, descuentos, IVA, redondeo, entradas inválidas, módulo 11, clave de 49 dígitos, transición inválida |
-| Repositorio | 50 reservas concurrentes únicas y monotónicas, idempotencia, fuente duplicada |
-| Seguridad | rechazo de producción local/conexión real, rol vendedor, traversal, payload inválido |
-| Simulador | autorizado, devuelto, procesando, no autorizado, temporal, timeout, inválido y duplicado |
-| Integración | factura completa, XSD, firma mock, recepción/autorización, XML, PDF, eventos, nota de crédito y exceso rechazado |
-| Frontend | feature flag desactivada por defecto, administración, ruta y elegibilidad |
+Probar Panel, Documentos, Inscripciones ficticias, Catálogo, Configuración, Nueva factura, detalle, pagos, XML, RIDE, nota, auditoría y readiness en 1440, 900 y 390 px. Cero scroll horizontal en tareas comunes, errores nuevos de consola o llamadas externas.
 
-## Pruebas manuales
-
-1. Iniciar API en memoria y frontend con banderas locales.
-2. Confirmar los tres avisos de ambiente.
-3. Abrir inscripciones ficticias y verificar controles deshabilitados.
-4. Crear factura de Valeria, revisar base 100, IVA 15 y total 115.
-5. Completar el flujo; revisar secuencial, clave, siete etapas y estado simulado.
-6. Abrir XML, auditoría y archivos; validar descargas por API.
-7. Renderizar y revisar el RIDE con marca de agua.
-8. Crear nota de crédito parcial y completar su flujo.
-9. Repetir inspección a 1440, 900 y 390 px; medir `scrollWidth === clientWidth` en 900/390.
-10. Revisar consola, logs del servidor y destinos de red.
-
-## Criterios de aceptación
-
-- Todos los comandos build/lint/typecheck/test terminan en 0.
-- XML de factura y nota de crédito valida contra los XSD oficiales seleccionados.
-- No existe `ds:Signature`; la firma lleva advertencia mock.
-- PDF comienza con `%PDF`, abre/renderiza y muestra “SIN VALIDEZ TRIBUTARIA”.
-- Ninguna prueba usa datos reales, correo real, Apps Script, Sheets o endpoints SRI.
-- Los cambios en `apps-script/Code.gs`, certificados, QR, avales y pagos son cero.
-
-## Casos pendientes
-
-PostgreSQL/Docker, firma XAdES real, ambiente SRI, autenticación productiva, correo, almacenamiento remoto, carga/recuperación, compatibilidad de navegadores y certificación tributaria.
+Las evidencias deben usar perfil ficticio o datos enmascarados.

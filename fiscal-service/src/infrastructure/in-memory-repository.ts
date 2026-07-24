@@ -29,9 +29,9 @@ export class InMemoryFiscalRepository implements FiscalRepository {
   }
 
   async saveDocument(document: FiscalDocument): Promise<void> {
-    const duplicateSource = [...this.documents.values()].find((item) =>
-      item.id !== document.id && item.documentType === document.documentType && item.sourceId === document.sourceId)
-    if (duplicateSource) throw new Error('Ya existe un documento del mismo tipo para esta fuente')
+    const duplicateSource = document.documentType === 'INVOICE' ? [...this.documents.values()].find((item) =>
+      item.id !== document.id && item.documentType === document.documentType && item.sourceId === document.sourceId) : undefined
+    if (duplicateSource) throw new Error('Ya existe una factura para esta fuente')
     if (document.accessKey) {
       const duplicateKey = [...this.documents.values()].find((item) => item.id !== document.id && item.accessKey === document.accessKey)
       if (duplicateKey) throw new Error('La clave de acceso ya existe')

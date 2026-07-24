@@ -1,22 +1,12 @@
-# Recursos técnicos oficiales
+# Recursos técnicos
 
-Consultados y descargados el 23 de julio de 2026 desde el portal oficial del Servicio de Rentas Internas (SRI) del Ecuador. Los archivos del SRI se conservan sin modificaciones. `xmldsig-core-schema.xsd` procede del W3C y es la dependencia importada por los XSD del SRI.
+Los paquetes oficiales se conservan sin modificaciones y con SHA-256 en `manifest.json`.
 
-## Organización
+- `original-downloads/`: ZIP y PDF originales.
+- `xsd/`: esquemas extraídos; el servicio usa factura 1.1.0 y nota de crédito 1.1.0.
+- `samples/`: XML incluidos en los paquetes del SRI.
+- `catalogs/`: catálogos derivados de tablas oficiales, con fuente y fecha de consulta.
 
-- `original-downloads/`: paquetes ZIP y guías PDF tal como se descargaron.
-- `xsd/`: esquemas extraídos de los paquetes oficiales; el servicio usa las versiones 1.1.0 para factura y nota de crédito.
-- `samples/`: XML de ejemplo incluidos por el SRI.
-- `manifest.json`: procedencia, URL y SHA-256 reproducible de cada archivo.
+Discrepancia: el brief de la etapa señala ficha 2.32/noviembre de 2025; el portal oficial consultado el 24 de julio de 2026 muestra 2.33/julio de 2026. El PDF 2.33 se conserva, no se presenta como prueba de certificación y **requiere verificación directa con el SRI** antes del proceso oficial.
 
-## Verificación
-
-Desde la raíz del repositorio:
-
-```powershell
-Get-ChildItem .\fiscal-service\resources\sri -Recurse -File |
-  Where-Object Name -NotIn @('README.md', 'manifest.json') |
-  Get-FileHash -Algorithm SHA256
-```
-
-Un hash distinto al manifiesto implica que el archivo debe descartarse y descargarse nuevamente desde su fuente. Estos recursos no acreditan certificación ni habilitan una conexión real con el SRI.
+Un hash distinto obliga a descartar el archivo y descargarlo otra vez desde la fuente oficial.

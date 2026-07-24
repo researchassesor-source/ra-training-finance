@@ -1,35 +1,28 @@
-# Resumen de implementación
+# Resumen de implementación - etapa 2
 
-## Qué se hizo
+## Implementado localmente
 
-Se creó un servicio fiscal local aislado, modelo transaccional, migración PostgreSQL, modo memoria, cálculo decimal, secuencias, clave de acceso, factura y nota de crédito XML, validación XSD oficial, firma mock, simulador, RIDE, almacenamiento, auditoría, entrega simulada, API y documentación OpenAPI. React recibió un módulo administrativo completo detrás de banderas desactivadas por defecto y seis inscripciones ficticias para casos válidos/negativos.
+- Configuración institucional privada desde `fiscal-service/.env.local`, ignorada por Git, con enmascarado de evidencia.
+- Formulario organizado por datos de emisión, adquirente, detalles, pagos, campos adicionales, totales y acciones.
+- Múltiples líneas, tarifas, descuentos, propina, múltiples pagos y validación exacta de su suma.
+- Participante, adquirente y receptor de correo separados.
+- Catálogo fiscal con proveedores mock, aplicación existente y futuro server-side; todo servicio queda en revisión tributaria por defecto.
+- Importación JSON/CSV en memoria local con validación; toda entrada importada se fuerza a revisión tributaria e inactiva para emisión oficial.
+- `FiscalReadinessService` con bloqueadores dinámicos y checklist visible.
+- Firmador criptográfico XAdES-BES efímero verificable, contrato PKCS#12 y futuro gestor de secretos. El mock continúa por defecto.
+- `OfficialSriGateway` con solicitudes SOAP, Base64, parsers, múltiples autorizaciones, reintentos controlados, correlación, timeout y doble bloqueo previo a red.
+- Fixtures SOAP para recibida, devuelta, autorizada, no autorizada, mensajes y respuestas inválidas.
+- RIDE mejorado para factura/nota de crédito, múltiples páginas, impuestos, pagos descriptivos, campos adicionales y marca local.
+- Notas de crédito parciales múltiples con total original, créditos previos y saldo restante.
+- Migración de catálogo/secuencial y pruebas PostgreSQL mediante `pg-mem`.
+- 100 reservas concurrentes sin duplicados en memoria y PostgreSQL emulado.
+- Preview de correo con destinatario, asunto, mensaje, XML, RIDE, número, clave y estado; envío, reenvío y error simulados con auditoría, sin proveedor ni salida de red.
+- Evidencias visuales ficticias en 1440/900/390 y RIDE A4 validado en una sola página.
 
-## Qué funciona localmente
+## Estado correcto
 
-- Factura ficticia desde pago verificado, sin tocar la inscripción.
-- Cálculos backend, validación, secuencia, clave, XML y XSD.
-- Flujo paso a paso o completo, eventos, transmisiones y reintentos.
-- Autorización simulada, XML autorizado simulado y RIDE descargable.
-- Nota de crédito parcial enlazada a factura autorizada.
-- Filtros, estados, responsive y acceso administrativo local.
-- Persistencia en memoria demostrada; adaptador/migración PostgreSQL preparados.
+El módulo está avanzado localmente y preparado para configuración institucional, no para producción. El firmador necesita el certificado institucional; PostgreSQL real, autenticación, almacenamiento, correo y certificación SRI continúan pendientes. La conexión oficial permanece deshabilitada.
 
-## Qué es simulado
+## Referencia técnica
 
-Emisor y participantes, firma, respuestas del SRI, número/fecha de autorización, correo y datos del RIDE. La palabra “simulado” y la ausencia de validez aparecen en interfaz, XML, PDF y respuestas.
-
-## Qué falta
-
-Datos institucionales, criterio contable, firma XAdES real, gestor de secretos, pruebas PostgreSQL, autenticación productiva, almacenamiento, correo, monitoreo, respaldo, pruebas/certificación con SRI y aprobación legal/tributaria.
-
-## Cómo ejecutar y probar
-
-Siga `LOCAL_SETUP.md`. En resumen: iniciar `fiscal-service` con almacenamiento `inmemory`, iniciar Vite con las tres variables locales y abrir `/facturacion`. Ejecute además los comandos de `TEST_REPORT.md`.
-
-## Riesgos
-
-El mock puede ser malinterpretado si se ocultan los banners; por eso producción rechaza el modo local y el gateway oficial está deshabilitado. La tarifa de ejemplo no debe asumirse aplicable. Memoria pierde datos al reiniciar. El adaptador PostgreSQL todavía no se ejecutó en esta máquina. El frontend conserva vulnerabilidades heredadas que requieren tarea separada.
-
-## Próxima fase
-
-Obtener y aprobar `PENDING_BUSINESS_DATA.md`; ejecutar PostgreSQL en CI/local; seleccionar custodia/firmador; validar XML/RIDE con contador; implementar autenticación y almacenamiento; luego solicitar ambiente de pruebas y certificar sin reutilizar el mock como código productivo.
+El brief cita ficha 2.32/noviembre de 2025, pero el portal oficial observado el 24 de julio de 2026 publica 2.33/julio de 2026. La discrepancia está documentada y requiere confirmación directa antes de certificación. Los XSD locales continúan en versión 1.1.0.
