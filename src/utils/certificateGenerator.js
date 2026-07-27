@@ -298,5 +298,6 @@ export async function buildCertificatePdf(inscripcion, options = {}) {
     qrDataUrl,
     verificationUrl,
     certificateCode,
+    templateVersion: cfg.templateVersion,
   }
 }

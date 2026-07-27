@@ -216,6 +216,12 @@ export const api = {
     bust('getInscripciones', 'getDashboard')
     return call('reemitirCertificado', { id, motivo, confirmacion: 'REEMITIR' }, getToken())
   },
+  getCertificadoParaDescarga: (id) =>
+    call('getCertificadoParaDescarga', { id }, getToken()),
+  registrarArtefactoCertificado: (id, artifact) => {
+    bust('getInscripciones')
+    return call('registrarArtefactoCertificado', { id, ...artifact }, getToken())
+  },
   registrarGeneracionCertificado: (id) =>
     call('registrarGeneracionCertificado', { id }, getToken()),
   actualizarEntregaCertificado: (id, estadoEntrega) => {

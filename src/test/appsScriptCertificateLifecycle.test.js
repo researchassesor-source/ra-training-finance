@@ -63,5 +63,53 @@ describe('ciclo de vida de certificados en Apps Script', () => {
     expect(records).toHaveLength(2)
     expect(records.find(item => item.ID === 'INS-REISSUE')).toMatchObject({ CertificateStatus: 'reemitido', ReissuedCertificateId: reissued.data.ID })
     expect(records.find(item => item.ID === reissued.data.ID)).toMatchObject({ OriginalCertificateId: 'INS-REISSUE', CertificateStatus: 'emitido' })
+    expect(harness.locks).toEqual({ waits: 1, releases: 1 })
+  })
+
+  it('reserva códigos únicos bajo LockService y mantiene la emisión idempotente', () => {
+    const harness = seededHarness()
+    harness.seed('Inscripciones', [
+      {
+        ID: 'INS-A-1234567890', ClienteNombre: 'Persona Uno', ClienteID: '0000000003', ServicioID: 'SRV-1', ServicioNombre: 'Curso Test',
+        Modalidad: 'Virtual', FechaInicio: '2026-08-01', FechaFin: '2026-08-02', EstadoPago: 'verificado', EstadoCertificado: 'pendiente', CreadoPor: 'admin.test',
+      },
+      {
+        ID: 'INS-B-1234567890', ClienteNombre: 'Persona Dos', ClienteID: '0000000004', ServicioID: 'SRV-1', ServicioNombre: 'Curso Test',
+        Modalidad: 'Virtual', FechaInicio: '2026-08-03', FechaFin: '2026-08-04', EstadoPago: 'verificado', EstadoCertificado: 'pendiente', CreadoPor: 'admin.test',
+      },
+    ])
+    const { processRequest } = harness.context
+    const first = processRequest({ action: 'emitirCertificado', token: 'admin-token', id: 'INS-A-1234567890' })
+    const second = processRequest({ action: 'emitirCertificado', token: 'admin-token', id: 'INS-B-1234567890' })
+    const retry = processRequest({ action: 'emitirCertificado', token: 'admin-token', id: 'INS-A-1234567890' })
+
+    expect(first.success).toBe(true)
+    expect(second.success).toBe(true)
+    expect(first.data.CodigoCertificado).not.toBe(second.data.CodigoCertificado)
+    expect(retry).toMatchObject({ success: true, alreadyIssued: true, data: { CodigoCertificado: first.data.CodigoCertificado } })
+    expect(harness.objects('Certificados')).toHaveLength(2)
+    expect(harness.locks).toEqual({ waits: 3, releases: 3 })
+  })
+
+  it('registra una sola huella y referencia privada por versión', () => {
+    const harness = seededHarness()
+    const { processRequest } = harness.context
+    const emitted = processRequest({ action: 'emitirCertificado', token: 'admin-token', id: 'INS-VOID' })
+    expect(emitted.success).toBe(true)
+    const artifact = {
+      id: 'INS-VOID',
+      pdfHash: 'a'.repeat(64),
+      pdfStorageReference: 'browser-indexeddb:INS-VOID:v1',
+      templateVersion: 'ra-canva-2026-v1',
+      certificateVersion: 1,
+    }
+    const registered = processRequest({ action: 'registrarArtefactoCertificado', token: 'admin-token', ...artifact })
+    const confirmed = processRequest({ action: 'registrarArtefactoCertificado', token: 'admin-token', ...artifact })
+    const overwrite = processRequest({ action: 'registrarArtefactoCertificado', token: 'admin-token', ...artifact, pdfHash: 'b'.repeat(64) })
+
+    expect(registered.success).toBe(true)
+    expect(confirmed.success).toBe(true)
+    expect(overwrite.success).toBe(false)
+    expect(harness.objects('Certificados')[0]).toMatchObject({ PdfHash: 'a'.repeat(64), PdfStorageReference: artifact.pdfStorageReference })
   })
 })

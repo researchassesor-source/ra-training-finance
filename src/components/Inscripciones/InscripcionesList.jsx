@@ -5,6 +5,10 @@ import {
   Pencil, Plus, QrCode, RefreshCw, ShoppingBag, Trash2,
 } from 'lucide-react'
 import { api } from '../../services/api'
+import {
+  certificateArtifactStore,
+  CertificatePdfRepository,
+} from '../../services/certificateArtifactStore'
 import { useAuth } from '../../context/AuthContext'
 import { fmt, ESTADOS_CERTIFICADO, ESTADOS_PAGO_INS } from '../../utils/formatters'
 import { exportInscripcionPDF, exportInscripcionesCSV, exportInscripcionesPDF } from '../../utils/exporters'
@@ -31,6 +35,11 @@ import AuditoriaCertificadosModal from './AuditoriaCertificadosModal'
 const EMPTY_FILTERS = {
   servicioId: '', vendedor: '', estadoPago: '', estadoCertificado: '', tipoAval: '', desde: '', hasta: '',
 }
+
+const certificatePdfRepository = new CertificatePdfRepository({
+  store: certificateArtifactStore,
+  buildPdf: buildCertificatePdf,
+})
 
 export default function InscripcionesList() {
   const { isAdmin, user } = useAuth()
@@ -253,7 +262,13 @@ export default function InscripcionesList() {
       const missing = validateCertificateData(item)
       if (missing.length) throw new Error(`Faltan los siguientes datos para generar el certificado: ${missing.join(', ')}.`)
       const result = await api.emitirCertificado(item.ID)
-      const prepared = await buildCertificatePdf(result.data)
+      const prepared = await certificatePdfRepository.prepare(result.data)
+      await api.registrarArtefactoCertificado(item.ID, {
+        pdfHash: prepared.hash,
+        pdfStorageReference: prepared.reference,
+        templateVersion: prepared.templateVersion,
+        certificateVersion: prepared.certificateVersion,
+      })
       await api.registrarGeneracionCertificado(item.ID)
       saveAs(prepared.blob, prepared.filename)
       await api.actualizarEntregaCertificado(item.ID, 'descargado')
@@ -280,7 +295,14 @@ export default function InscripcionesList() {
     setProcessing(`certificate:${item.ID}`)
     setError('')
     try {
-      const result = await buildCertificatePdf(item)
+      const current = await api.getCertificadoParaDescarga(item.ID)
+      const result = await certificatePdfRepository.prepare(current.data)
+      await api.registrarArtefactoCertificado(item.ID, {
+        pdfHash: result.hash,
+        pdfStorageReference: result.reference,
+        templateVersion: result.templateVersion,
+        certificateVersion: result.certificateVersion,
+      })
       const previewUrl = URL.createObjectURL(result.blob)
       saveAs(result.blob, result.filename)
       if (previewWindow) previewWindow.location.replace(previewUrl)
