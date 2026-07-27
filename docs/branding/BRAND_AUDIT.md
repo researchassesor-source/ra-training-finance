@@ -8,7 +8,7 @@ Alcance: interfaz de Finance, sin cambios en el sitio institucional ni en datos 
 1. `logo.png` entregado por gerencia: imagen PNG de 272 × 293 px, con transparencia, blanco y coral/naranja. Es la fuente principal para el símbolo usado en la aplicación.
 2. Sitio público `https://ra-training.com/`: usa de forma consistente la denominación visible **R.A Training**, presenta certificados verificables y publica una identidad azul/naranja.
 3. CSS calculado del sitio institucional: contiene variables explícitas como `--navy: #114899`, `--navy-dark: #0D3673`, `--amber: #F1871A`, `--primarybtnbg: #E46113`, `--ink: #114899` y `--nv-text-color: #111827`.
-4. `Mascota.png` entregada por gerencia: imagen de 268 × 378 px, sin canal transparente y con un fondo negro de origen. El 27 de julio de 2026 se aprobó preparar un derivado recortado para el login.
+4. `Mascota.png` entregada por gerencia: imagen de 268 × 378 px, sin canal transparente y con un fondo negro de origen. Se conserva únicamente como material recibido; su uso visual queda pospuesto.
 5. Repositorio de Finance: antes de esta fase utilizaba una escala índigo genérica (`#4338CA` y variantes) y el texto “Finanzas”.
 6. Certificado y enlace de Canva entregados: confirman el uso de azul marino, naranja y la firma visual “research assessor & training”.
 
@@ -21,12 +21,12 @@ Alcance: interfaz de Finance, sin cambios en el sitio institucional ni en datos 
 - Azul institucional de interfaz: `#114899`, con `#0D3673` para superficies oscuras.
 - Naranja institucional: `#F1871A`, reservado a acentos y superficies con texto oscuro.
 - El símbolo adjunto se usa en login, navegación y favicon sin recolorearlo ni deformarlo.
-- La mascota se usa solamente en login/bienvenida; no se incorpora en certificados ni documentos fiscales.
+- La mascota no se muestra en la aplicación, los certificados ni los documentos fiscales hasta una futura aprobación.
 
 ## Limitaciones y pendientes
 
 - El logo adjunto es de resolución limitada y no es un archivo vectorial. Se mantiene el original y se generan derivados rasterizados prudentes; debe reemplazarse por un SVG oficial cuando la institución lo entregue.
-- El original de la mascota conserva su fondo negro sin modificaciones. Para el login se utiliza un derivado PNG recortado, con transparencia, aprobado durante la revisión visual.
+- El original de la mascota conserva su fondo negro sin modificaciones dentro del respaldo documental. No existe un derivado activo en la interfaz.
 - El sitio alterna `R.A Training`, `RA-Training` y `R.A. Training`; la aplicación adopta la puntuación ya utilizada históricamente en Finance.
 - No se modificaron razón social, RUC, nombres legales, datos del aval ni textos históricos.
 

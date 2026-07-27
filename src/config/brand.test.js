@@ -16,8 +16,6 @@ describe('identidad corporativa', () => {
     expect(css).toContain('--brand-primary: #114899')
     expect(css).toContain('--brand-secondary: #f1871a')
     expect(fs.existsSync(path.join(root, 'src/assets/brand/logo-ra-training.webp'))).toBe(true)
-    expect(fs.existsSync(path.join(root, 'src/assets/brand/mascot-ra-training.webp'))).toBe(true)
-    expect(fs.existsSync(path.join(root, 'src/assets/brand/mascot-ra-training-cutout.webp'))).toBe(true)
     expect(fs.existsSync(path.join(root, 'public/favicon.png'))).toBe(true)
   })
 

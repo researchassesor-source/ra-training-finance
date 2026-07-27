@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { Award, Eye, EyeOff, ShieldCheck } from 'lucide-react'
 import logo from '../../assets/brand/logo-ra-training.webp'
-import mascot from '../../assets/brand/mascot-ra-training-cutout.webp'
 import { BRAND } from '../../config/brand'
 
 export default function Login() {
@@ -55,12 +54,6 @@ export default function Login() {
 
       {/* Right panel */}
       <div className="relative flex flex-1 items-center justify-center overflow-hidden bg-gray-50 p-8">
-        <img
-          src={mascot}
-          alt=""
-          aria-hidden="true"
-          className="pointer-events-none absolute right-4 top-3 hidden h-24 w-auto select-none object-contain drop-shadow-[0_18px_20px_rgba(13,54,115,0.18)] sm:block md:right-6 md:top-5 md:h-28 lg:h-36 xl:h-44 2xl:right-8 2xl:top-6 2xl:h-52"
-        />
         <div className="relative z-10 w-full max-w-sm">
           <div className="text-center mb-8 lg:hidden">
             <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-2xl bg-brand-800 p-2 shadow-lg">
