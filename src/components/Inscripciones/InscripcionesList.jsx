@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { saveAs } from 'file-saver'
 import {
-  Award, CheckCircle, Download, FileText, MailCheck, MessageCircle,
+  Award, CheckCircle, Download, FileText, History, MailCheck, MessageCircle,
   Pencil, Plus, QrCode, ShoppingBag, Trash2,
 } from 'lucide-react'
 import { api } from '../../services/api'
@@ -9,7 +9,8 @@ import { useAuth } from '../../context/AuthContext'
 import { fmt, ESTADOS_CERTIFICADO, ESTADOS_PAGO_INS } from '../../utils/formatters'
 import { exportInscripcionPDF, exportInscripcionesCSV, exportInscripcionesPDF } from '../../utils/exporters'
 import { buildVerificationUrl, generateQrDataUrl } from '../../utils/qr'
-import { buildCertificatePdf, certificateCodeFor } from '../../utils/certificateGenerator'
+import { buildCertificatePdf, validateCertificateData } from '../../utils/certificateGenerator'
+import { canManageCertificates, certificateCapabilities, CERTIFICATE_PERMISSION_MESSAGE } from '../../utils/certificatePermissions'
 import Modal from '../UI/Modal'
 import ConfirmDialog from '../UI/ConfirmDialog'
 import Spinner from '../UI/Spinner'
@@ -17,6 +18,7 @@ import InscripcionesForm from './InscripcionesForm'
 import VentasVendedorModal from './VentasVendedorModal'
 import EntregaCertificadoModal from './EntregaCertificadoModal'
 import EnvioMasivoCertificadosModal from './EnvioMasivoCertificadosModal'
+import AuditoriaCertificadosModal from './AuditoriaCertificadosModal'
 
 const EMPTY_FILTERS = {
   servicioId: '', vendedor: '', estadoPago: '', estadoCertificado: '', tipoAval: '', desde: '', hasta: '',
@@ -24,6 +26,7 @@ const EMPTY_FILTERS = {
 
 export default function InscripcionesList() {
   const { isAdmin, user } = useAuth()
+  const canManage = canManageCertificates(user)
   const [data, setData] = useState([])
   const [servicios, setServicios] = useState([])
   const [vendedores, setVendedores] = useState([])
@@ -88,10 +91,10 @@ export default function InscripcionesList() {
     }
   }, [data])
 
-  const selectableCertificates = useMemo(() => data.filter(item => (
+  const selectableCertificates = useMemo(() => canManage ? data.filter(item => (
     item.EstadoCertificado === 'emitido' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(item.ClienteEmail || '').trim())
-  )), [data])
-  const selectedCertificates = useMemo(() => data.filter(item => selectedIds.has(item.ID)), [data, selectedIds])
+  )) : [], [canManage, data])
+  const selectedCertificates = useMemo(() => canManage ? data.filter(item => selectedIds.has(item.ID)) : [], [canManage, data, selectedIds])
   const allSelectableSelected = selectableCertificates.length > 0
     && selectableCertificates.every(item => selectedIds.has(item.ID))
 
@@ -195,15 +198,17 @@ export default function InscripcionesList() {
   }
 
   async function emitCertificate(item) {
+    if (!canManage) {
+      setError(CERTIFICATE_PERMISSION_MESSAGE)
+      return
+    }
     setProcessing(`certificate:${item.ID}`)
     setError('')
     try {
-      const prepared = await buildCertificatePdf({
-        ...item,
-        CodigoCertificado: certificateCodeFor(item),
-        FechaEmisionCertificado: item.FechaEmisionCertificado || new Date().toISOString(),
-      })
-      const result = await api.emitirCertificado(item.ID, prepared.certificateCode)
+      const missing = validateCertificateData(item)
+      if (missing.length) throw new Error(`Faltan los siguientes datos para generar el certificado: ${missing.join(', ')}.`)
+      const result = await api.emitirCertificado(item.ID)
+      const prepared = await buildCertificatePdf(result.data)
       saveAs(prepared.blob, prepared.filename)
       await api.actualizarEntregaCertificado(item.ID, 'descargado')
       setSelected(result.data)
@@ -216,6 +221,10 @@ export default function InscripcionesList() {
   }
 
   async function downloadCertificate(item) {
+    if (!canManage) {
+      setError(CERTIFICATE_PERMISSION_MESSAGE)
+      return
+    }
     setProcessing(`certificate:${item.ID}`)
     setError('')
     try {
@@ -231,6 +240,10 @@ export default function InscripcionesList() {
   }
 
   function showQr(item) {
+    if (!canManage) {
+      setError(CERTIFICATE_PERMISSION_MESSAGE)
+      return
+    }
     setQrIns(item)
     setQrDataUrl('')
     generateQrDataUrl(item.ID)
@@ -274,7 +287,7 @@ export default function InscripcionesList() {
             <option value="">Todos los cursos</option>
             {servicios.filter(item => item.Activo === true || item.Activo === 'TRUE').map(item => <option key={item.ID} value={item.ID}>{item.Nombre}</option>)}
           </select>
-          {isAdmin && (
+          {canManage && (
             <select className="input w-full min-w-0 text-sm" value={filtros.vendedor} onChange={e => setFilter('vendedor', e.target.value)}>
               <option value="">Todos los vendedores</option>
               {vendedores.map(item => <option key={item.username} value={item.username}>{item.nombre}</option>)}
@@ -318,6 +331,7 @@ export default function InscripcionesList() {
               <button onClick={() => { setModal('sales'); setSelected(null) }} className="btn-secondary text-sm"><ShoppingBag size={15} /> Ventas por vendedor</button>
               <button onClick={() => exportInscripcionesCSV(data)} className="btn-secondary text-sm" disabled={!data.length}><Download size={15} /> CSV</button>
               <button onClick={() => exportInscripcionesPDF(data, buildExportLabel())} className="btn-secondary text-sm" disabled={!data.length}><FileText size={15} /> PDF</button>
+              <button onClick={() => setModal('certificate-audit')} className="btn-secondary text-sm"><History size={15} /> Auditoría de certificados</button>
             </>
           )}
           <button onClick={() => { setSelected(null); setModal('new') }} className="btn-primary text-sm"><Plus size={15} /> Nueva Inscripción</button>
@@ -416,7 +430,7 @@ export default function InscripcionesList() {
                       <td className="hidden px-2 py-2.5 xl:table-cell">
                         {hasAval && !avalReady && item.EstadoCertificado !== 'emitido'
                           ? <span className="badge-yellow px-1.5 text-[10px] leading-tight" title="Pendiente del aval institucional">Pend. aval</span>
-                          : <span title={item.CodigoCertificado ? `Código: ${item.CodigoCertificado}` : undefined} className={`${ESTADOS_CERTIFICADO[item.EstadoCertificado]?.css || 'badge-gray'} px-1.5 text-[10px] leading-tight`}>{ESTADOS_CERTIFICADO[item.EstadoCertificado]?.label || item.EstadoCertificado}</span>}
+                          : <span title={canManage && item.CodigoCertificado ? `Código: ${item.CodigoCertificado}` : undefined} className={`${ESTADOS_CERTIFICADO[item.EstadoCertificado]?.css || 'badge-gray'} px-1.5 text-[10px] leading-tight`}>{ESTADOS_CERTIFICADO[item.EstadoCertificado]?.label || item.EstadoCertificado}</span>}
                       </td>
                       <td className="hidden px-2 py-2.5 min-w-0 xl:table-cell"><AvalBadge item={item} hasAval={hasAval} /></td>
                       <td className="px-2 py-2.5 min-w-0 xl:hidden">
@@ -430,7 +444,7 @@ export default function InscripcionesList() {
                         <div className="flex flex-col items-start gap-1">
                           {hasAval && !avalReady && item.EstadoCertificado !== 'emitido'
                             ? <span className="badge-yellow px-1.5 text-[10px] leading-tight" title="Pendiente del aval institucional">Pend. aval</span>
-                            : <span title={item.CodigoCertificado ? `Código: ${item.CodigoCertificado}` : undefined} className={`${ESTADOS_CERTIFICADO[item.EstadoCertificado]?.css || 'badge-gray'} px-1.5 text-[10px] leading-tight`}>{ESTADOS_CERTIFICADO[item.EstadoCertificado]?.label || item.EstadoCertificado}</span>}
+                            : <span title={canManage && item.CodigoCertificado ? `Código: ${item.CodigoCertificado}` : undefined} className={`${ESTADOS_CERTIFICADO[item.EstadoCertificado]?.css || 'badge-gray'} px-1.5 text-[10px] leading-tight`}>{ESTADOS_CERTIFICADO[item.EstadoCertificado]?.label || item.EstadoCertificado}</span>}
                           <AvalBadge item={item} hasAval={hasAval} />
                         </div>
                       </td>
@@ -439,12 +453,12 @@ export default function InscripcionesList() {
                         <Action icon={Download} label="Descargar comprobante de inscripción" onClick={() => exportInscripcionPDF(item)} disabled={rowBusy} />
                         <Action icon={Pencil} label="Editar inscripción" onClick={() => { setSelected(item); setModal('edit') }} disabled={rowBusy} />
                         {isAdmin && canVerifyPayment && <Action icon={CheckCircle} label="Verificar pago" onClick={() => setConfirm({ type: 'verify', item })} disabled={rowBusy} css="hover:text-emerald-600 hover:bg-emerald-50" />}
-                        {isAdmin && item.EstadoPago === 'verificado' && item.EstadoCertificado !== 'emitido' && <Action icon={Award}
+                        {certificateCapabilities(user, item).canIssue && <Action icon={Award}
                           label={avalReady ? 'Generar y emitir certificado académico' : `Pendiente del aval institucional${item.InstitucionAval ? ` de ${item.InstitucionAval}` : ''}`}
                           onClick={() => emitCertificate(item)} disabled={rowBusy || !avalReady} css="hover:text-amber-600 hover:bg-amber-50" />}
-                        {item.EstadoCertificado === 'emitido' && <Action icon={Award} label="Descargar certificado académico" onClick={() => downloadCertificate(item)} disabled={rowBusy} css="hover:text-amber-600 hover:bg-amber-50" />}
-                        {item.EstadoCertificado === 'emitido' && <Action icon={QrCode} label="Ver y descargar QR" onClick={() => showQr(item)} disabled={rowBusy} />}
-                        {item.EstadoCertificado === 'emitido' && <Action icon={MailCheck} label="Entregar certificado" onClick={() => { setSelected(item); setModal('delivery') }} disabled={rowBusy} css="hover:text-emerald-600 hover:bg-emerald-50" />}
+                        {certificateCapabilities(user, item).canDownload && <Action icon={Award} label="Descargar certificado académico" onClick={() => downloadCertificate(item)} disabled={rowBusy} css="hover:text-amber-600 hover:bg-amber-50" />}
+                        {certificateCapabilities(user, item).canViewQr && <Action icon={QrCode} label="Ver y descargar QR" onClick={() => showQr(item)} disabled={rowBusy} />}
+                        {certificateCapabilities(user, item).canDeliver && <Action icon={MailCheck} label="Entregar certificado" onClick={() => { setSelected(item); setModal('delivery') }} disabled={rowBusy} css="hover:text-emerald-600 hover:bg-emerald-50" />}
                         {(isAdmin || item.EstadoPago === 'pendiente') && <Action icon={Trash2} label="Eliminar inscripción" onClick={() => setConfirm({ type: 'delete', item })} disabled={rowBusy} css="hover:text-red-600 hover:bg-red-50" />}
                       </div></td>
                     </tr>
@@ -466,9 +480,13 @@ export default function InscripcionesList() {
       <Modal open={modal === 'batch-delivery'} onClose={() => { setModal(null); setSelectedIds(new Set()) }} title="Enviar certificados por correo" size="lg">
         {modal === 'batch-delivery' && <EnvioMasivoCertificadosModal
           inscripciones={selectedCertificates}
+          isAdmin={canManage}
           onClose={() => { setModal(null); setSelectedIds(new Set()) }}
           onUpdated={load}
         />}
+      </Modal>
+      <Modal open={modal === 'certificate-audit'} onClose={() => setModal(null)} title="Auditoría de certificados" size="xl">
+        {modal === 'certificate-audit' && canManage && <AuditoriaCertificadosModal onClose={() => setModal(null)} />}
       </Modal>
 
       <Modal open={Boolean(durationTarget)} onClose={() => { if (!durationSaving) setDurationTarget(null) }} title="Completar duración académica" size="sm">

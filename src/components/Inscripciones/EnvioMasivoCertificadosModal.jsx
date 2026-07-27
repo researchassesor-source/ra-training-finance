@@ -3,10 +3,11 @@ import { CheckCircle2, Mail, XCircle } from 'lucide-react'
 import { api } from '../../services/api'
 import { blobToBase64 } from '../../utils/blob'
 import { buildCertificatePdf } from '../../utils/certificateGenerator'
+import { CERTIFICATE_PERMISSION_MESSAGE } from '../../utils/certificatePermissions'
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
-export default function EnvioMasivoCertificadosModal({ inscripciones, onClose, onUpdated }) {
+export default function EnvioMasivoCertificadosModal({ inscripciones, isAdmin, onClose, onUpdated }) {
   const elegibles = useMemo(() => inscripciones.filter(item => (
     item.EstadoCertificado === 'emitido' && EMAIL_RE.test(String(item.ClienteEmail || '').trim())
   )), [inscripciones])
@@ -48,6 +49,15 @@ export default function EnvioMasivoCertificadosModal({ inscripciones, onClose, o
   const sent = results.filter(item => item.ok).length
   const failed = results.filter(item => !item.ok).length
   const finished = !sending && results.length > 0
+
+  if (!isAdmin) {
+    return (
+      <div className="space-y-4">
+        <p className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">{CERTIFICATE_PERMISSION_MESSAGE}</p>
+        <div className="flex justify-end"><button type="button" onClick={onClose} className="btn-secondary">Cerrar</button></div>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-4">

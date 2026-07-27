@@ -3,7 +3,9 @@ import { useParams } from 'react-router-dom'
 import { api } from '../../services/api'
 import { fmt } from '../../utils/formatters'
 import Spinner from '../UI/Spinner'
-import { TrendingUp, CheckCircle2, ExternalLink, XCircle } from 'lucide-react'
+import { CheckCircle2, ExternalLink, XCircle } from 'lucide-react'
+import logo from '../../assets/brand/logo-ra-training.webp'
+import { BRAND } from '../../config/brand'
 
 export default function VerificarCertificado() {
   const { id } = useParams()
@@ -21,13 +23,13 @@ export default function VerificarCertificado() {
   const valido = resultado?.valido === true
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 p-6">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-brand-50 via-white to-secondary-50 p-6">
       <div className="w-full max-w-md">
         <div className="text-center mb-6">
-          <div className="w-14 h-14 bg-brand-800 rounded-2xl flex items-center justify-center mx-auto mb-3">
-            <TrendingUp size={28} className="text-amber-400" />
+          <div className="w-16 h-16 bg-brand-800 rounded-2xl flex items-center justify-center mx-auto mb-3 p-2 shadow-lg">
+            <img src={logo} alt="Símbolo oficial de R.A. Training" className="h-full w-auto object-contain" />
           </div>
-          <h1 className="text-xl font-bold text-gray-900">R.A. Training</h1>
+          <h1 className="text-xl font-bold text-gray-900">{BRAND.fullName}</h1>
           <p className="text-gray-500 text-sm">Verificación de Certificados</p>
         </div>
 
@@ -44,7 +46,7 @@ export default function VerificarCertificado() {
         </div>
 
         <p className="text-center text-xs text-gray-400 mt-6">
-          R.A. Training &copy; {new Date().getFullYear()} — Sistema de Gestión Financiera
+          {BRAND.fullName} &copy; {new Date().getFullYear()} — {BRAND.subtitle}
         </p>
       </div>
     </div>
@@ -61,6 +63,7 @@ function EstadoValido({ data }) {
       </div>
       <div className="text-left bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-2 text-sm">
         <Campo label="Código" valor={data.codigo} mono />
+        <Campo label="Estado" valor={data.estado === 'vigente' ? 'Vigente' : data.estado} />
         <Campo label="Participante" valor={data.nombre} />
         <Campo label="Servicio / Curso" valor={data.servicio} />
         <Campo label="Duración" valor={data.duracion} />

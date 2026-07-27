@@ -216,6 +216,8 @@ export const api = {
     bust('getInscripciones')
     return callPost('enviarCertificadoEmail', { id, ...archivo }, getToken())
   },
+  getAuditoriaCertificados: (filtros = {}) =>
+    call('getAuditoriaCertificados', { filtros }, getToken()),
   deleteInscripcion: (id) => {
     bust('getInscripciones', 'getIngresos', 'getDashboard')
     return call('deleteInscripcion', { id }, getToken())

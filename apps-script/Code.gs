@@ -83,6 +83,7 @@ function processRequest(data) {
     emitirCertificado:  () => emitirCertificado(user, params),
     actualizarEntregaCertificado: () => actualizarEntregaCertificado(user, params),
     enviarCertificadoEmail: () => enviarCertificadoEmail(user, params),
+    getAuditoriaCertificados: () => getAuditoriaCertificados(user, params),
     getConfigPagos:     () => getConfigPagos(user, params),
     addConfigPago:      () => addConfigPago(user, params),
     updateConfigPago:   () => updateConfigPago(user, params),
@@ -139,6 +140,7 @@ const SHEET_HEADERS = {
   Asistencia:       ['ID','Username','Nombre','Tipo','Timestamp','Fecha','Notas','FechaCreacion'],
   FlujosSemanales:  ['ID','Username','NombreUsuario','Semana','FechaInicio','FechaFin','TotalHorasPlan','Estado','Notas','CreadoPor','FechaCreacion'],
   ActividadesFlujo: ['ID','FlujoID','Username','Titulo','Descripcion','DiaSemana','HorasEstimadas','Estado','HorasReales','Notas','Evidencia','CompletadoEn','FechaCreacion'],
+  AuditoriaCertificados: ['ID','CertificadoID','InscripcionID','Usuario','Rol','Accion','FechaHora','EstadoAnterior','EstadoNuevo','Canal','Resultado','Motivo','Metadatos'],
 };
 
 function getSheet(name) {
@@ -226,6 +228,51 @@ function hashPassword(password) {
 
 function requireAdmin(user) {
   if (user.Rol !== 'admin') throw new Error('Acceso denegado: se requiere rol de administrador.');
+}
+
+function registrarAuditoriaCertificado(evento) {
+  try {
+    var metadata = evento.metadatos && typeof evento.metadatos === 'object'
+      ? JSON.stringify(evento.metadatos)
+      : '';
+    if (metadata.length > 1500) metadata = metadata.slice(0, 1500);
+    getSheet('AuditoriaCertificados').appendRow([
+      generateId('AUD'),
+      String(evento.certificadoId || ''),
+      String(evento.inscripcionId || ''),
+      String(evento.usuario || ''),
+      String(evento.rol || ''),
+      String(evento.accion || ''),
+      new Date().toISOString(),
+      String(evento.estadoAnterior || ''),
+      String(evento.estadoNuevo || ''),
+      String(evento.canal || 'sistema'),
+      String(evento.resultado || 'ok'),
+      String(evento.motivo || '').slice(0, 500),
+      metadata,
+    ]);
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
+function requireCertificateAdmin(user, action, context) {
+  if (isAdmin(user)) return;
+  context = context || {};
+  registrarAuditoriaCertificado({
+    certificadoId: context.certificadoId,
+    inscripcionId: context.inscripcionId,
+    usuario: user && user.Username,
+    rol: user && user.Rol,
+    accion: action,
+    estadoAnterior: context.estadoAnterior,
+    estadoNuevo: context.estadoNuevo,
+    canal: context.canal || 'api',
+    resultado: 'rechazado',
+    motivo: 'Rol sin permiso administrativo para certificados.',
+  });
+  throw new Error('Acceso denegado: solo un administrador puede gestionar certificados oficiales.');
 }
 
 function isAdmin(user)    { return user.Rol === 'admin'; }
@@ -363,6 +410,8 @@ function handleVerificarCertificado({ id } = {}) {
     valido: true,
     data: {
       codigo:          row.CodigoCertificado || codigoCertificadoEstable(row),
+      identificador:   row.CodigoCertificado || codigoCertificadoEstable(row),
+      estado:          'vigente',
       nombre:          row.ClienteNombre,
       servicio:        row.ServicioNombre,
       duracion:        duracionDe(row),
@@ -1014,6 +1063,19 @@ function inscripcionEnriquecida(row, duracionDe, usuarios) {
   });
 }
 
+function resumenCertificadoParaVendedor(row) {
+  var resumen = Object.assign({}, row);
+  resumen.CodigoCertificado = '';
+  resumen.FechaEmisionCertificado = '';
+  resumen.EmitidoPor = '';
+  resumen.FechaEntregaCertificado = '';
+  resumen.EntregadoPor = '';
+  resumen.AvalReferencia = '';
+  resumen.AvalEnlaceExterno = '';
+  resumen.AvalCodigoExterno = '';
+  return resumen;
+}
+
 function validarDatosInscripcion(inscripcion) {
   if (!inscripcion) return 'Los datos de la inscripción son obligatorios.';
   if (!inscripcion.servicioId && !inscripcion.servicioNombre) return 'Seleccione un servicio.';
@@ -1081,7 +1143,10 @@ function getInscripciones(user, { filtros = {} } = {}) {
   data.sort(function(a, b) { return new Date(b.FechaCreacion || 0) - new Date(a.FechaCreacion || 0); });
   const duracionDe = mapaDuracionServicios();
   const usuarios = mapaUsuariosPorUsername();
-  data = data.map(function(i) { return inscripcionEnriquecida(i, duracionDe, usuarios); });
+  data = data.map(function(i) {
+    var enriched = inscripcionEnriquecida(i, duracionDe, usuarios);
+    return isAdmin(user) ? enriched : resumenCertificadoParaVendedor(enriched);
+  });
   return { success: true, data };
 }
 
@@ -1153,6 +1218,16 @@ function addInscripcion(user, { inscripcion }) {
   const inscRow = sheetToObjects(sheet).find(r => r.ID === id);
   if (inscRow) updateRow(sheet, inscRow, { IngresoID: ingresoId });
 
+  registrarAuditoriaCertificado({
+    inscripcionId: id,
+    usuario: user.Username,
+    rol: user.Rol,
+    accion: 'INSCRIPTION_CREATED',
+    estadoNuevo: 'INSCRIPTION_CREATED',
+    canal: 'panel',
+    resultado: 'ok',
+  });
+
   return { success: true, id, ingresoId };
 }
 
@@ -1201,6 +1276,17 @@ function updateInscripcion(user, { id, inscripcion }) {
   });
   const updated = sheetToObjects(sheet).find(function(r) { return r.ID === id; });
   const sync = sincronizarIngresoInscripcion(updated);
+  registrarAuditoriaCertificado({
+    certificadoId: updated.CodigoCertificado,
+    inscripcionId: id,
+    usuario: user.Username,
+    rol: user.Rol,
+    accion: 'ENROLLMENT_UPDATED',
+    estadoAnterior: row.EstadoCertificado || 'pendiente',
+    estadoNuevo: updated.EstadoCertificado || 'pendiente',
+    canal: 'panel',
+    resultado: 'ok',
+  });
   const duracionDe = mapaDuracionServicios();
   const usuarios = mapaUsuariosPorUsername();
   return {
@@ -1245,6 +1331,17 @@ function verificarPagoInscripcion(user, { id, numeroComprobante, fechaPago } = {
   const updated = sheetToObjects(sheet).find(function(r) { return r.ID === id; });
   const sync = sincronizarIngresoInscripcion(updated);
   if (!sync.sincronizado) return { success: false, error: sync.motivo + ' Revise el registro antes de continuar.' };
+  registrarAuditoriaCertificado({
+    certificadoId: updated.CodigoCertificado,
+    inscripcionId: id,
+    usuario: user.Username,
+    rol: user.Rol,
+    accion: 'PAYMENT_VERIFIED',
+    estadoAnterior: row.EstadoPago || 'pendiente',
+    estadoNuevo: 'verificado',
+    canal: 'panel',
+    resultado: 'ok',
+  });
   return { success: true, data: inscripcionEnriquecida(updated, mapaDuracionServicios(), mapaUsuariosPorUsername()) };
 }
 
@@ -1269,11 +1366,14 @@ function datosFaltantesCertificado(row) {
   return campos.filter(function(item) { return !String(item[1] || '').trim(); }).map(function(item) { return item[0]; });
 }
 
-function emitirCertificado(user, { id, codigoCertificado } = {}) {
-  requireAdmin(user);
+function emitirCertificado(user, { id } = {}) {
+  requireCertificateAdmin(user, 'CERTIFICATE_ISSUE', { inscripcionId: id, canal: 'api' });
   const sheet = getSheet('Inscripciones');
   const row = sheetToObjects(sheet).find(function(r) { return r.ID === id; });
   if (!row) return { success: false, error: 'Inscripción no encontrada.' };
+  if (row.EstadoCertificado === 'emitido') {
+    return { success: true, alreadyIssued: true, data: inscripcionEnriquecida(row, mapaDuracionServicios(), mapaUsuariosPorUsername()) };
+  }
   if (row.EstadoPago !== 'verificado') return { success: false, error: 'El pago debe estar verificado antes de emitir el certificado.' };
   if (esVerdadero(row.RequiereAvalExterno) && row.EstadoAval !== 'avalado') {
     return { success: false, error: 'El certificado requiere el aval institucional antes de poder emitirse.' };
@@ -1281,8 +1381,7 @@ function emitirCertificado(user, { id, codigoCertificado } = {}) {
   const faltantes = datosFaltantesCertificado(row);
   if (faltantes.length) return { success: false, error: 'Faltan los siguientes datos para generar el certificado: ' + faltantes.join(', ') + '.' };
 
-  const propuesto = String(codigoCertificado || '').trim().toUpperCase();
-  const codigo = /^RA-\d{4}-[A-Z0-9_-]{5,32}$/.test(propuesto) ? propuesto : codigoCertificadoEstable(row);
+  const codigo = codigoCertificadoEstable(row);
   updateRow(sheet, row, {
     EstadoCertificado: 'emitido',
     CodigoCertificado: row.CodigoCertificado || codigo,
@@ -1291,22 +1390,43 @@ function emitirCertificado(user, { id, codigoCertificado } = {}) {
     EstadoEntrega: row.EstadoEntrega || 'pendiente',
   });
   const updated = sheetToObjects(sheet).find(function(r) { return r.ID === id; });
+  registrarAuditoriaCertificado({
+    certificadoId: updated.CodigoCertificado,
+    inscripcionId: id,
+    usuario: user.Username,
+    rol: user.Rol,
+    accion: 'CERTIFICATE_ISSUED',
+    estadoAnterior: row.EstadoCertificado || 'pendiente',
+    estadoNuevo: 'emitido',
+    canal: 'panel',
+    resultado: 'ok',
+  });
   return { success: true, data: inscripcionEnriquecida(updated, mapaDuracionServicios(), mapaUsuariosPorUsername()) };
 }
 
 function actualizarEntregaCertificado(user, { id, estadoEntrega } = {}) {
-  if (!isVendedor(user)) throw new Error('Acceso denegado.');
-  const permitidos = ['descargado', 'compartido'];
+  requireCertificateAdmin(user, 'CERTIFICATE_DELIVERY_UPDATE', { inscripcionId: id, canal: 'api' });
+  const permitidos = ['descargado', 'compartido', 'enviado_whatsapp'];
   if (permitidos.indexOf(estadoEntrega) === -1) return { success: false, error: 'Estado de entrega no válido.' };
   const sheet = getSheet('Inscripciones');
   const row = sheetToObjects(sheet).find(function(r) { return r.ID === id; });
   if (!row) return { success: false, error: 'Inscripción no encontrada.' };
-  if (!isAdmin(user) && row.CreadoPor !== user.Username) return { success: false, error: 'No autorizado.' };
   if (row.EstadoCertificado !== 'emitido') return { success: false, error: 'El certificado todavía no ha sido emitido.' };
   updateRow(sheet, row, {
     EstadoEntrega: estadoEntrega,
     FechaEntregaCertificado: new Date().toISOString(),
     EntregadoPor: user.Username,
+  });
+  registrarAuditoriaCertificado({
+    certificadoId: row.CodigoCertificado,
+    inscripcionId: id,
+    usuario: user.Username,
+    rol: user.Rol,
+    accion: estadoEntrega === 'descargado' ? 'CERTIFICATE_DOWNLOADED' : 'CERTIFICATE_SHARED',
+    estadoAnterior: row.EstadoEntrega || 'pendiente',
+    estadoNuevo: estadoEntrega,
+    canal: estadoEntrega === 'enviado_whatsapp' ? 'whatsapp' : 'panel',
+    resultado: 'ok',
   });
   return { success: true };
 }
@@ -1318,7 +1438,7 @@ function deleteIngresoSeguro(user, { id } = {}) {
 }
 
 function enviarCertificadoEmail(user, { id, pdfBase64, mimeType, filename, email } = {}) {
-  requireAdmin(user);
+  requireCertificateAdmin(user, 'CERTIFICATE_EMAIL_SEND', { inscripcionId: id, canal: 'email' });
   const sheet = getSheet('Inscripciones');
   const row = sheetToObjects(sheet).find(function(r) { return r.ID === id; });
   if (!row) return { success: false, error: 'Inscripción no encontrada.' };
@@ -1345,6 +1465,18 @@ function enviarCertificadoEmail(user, { id, pdfBase64, mimeType, filename, email
       attachments: [blob],
     });
   } catch (err) {
+    registrarAuditoriaCertificado({
+      certificadoId: row.CodigoCertificado,
+      inscripcionId: id,
+      usuario: user.Username,
+      rol: user.Rol,
+      accion: 'CERTIFICATE_DELIVERY_FAILED',
+      estadoAnterior: row.EstadoEntrega || 'pendiente',
+      estadoNuevo: row.EstadoEntrega || 'pendiente',
+      canal: 'email',
+      resultado: 'error',
+      motivo: 'MailApp no pudo completar el envío.',
+    });
     return { success: false, error: 'No se pudo enviar el correo. Revise la autorización de MailApp y vuelva a intentarlo.' };
   }
   updateRow(sheet, row, {
@@ -1352,7 +1484,47 @@ function enviarCertificadoEmail(user, { id, pdfBase64, mimeType, filename, email
     FechaEntregaCertificado: new Date().toISOString(),
     EntregadoPor: user.Username,
   });
+  registrarAuditoriaCertificado({
+    certificadoId: row.CodigoCertificado,
+    inscripcionId: id,
+    usuario: user.Username,
+    rol: user.Rol,
+    accion: 'CERTIFICATE_SENT',
+    estadoAnterior: row.EstadoEntrega || 'pendiente',
+    estadoNuevo: 'enviado_email',
+    canal: 'email',
+    resultado: 'ok',
+  });
   return { success: true };
+}
+
+function getAuditoriaCertificados(user, { filtros = {} } = {}) {
+  requireCertificateAdmin(user, 'CERTIFICATE_AUDIT_READ', { canal: 'api' });
+  var data = sheetToObjects(getSheet('AuditoriaCertificados'));
+  if (filtros.inscripcionId) data = data.filter(function(e) { return e.InscripcionID === filtros.inscripcionId; });
+  if (filtros.certificadoId) data = data.filter(function(e) { return e.CertificadoID === filtros.certificadoId; });
+  if (filtros.accion) data = data.filter(function(e) { return e.Accion === filtros.accion; });
+  data.sort(function(a, b) { return new Date(b.FechaHora || 0) - new Date(a.FechaHora || 0); });
+  var limit = Math.min(Math.max(Number(filtros.limit) || 100, 1), 500);
+  return {
+    success: true,
+    data: data.slice(0, limit).map(function(e) {
+      return {
+        ID: e.ID,
+        CertificadoID: e.CertificadoID || '',
+        InscripcionID: e.InscripcionID || '',
+        Usuario: e.Usuario || '',
+        Rol: e.Rol || '',
+        Accion: e.Accion || '',
+        FechaHora: e.FechaHora || '',
+        EstadoAnterior: e.EstadoAnterior || '',
+        EstadoNuevo: e.EstadoNuevo || '',
+        Canal: e.Canal || '',
+        Resultado: e.Resultado || '',
+        Motivo: e.Motivo || '',
+      };
+    }),
+  };
 }
 
 // ─────────────────────────────────────────────
@@ -1458,6 +1630,17 @@ function marcarAval(user, { id, avalReferencia, valorAval, avalEnlaceExterno, av
     ValorAval: valorAval !== undefined ? (Number(valorAval) || 0) : (Number(row.ValorAval) || 0),
     AvalEnlaceExterno: enlace,
     AvalCodigoExterno: codigo,
+  });
+  registrarAuditoriaCertificado({
+    certificadoId: row.CodigoCertificado,
+    inscripcionId: id,
+    usuario: user.Username,
+    rol: user.Rol,
+    accion: 'AVAL_CONFIRMED',
+    estadoAnterior: row.EstadoAval || 'pendiente',
+    estadoNuevo: 'avalado',
+    canal: 'panel_aval',
+    resultado: 'ok',
   });
   return { success: true };
 }

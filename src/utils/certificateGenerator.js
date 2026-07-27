@@ -235,6 +235,9 @@ export async function buildCertificatePdf(inscripcion, options = {}) {
   if (missing.length) {
     throw new Error(`Faltan los siguientes datos para generar el certificado: ${missing.join(', ')}.`)
   }
+  if (inscripcion.EstadoCertificado !== 'emitido' || !String(inscripcion.CodigoCertificado || '').trim() || !inscripcion.FechaEmisionCertificado) {
+    throw new Error('El certificado oficial debe ser emitido por un administrador antes de generar el PDF.')
+  }
 
   const recordId = String(inscripcion.ID).trim()
   const certificateCode = certificateCodeFor(inscripcion)
