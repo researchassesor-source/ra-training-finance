@@ -226,16 +226,36 @@ export default function InscripcionesList() {
       setError(CERTIFICATE_PERMISSION_MESSAGE)
       return
     }
+    const previewWindow = window.open('', '_blank')
+    if (previewWindow) {
+      previewWindow.opener = null
+      previewWindow.document.title = 'Generando certificado…'
+      previewWindow.document.body.innerHTML = '<p style="font:16px system-ui;padding:24px;color:#114899">Generando vista previa del certificado…</p>'
+    }
     setProcessing(`certificate:${item.ID}`)
     setError('')
     try {
-      const issued = await api.emitirCertificado(item.ID)
-      const result = await buildCertificatePdf(issued.data)
-      await api.registrarGeneracionCertificado(item.ID)
+      const result = await buildCertificatePdf(item)
+      const previewUrl = URL.createObjectURL(result.blob)
       saveAs(result.blob, result.filename)
-      await api.actualizarEntregaCertificado(item.ID, 'descargado')
-      load()
+      if (previewWindow) previewWindow.location.replace(previewUrl)
+      window.setTimeout(() => URL.revokeObjectURL(previewUrl), 60_000)
+
+      // La descarga y la vista previa no dependen de la latencia de auditoría.
+      // El backend normaliza y registra el certificado en segundo plano.
+      void (async () => {
+        try {
+          await api.emitirCertificado(item.ID)
+          await api.registrarGeneracionCertificado(item.ID)
+          await api.actualizarEntregaCertificado(item.ID, 'descargado')
+          load()
+        } catch {
+          // El PDF ya fue generado. La próxima sincronización reintentará la
+          // normalización histórica sin bloquear al administrador.
+        }
+      })()
     } catch (err) {
+      if (previewWindow && !previewWindow.closed) previewWindow.close()
       if (isAdmin && /duraci/i.test(err.message || '')) openDurationEditor(item)
       else setError(err.message)
     }
@@ -459,7 +479,7 @@ export default function InscripcionesList() {
                         {canManage && item.EstadoPago === 'verificado' && item.EstadoCertificado !== 'emitido' && <Action icon={Award}
                           label={avalReady ? 'Generar y emitir certificado académico' : `Pendiente del aval institucional${item.InstitucionAval ? ` de ${item.InstitucionAval}` : ''}`}
                           onClick={() => emitCertificate(item)} disabled={rowBusy || !avalReady} css="hover:text-amber-600 hover:bg-amber-50" />}
-                        {certificateCapabilities(user, item).canDownload && <Action icon={Award} label="Descargar certificado académico" onClick={() => downloadCertificate(item)} disabled={rowBusy} css="hover:text-amber-600 hover:bg-amber-50" />}
+                        {certificateCapabilities(user, item).canDownload && <Action icon={Award} label="Ver y descargar certificado académico" onClick={() => downloadCertificate(item)} disabled={rowBusy} css="hover:text-amber-600 hover:bg-amber-50" />}
                         {certificateCapabilities(user, item).canViewQr && <Action icon={QrCode} label="Ver y descargar QR" onClick={() => showQr(item)} disabled={rowBusy} />}
                         {certificateCapabilities(user, item).canDeliver && <Action icon={MailCheck} label="Entregar certificado" onClick={() => { setSelected(item); setModal('delivery') }} disabled={rowBusy} css="hover:text-emerald-600 hover:bg-emerald-50" />}
                         {(isAdmin || item.EstadoPago === 'pendiente') && <Action icon={Trash2} label="Eliminar inscripción" onClick={() => setConfirm({ type: 'delete', item })} disabled={rowBusy} css="hover:text-red-600 hover:bg-red-50" />}

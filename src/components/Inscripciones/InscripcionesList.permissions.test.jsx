@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import InscripcionesList from './InscripcionesList'
 
@@ -12,6 +12,17 @@ const apiMock = vi.hoisted(() => ({
   getServicios: vi.fn(async () => ({ data: [] })),
   getUsuarios: vi.fn(async () => ({ data: [] })),
   getConfigPagos: vi.fn(async () => ({ data: [] })),
+  emitirCertificado: vi.fn(async () => ({ data: state.rows[0] })),
+  registrarGeneracionCertificado: vi.fn(async () => ({ success: true })),
+  actualizarEntregaCertificado: vi.fn(async () => ({ success: true })),
+}))
+
+const certificateMocks = vi.hoisted(() => ({
+  buildCertificatePdf: vi.fn(async () => ({
+    blob: new Blob(['pdf'], { type: 'application/pdf' }),
+    filename: 'certificado_demo.pdf',
+  })),
+  saveAs: vi.fn(),
 }))
 
 vi.mock('../../context/AuthContext', () => ({
@@ -21,14 +32,14 @@ vi.mock('../../context/AuthContext', () => ({
   }),
 }))
 vi.mock('../../services/api', () => ({ api: apiMock }))
-vi.mock('file-saver', () => ({ saveAs: vi.fn() }))
+vi.mock('file-saver', () => ({ saveAs: certificateMocks.saveAs }))
 vi.mock('../../utils/exporters', () => ({
   exportInscripcionPDF: vi.fn(),
   exportInscripcionesCSV: vi.fn(),
   exportInscripcionesPDF: vi.fn(),
 }))
 vi.mock('../../utils/certificateGenerator', () => ({
-  buildCertificatePdf: vi.fn(),
+  buildCertificatePdf: certificateMocks.buildCertificatePdf,
   validateCertificateData: vi.fn(() => []),
 }))
 vi.mock('../../utils/qr', () => ({
@@ -57,14 +68,25 @@ const emittedRow = {
 }
 
 describe('acciones visibles en inscripciones', () => {
-  beforeEach(() => { state.rows = [emittedRow] })
+  beforeEach(() => {
+    state.rows = [emittedRow]
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => 'blob:certificate-preview') })
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() })
+    vi.spyOn(window, 'open').mockReturnValue({
+      opener: null,
+      document: { title: '', body: { innerHTML: '' } },
+      location: { replace: vi.fn() },
+      closed: false,
+      close: vi.fn(),
+    })
+  })
   afterEach(() => cleanup())
 
   it('muestra descargar, QR y entrega al administrador', async () => {
     state.user = { rol: 'admin', username: 'admin.demo', nombre: 'Admin Demo' }
     render(<InscripcionesList />)
     await screen.findByText('Participante Demo')
-    expect(screen.getByRole('button', { name: 'Descargar certificado académico' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Ver y descargar certificado académico' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Ver y descargar QR' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Entregar certificado' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Auditoría de certificados/i })).toBeInTheDocument()
@@ -75,9 +97,23 @@ describe('acciones visibles en inscripciones', () => {
     render(<InscripcionesList />)
     await screen.findByText('Participante Demo')
     expect(screen.getAllByText('Emitido').length).toBeGreaterThan(0)
-    expect(screen.queryByRole('button', { name: 'Descargar certificado académico' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Ver y descargar certificado académico' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Ver y descargar QR' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Entregar certificado' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Auditoría de certificados/i })).not.toBeInTheDocument()
+  })
+
+  it('descarga antes de esperar la auditoría remota', async () => {
+    state.user = { rol: 'admin', username: 'admin.demo', nombre: 'Admin Demo' }
+    apiMock.emitirCertificado.mockImplementationOnce(() => new Promise(() => {}))
+    render(<InscripcionesList />)
+    await screen.findByText('Participante Demo')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ver y descargar certificado académico' }))
+
+    await waitFor(() => expect(certificateMocks.saveAs).toHaveBeenCalledWith(
+      expect.any(Blob),
+      'certificado_demo.pdf',
+    ))
   })
 })
