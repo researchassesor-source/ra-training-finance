@@ -1,5 +1,26 @@
+export function corsOriginForRequest(req, allowlistValue = process.env.ALLOWED_ORIGINS) {
+  const origin = String(req.headers?.origin || '').trim()
+  if (!origin) return ''
+  const forwardedHost = String(req.headers?.['x-forwarded-host'] || req.headers?.host || '').split(',')[0].trim()
+  try {
+    if (new URL(origin).host === forwardedHost) return origin
+  } catch {
+    return null
+  }
+  const allowed = String(allowlistValue || '').split(',').map(value => value.trim()).filter(Boolean)
+  return allowed.includes(origin) ? origin : null
+}
+
 export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*')
+  const corsOrigin = corsOriginForRequest(req)
+  if (corsOrigin === null) {
+    res.status(403).json({ success: false, error: 'Origen no autorizado' })
+    return
+  }
+  if (corsOrigin) {
+    res.setHeader('Access-Control-Allow-Origin', corsOrigin)
+    res.setHeader('Vary', 'Origin')
+  }
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
 

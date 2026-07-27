@@ -83,6 +83,9 @@ export const ESTADOS_CERTIFICADO = {
   pendiente:   { label: 'Pendiente',   css: 'badge-yellow' },
   en_proceso:  { label: 'En proceso',  css: 'badge-blue'   },
   emitido:     { label: 'Emitido',     css: 'badge-green'  },
+  enviado:     { label: 'Enviado',     css: 'badge-green'  },
+  anulado:     { label: 'Anulado',     css: 'badge-red'    },
+  reemitido:   { label: 'Reemitido',   css: 'badge-blue'   },
   cancelado:   { label: 'Cancelado',   css: 'badge-red'    },
 }
 

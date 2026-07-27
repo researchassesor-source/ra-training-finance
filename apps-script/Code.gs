@@ -4,7 +4,6 @@
 // ============================================================
 
 const CONFIG = {
-  SECRET: 'RATraining$ecret2024',   // Cambiar antes de producción
   SESSION_EXPIRY_HOURS: 24,
 };
 
@@ -81,8 +80,17 @@ function processRequest(data) {
     updateInscripcion:  () => updateInscripcion(user, params),
     verificarPagoInscripcion: () => verificarPagoInscripcion(user, params),
     emitirCertificado:  () => emitirCertificado(user, params),
+    anularCertificado:   () => anularCertificado(user, params),
+    reemitirCertificado: () => reemitirCertificado(user, params),
+    getCertificadoParaDescarga: () => getCertificadoParaDescarga(user, params),
+    registrarArtefactoCertificado: () => registrarArtefactoCertificado(user, params),
+    solicitarDescargaCertificado: () => solicitarDescargaCertificado(user, params),
+    confirmarDescargaCertificado: () => confirmarDescargaCertificado(user, params),
+    getDescargasPendientes: () => getDescargasPendientes(user, params),
+    registrarGeneracionCertificado: () => registrarGeneracionCertificado(user, params),
     actualizarEntregaCertificado: () => actualizarEntregaCertificado(user, params),
     enviarCertificadoEmail: () => enviarCertificadoEmail(user, params),
+    getAuditoriaCertificados: () => getAuditoriaCertificados(user, params),
     getConfigPagos:     () => getConfigPagos(user, params),
     addConfigPago:      () => addConfigPago(user, params),
     updateConfigPago:   () => updateConfigPago(user, params),
@@ -132,14 +140,19 @@ const SHEET_HEADERS = {
   Proyecciones:     ['ID','Evento','Tipo','FechaEstimada','MontoProyectado','MontoReal','Estado','Notas','CreadoPor','FechaCreacion'],
   Categorias:       ['ID','Nombre','Tipo','Activo'],
   Servicios:        ['ID','Nombre','Tipo','Modalidad','Precio','Duracion','Descripcion','Activo','FechaCreacion','FechaEvento','FechaFinEvento','LugarEvento'],
-  Inscripciones:    ['ID','ClienteNombre','ClienteID','ClienteEmail','ClienteTelefono','ServicioID','ServicioNombre','Modalidad','FechaInicio','Monto','MetodoPago','RazonSocial','RUC','DireccionFactura','EstadoPago','EstadoCertificado','IngresoID','Notas','CreadoPor','FechaCreacion','FechaEmisionCertificado','RequiereAvalExterno','EstadoAval','AvalReferencia','FechaAval','ValorAval','FechaFin','NumeroComprobante','FechaPago','FechaVerificacionPago','VerificadoPor','InstitucionAval','CodigoCertificado','EmitidoPor','EstadoEntrega','FechaEntregaCertificado','EntregadoPor','AvalEnlaceExterno','AvalCodigoExterno'],
+  Inscripciones:    ['ID','ClienteNombre','ClienteID','ClienteEmail','ClienteTelefono','ServicioID','ServicioNombre','Modalidad','FechaInicio','Monto','MetodoPago','RazonSocial','RUC','DireccionFactura','EstadoPago','EstadoCertificado','IngresoID','Notas','CreadoPor','FechaCreacion','FechaEmisionCertificado','RequiereAvalExterno','EstadoAval','AvalReferencia','FechaAval','ValorAval','FechaFin','NumeroComprobante','FechaPago','FechaVerificacionPago','VerificadoPor','InstitucionAval','CodigoCertificado','EmitidoPor','EstadoEntrega','FechaEntregaCertificado','EntregadoPor','AvalEnlaceExterno','AvalCodigoExterno','AvalTextoConfirmado','CertificateVersion','TemplateVersion','PdfHash','PdfStorageReference','OriginalCertificateId','ReissuedCertificateId','CertificateStatus','IssuedAt','IssuedBy','VoidedAt','VoidedBy','VoidReason','ReissueReason'],
   Sesiones:         ['Token','Username','UserID','Rol','Nombre','Expira'],
   ConfigPagos:      ['ID','Nombre','Tipo','Detalles','Instrucciones','Activo','FechaCreacion'],
   Convenios:        ['ID','Organizacion','Representante','Cargo','Objeto','ObligacionesRA','ObligacionesAliado','Vigencia','FechaInicio','FechaFin','Estado','Notas','CreadoPor','FechaCreacion'],
   Asistencia:       ['ID','Username','Nombre','Tipo','Timestamp','Fecha','Notas','FechaCreacion'],
   FlujosSemanales:  ['ID','Username','NombreUsuario','Semana','FechaInicio','FechaFin','TotalHorasPlan','Estado','Notas','CreadoPor','FechaCreacion'],
   ActividadesFlujo: ['ID','FlujoID','Username','Titulo','Descripcion','DiaSemana','HorasEstimadas','Estado','HorasReales','Notas','Evidencia','CompletadoEn','FechaCreacion'],
+  AuditoriaCertificados: ['ID','CertificadoID','InscripcionID','Usuario','Rol','Accion','FechaHora','EstadoAnterior','EstadoNuevo','Canal','Resultado','Motivo','Metadatos'],
+  Certificados: ['ID','InscripcionID','CodigoCertificado','CertificateVersion','TemplateVersion','PdfHash','PdfStorageReference','OriginalCertificateId','ReissuedCertificateId','CertificateStatus','IssuedAt','IssuedBy','VoidedAt','VoidedBy','VoidReason','ReissueReason','CreatedAt'],
+  DescargasCertificados: ['ID','CertificadoID','InscripcionID','Usuario','Rol','Estado','FechaSolicitud','FechaConfirmacion','Motivo','PdfHash','PdfStorageReference','Canal'],
 };
+
+const CERTIFICATE_TEMPLATE_VERSION = 'ra-canva-2026-v1';
 
 function getSheet(name) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -216,10 +229,26 @@ function bustSheet() {
   try { CacheService.getScriptCache().removeAll(Array.prototype.slice.call(arguments)); } catch(e) {}
 }
 
+function getAuthSecret() {
+  const secret = PropertiesService.getScriptProperties().getProperty('AUTH_SECRET');
+  if (!secret || String(secret).length < 32) {
+    throw new Error('La autenticaci\u00f3n no est\u00e1 configurada de forma segura. Contacte al administrador.');
+  }
+  return String(secret);
+}
+
+function getBootstrapAdminPassword() {
+  const password = PropertiesService.getScriptProperties().getProperty('BOOTSTRAP_ADMIN_PASSWORD');
+  if (!password || String(password).length < 12) {
+    throw new Error('La contrase\u00f1a temporal del administrador no est\u00e1 configurada de forma segura.');
+  }
+  return String(password);
+}
+
 function hashPassword(password) {
   const bytes = Utilities.computeDigest(
     Utilities.DigestAlgorithm.SHA_256,
-    password + CONFIG.SECRET
+    password + getAuthSecret()
   );
   return bytes.map(b => ('0' + (b & 0xFF).toString(16)).slice(-2)).join('');
 }
@@ -228,12 +257,66 @@ function requireAdmin(user) {
   if (user.Rol !== 'admin') throw new Error('Acceso denegado: se requiere rol de administrador.');
 }
 
+function registrarAuditoriaCertificado(evento) {
+  try {
+    var metadata = evento.metadatos && typeof evento.metadatos === 'object'
+      ? JSON.stringify(evento.metadatos)
+      : '';
+    if (metadata.length > 1500) metadata = metadata.slice(0, 1500);
+    getSheet('AuditoriaCertificados').appendRow([
+      generateId('AUD'),
+      String(evento.certificadoId || ''),
+      String(evento.inscripcionId || ''),
+      String(evento.usuario || ''),
+      String(evento.rol || ''),
+      String(evento.accion || ''),
+      new Date().toISOString(),
+      String(evento.estadoAnterior || ''),
+      String(evento.estadoNuevo || ''),
+      String(evento.canal || 'sistema'),
+      String(evento.resultado || 'ok'),
+      String(evento.motivo || '').slice(0, 500),
+      metadata,
+    ]);
+    return true;
+  } catch (err) {
+    throw new Error('No se pudo registrar la auditor\u00eda obligatoria. La operaci\u00f3n no se complet\u00f3 y puede reintentarse.');
+  }
+}
+
+function requireCertificateAdmin(user, action, context) {
+  if (isAdmin(user)) return;
+  context = context || {};
+  registrarAuditoriaCertificado({
+    certificadoId: context.certificadoId,
+    inscripcionId: context.inscripcionId,
+    usuario: user && user.Username,
+    rol: user && user.Rol,
+    accion: action,
+    estadoAnterior: context.estadoAnterior,
+    estadoNuevo: context.estadoNuevo,
+    canal: context.canal || 'api',
+    resultado: 'rechazado',
+    motivo: 'Rol sin permiso administrativo para certificados.',
+  });
+  throw new Error('Acceso denegado: solo un administrador puede gestionar certificados oficiales.');
+}
+
 function isAdmin(user)    { return user.Rol === 'admin'; }
 function isVendedor(user) { return user.Rol === 'vendedor' || user.Rol === 'admin'; }
 function isAval(user)     { return user.Rol === 'aval'; }
 
 function esVerdadero(value) {
   return value === true || String(value).toLowerCase() === 'true';
+}
+
+function certificadoProtegidoContraEliminacion(row) {
+  var estado = String(row.CertificateStatus || row.EstadoCertificado || '').trim().toLowerCase();
+  var protegidos = ['emitido', 'enviado', 'anulado', 'reemitido', 'issued', 'sent', 'voided', 'reissued'];
+  return esVerdadero(row.CertificadoEmitido)
+    || protegidos.indexOf(estado) !== -1
+    || !!String(row.CodigoCertificado || '').trim()
+    || !!String(row.FechaCertificado || row.FechaEmisionCertificado || row.IssuedAt || '').trim();
 }
 
 function emailValido(email) {
@@ -354,22 +437,30 @@ function handleLogout(token) {
 // aún no fue emitido (mismo mensaje "no válido" para ambos casos).
 function handleVerificarCertificado({ id } = {}) {
   if (!id) return { success: true, valido: false };
-  const row = sheetToObjects(getSheet('Inscripciones')).find(r => r.ID === id);
-  if (!row || row.EstadoCertificado !== 'emitido') return { success: true, valido: false };
+  const resultado = buscarCertificadoPublico(id);
+  if (!resultado) return { success: true, valido: false };
+  const row = resultado.inscripcion;
+  const certificado = resultado.certificado;
+  const estado = estadoPublicoCertificado(certificado);
+  if (['vigente', 'anulado', 'reemitido'].indexOf(estado) === -1) return { success: true, valido: false };
   const duracionDe = mapaDuracionServicios();
   const avalActivo = esVerdadero(row.RequiereAvalExterno) && row.EstadoAval === 'avalado';
   return {
     success: true,
     valido: true,
     data: {
-      codigo:          row.CodigoCertificado || codigoCertificadoEstable(row),
+      codigo:          certificado.CodigoCertificado || row.CodigoCertificado || codigoCertificadoEstable(row),
+      identificador:   certificado.ID || row.ID,
+      estado:          estado,
       nombre:          row.ClienteNombre,
       servicio:        row.ServicioNombre,
       duracion:        duracionDe(row),
       modalidad:       row.Modalidad,
       fechaInicio:     row.FechaInicio,
       fechaFin:        row.FechaFin || '',
-      fechaEmision:    row.FechaEmisionCertificado || '',
+      fechaEmision:    certificado.IssuedAt || row.FechaEmisionCertificado || '',
+      version:         Number(certificado.CertificateVersion) || 1,
+      certificadoVigenteId: estado === 'reemitido' ? (certificado.ReissuedCertificateId || '') : '',
       institucionAval: avalActivo ? (row.InstitucionAval || '') : '',
       estadoAval:      avalActivo ? 'avalado' : '',
       avalReferencia:  avalActivo ? (row.AvalReferencia || '') : '',
@@ -1014,6 +1105,19 @@ function inscripcionEnriquecida(row, duracionDe, usuarios) {
   });
 }
 
+function resumenCertificadoParaVendedor(row) {
+  var resumen = Object.assign({}, row);
+  resumen.CodigoCertificado = '';
+  resumen.FechaEmisionCertificado = '';
+  resumen.EmitidoPor = '';
+  resumen.FechaEntregaCertificado = '';
+  resumen.EntregadoPor = '';
+  resumen.AvalReferencia = '';
+  resumen.AvalEnlaceExterno = '';
+  resumen.AvalCodigoExterno = '';
+  return resumen;
+}
+
 function validarDatosInscripcion(inscripcion) {
   if (!inscripcion) return 'Los datos de la inscripción son obligatorios.';
   if (!inscripcion.servicioId && !inscripcion.servicioNombre) return 'Seleccione un servicio.';
@@ -1081,7 +1185,10 @@ function getInscripciones(user, { filtros = {} } = {}) {
   data.sort(function(a, b) { return new Date(b.FechaCreacion || 0) - new Date(a.FechaCreacion || 0); });
   const duracionDe = mapaDuracionServicios();
   const usuarios = mapaUsuariosPorUsername();
-  data = data.map(function(i) { return inscripcionEnriquecida(i, duracionDe, usuarios); });
+  data = data.map(function(i) {
+    var enriched = inscripcionEnriquecida(i, duracionDe, usuarios);
+    return isAdmin(user) ? enriched : resumenCertificadoParaVendedor(enriched);
+  });
   return { success: true, data };
 }
 
@@ -1153,6 +1260,32 @@ function addInscripcion(user, { inscripcion }) {
   const inscRow = sheetToObjects(sheet).find(r => r.ID === id);
   if (inscRow) updateRow(sheet, inscRow, { IngresoID: ingresoId });
 
+  registrarAuditoriaCertificado({
+    inscripcionId: id,
+    usuario: user.Username,
+    rol: user.Rol,
+    accion: 'INSCRIPTION_CREATED',
+    estadoNuevo: 'INSCRIPTION_CREATED',
+    canal: 'panel',
+    resultado: 'ok',
+  });
+  if (numeroComprobante || fechaPago || estadoSolicitado === 'pagado' || estadoSolicitado === 'verificado') {
+    registrarAuditoriaCertificado({
+      inscripcionId: id,
+      usuario: user.Username,
+      rol: user.Rol,
+      accion: 'PAYMENT_REPORTED',
+      estadoAnterior: 'sin_reporte',
+      estadoNuevo: estadoPago,
+      canal: 'panel',
+      resultado: 'ok',
+      metadatos: {
+        tieneComprobante: !!numeroComprobante,
+        fechaPago: fechaPago || '',
+      },
+    });
+  }
+
   return { success: true, id, ingresoId };
 }
 
@@ -1177,6 +1310,13 @@ function updateInscripcion(user, { id, inscripcion }) {
   let estadoPago = row.EstadoPago;
   if (isAdmin(user) && inscripcion.estadoPago && inscripcion.estadoPago !== 'verificado') estadoPago = inscripcion.estadoPago;
   if (row.EstadoPago === 'verificado') estadoPago = 'verificado';
+  const numeroComprobanteNuevo = inscripcion.numeroComprobante !== undefined
+    ? String(inscripcion.numeroComprobante).trim()
+    : String(row.NumeroComprobante || '').trim();
+  const fechaPagoNueva = inscripcion.fechaPago !== undefined ? fechaSolo(inscripcion.fechaPago) : fechaSolo(row.FechaPago);
+  const pagoReportado = (numeroComprobanteNuevo && numeroComprobanteNuevo !== String(row.NumeroComprobante || '').trim())
+    || (fechaPagoNueva && fechaPagoNueva !== fechaSolo(row.FechaPago))
+    || (estadoPago === 'pagado' && row.EstadoPago !== 'pagado');
 
   updateRow(sheet, row, {
     ClienteNombre: inscripcion.clienteNombre, ClienteID: inscripcion.clienteID,
@@ -1188,8 +1328,8 @@ function updateInscripcion(user, { id, inscripcion }) {
     RUC: inscripcion.ruc, DireccionFactura: inscripcion.direccionFactura,
     EstadoPago: estadoPago,
     Notas: inscripcion.notas !== undefined ? inscripcion.notas : row.Notas,
-    NumeroComprobante: inscripcion.numeroComprobante !== undefined ? String(inscripcion.numeroComprobante).trim() : row.NumeroComprobante,
-    FechaPago: inscripcion.fechaPago !== undefined ? fechaSolo(inscripcion.fechaPago) : row.FechaPago,
+    NumeroComprobante: numeroComprobanteNuevo,
+    FechaPago: fechaPagoNueva,
     RequiereAvalExterno: requiereAval,
     InstitucionAval: institucionAval,
     EstadoAval: requiereAval ? (cambiaConfiguracionAval ? 'pendiente' : (row.EstadoAval || 'pendiente')) : '',
@@ -1201,6 +1341,34 @@ function updateInscripcion(user, { id, inscripcion }) {
   });
   const updated = sheetToObjects(sheet).find(function(r) { return r.ID === id; });
   const sync = sincronizarIngresoInscripcion(updated);
+  registrarAuditoriaCertificado({
+    certificadoId: updated.CodigoCertificado,
+    inscripcionId: id,
+    usuario: user.Username,
+    rol: user.Rol,
+    accion: 'ENROLLMENT_UPDATED',
+    estadoAnterior: row.EstadoCertificado || 'pendiente',
+    estadoNuevo: updated.EstadoCertificado || 'pendiente',
+    canal: 'panel',
+    resultado: 'ok',
+  });
+  if (pagoReportado) {
+    registrarAuditoriaCertificado({
+      certificadoId: updated.CodigoCertificado,
+      inscripcionId: id,
+      usuario: user.Username,
+      rol: user.Rol,
+      accion: 'PAYMENT_REPORTED',
+      estadoAnterior: row.EstadoPago || 'pendiente',
+      estadoNuevo: updated.EstadoPago || estadoPago,
+      canal: 'panel',
+      resultado: 'ok',
+      metadatos: {
+        tieneComprobante: !!numeroComprobanteNuevo,
+        fechaPago: fechaPagoNueva || '',
+      },
+    });
+  }
   const duracionDe = mapaDuracionServicios();
   const usuarios = mapaUsuariosPorUsername();
   return {
@@ -1245,6 +1413,17 @@ function verificarPagoInscripcion(user, { id, numeroComprobante, fechaPago } = {
   const updated = sheetToObjects(sheet).find(function(r) { return r.ID === id; });
   const sync = sincronizarIngresoInscripcion(updated);
   if (!sync.sincronizado) return { success: false, error: sync.motivo + ' Revise el registro antes de continuar.' };
+  registrarAuditoriaCertificado({
+    certificadoId: updated.CodigoCertificado,
+    inscripcionId: id,
+    usuario: user.Username,
+    rol: user.Rol,
+    accion: 'PAYMENT_VERIFIED',
+    estadoAnterior: row.EstadoPago || 'pendiente',
+    estadoNuevo: 'verificado',
+    canal: 'panel',
+    resultado: 'ok',
+  });
   return { success: true, data: inscripcionEnriquecida(updated, mapaDuracionServicios(), mapaUsuariosPorUsername()) };
 }
 
@@ -1253,6 +1432,175 @@ function codigoCertificadoEstable(row) {
   let fragmento = String(row.ID || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(-10);
   while (fragmento.length < 8) fragmento = '0' + fragmento;
   return 'RA-' + fecha.getFullYear() + '-' + fragmento;
+}
+
+function conBloqueoCertificados(callback) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    return callback();
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function codigoCertificadoEnUso(codigo, exceptCertificateId, exceptInscripcionId) {
+  const normalized = String(codigo || '').trim().toUpperCase();
+  if (!normalized) return false;
+  const usadoEnCertificados = sheetToObjects(getSheet('Certificados')).some(function(item) {
+    return String(item.CodigoCertificado || '').trim().toUpperCase() === normalized
+      && String(item.ID || '') !== String(exceptCertificateId || '');
+  });
+  if (usadoEnCertificados) return true;
+  return sheetToObjects(getSheet('Inscripciones')).some(function(item) {
+    return String(item.CodigoCertificado || '').trim().toUpperCase() === normalized
+      && String(item.ID || '') !== String(exceptInscripcionId || '');
+  });
+}
+
+function generarCodigoCertificadoUnico(row, exceptCertificateId, exceptInscripcionId) {
+  const base = codigoCertificadoEstable(row);
+  if (!codigoCertificadoEnUso(base, exceptCertificateId, exceptInscripcionId)) return base;
+  for (var intento = 2; intento <= 99; intento += 1) {
+    var candidato = base + '-' + String(intento).padStart(2, '0');
+    if (!codigoCertificadoEnUso(candidato, exceptCertificateId, exceptInscripcionId)) return candidato;
+  }
+  throw new Error('No se pudo reservar un c\u00f3digo de certificado \u00fanico. Intente nuevamente.');
+}
+
+function estadoNormalizadoCertificado(row) {
+  var estado = String(row.CertificateStatus || row.EstadoCertificado || '').trim().toLowerCase();
+  var mapa = {
+    issued: 'emitido', sent: 'enviado', voided: 'anulado', reissued: 'reemitido',
+    descargado: 'emitido', compartido: 'enviado', enviado_email: 'enviado', enviado_whatsapp: 'enviado',
+  };
+  return mapa[estado] || estado || 'pendiente';
+}
+
+function estadoPublicoCertificado(row) {
+  var estado = estadoNormalizadoCertificado(row);
+  if (estado === 'anulado') return 'anulado';
+  if (estado === 'reemitido') return 'reemitido';
+  if (estado === 'emitido' || estado === 'enviado') return 'vigente';
+  return estado;
+}
+
+function certificadoHistoricoDesdeInscripcion(row) {
+  return {
+    ID: row.ID,
+    InscripcionID: row.ID,
+    CodigoCertificado: row.CodigoCertificado || codigoCertificadoEstable(row),
+    CertificateVersion: Number(row.CertificateVersion) || 1,
+    TemplateVersion: row.TemplateVersion || 'legacy-v1',
+    PdfHash: row.PdfHash || '',
+    PdfStorageReference: row.PdfStorageReference || '',
+    OriginalCertificateId: row.OriginalCertificateId || '',
+    ReissuedCertificateId: row.ReissuedCertificateId || '',
+    CertificateStatus: estadoNormalizadoCertificado(row),
+    IssuedAt: row.IssuedAt || row.FechaEmisionCertificado || row.FechaCreacion || row.FechaInicio || '',
+    IssuedBy: row.IssuedBy || row.EmitidoPor || '',
+    VoidedAt: row.VoidedAt || '',
+    VoidedBy: row.VoidedBy || '',
+    VoidReason: row.VoidReason || '',
+    ReissueReason: row.ReissueReason || '',
+  };
+}
+
+function appendCertificado(registro) {
+  var sheet = getSheet('Certificados');
+  var existentes = sheetToObjects(sheet);
+  if (existentes.some(function(item) { return item.ID === registro.ID; })) {
+    throw new Error('El identificador del certificado ya existe.');
+  }
+  if (codigoCertificadoEnUso(registro.CodigoCertificado, registro.ID, registro.InscripcionID)) {
+    throw new Error('El c\u00f3digo del certificado ya est\u00e1 asignado a otro registro.');
+  }
+  sheet.appendRow(SHEET_HEADERS.Certificados.map(function(header) {
+    return registro[header] === undefined || registro[header] === null ? '' : registro[header];
+  }));
+  return sheetToObjects(sheet).find(function(item) { return item.ID === registro.ID; });
+}
+
+function asegurarRegistroCertificado(row, user) {
+  var sheet = getSheet('Certificados');
+  var existentes = sheetToObjects(sheet);
+  var encontrado = existentes.find(function(item) {
+    return item.ID === row.ID
+      || (row.CodigoCertificado && item.CodigoCertificado === row.CodigoCertificado && item.InscripcionID === row.ID);
+  });
+  if (encontrado) return encontrado;
+  if (codigoCertificadoEnUso(row.CodigoCertificado, row.ID, row.ID)) {
+    registrarAuditoriaCertificado({
+      certificadoId: row.CodigoCertificado,
+      inscripcionId: row.ID,
+      usuario: user && user.Username,
+      rol: user && user.Rol,
+      accion: 'CERTIFICATE_CODE_CONFLICT',
+      canal: 'api',
+      resultado: 'rechazado',
+      motivo: 'El c\u00f3digo hist\u00f3rico pertenece a otro certificado.',
+    });
+    throw new Error('El c\u00f3digo hist\u00f3rico del certificado est\u00e1 duplicado. Revise la migraci\u00f3n antes de continuar.');
+  }
+  var historico = certificadoHistoricoDesdeInscripcion(row);
+  historico.CreatedAt = new Date().toISOString();
+  historico.IssuedBy = historico.IssuedBy || (user && user.Username) || '';
+  return appendCertificado(historico);
+}
+
+function buscarCertificadoPublico(identifier) {
+  var certificados = sheetToObjects(getSheet('Certificados'));
+  var certificado = certificados.find(function(item) {
+    return item.ID === identifier || item.CodigoCertificado === identifier;
+  });
+  var inscripciones = sheetToObjects(getSheet('Inscripciones'));
+  if (certificado) {
+    var vinculada = inscripciones.find(function(item) { return item.ID === certificado.InscripcionID; });
+    return vinculada ? { certificado: certificado, inscripcion: vinculada } : null;
+  }
+  var historica = inscripciones.find(function(item) {
+    return item.ID === identifier || item.CodigoCertificado === identifier;
+  });
+  if (!historica || ['emitido', 'enviado', 'anulado', 'reemitido'].indexOf(estadoNormalizadoCertificado(historica)) === -1) return null;
+  return { certificado: certificadoHistoricoDesdeInscripcion(historica), inscripcion: historica };
+}
+
+function resolverCertificadoAdministrativo(identifier, user) {
+  var inscripciones = sheetToObjects(getSheet('Inscripciones'));
+  var certificados = sheetToObjects(getSheet('Certificados'));
+  var inscripcion = inscripciones.find(function(item) {
+    return item.ID === identifier || item.CodigoCertificado === identifier;
+  });
+  var certificado;
+  if (inscripcion) {
+    certificado = certificados.find(function(item) { return item.CodigoCertificado === inscripcion.CodigoCertificado; })
+      || certificados.find(function(item) { return item.ID === (inscripcion.ReissuedCertificateId || inscripcion.ID); });
+    if (!certificado && certificadoProtegidoContraEliminacion(inscripcion)) certificado = asegurarRegistroCertificado(inscripcion, user);
+  } else {
+    certificado = certificados.find(function(item) { return item.ID === identifier || item.CodigoCertificado === identifier; });
+    if (certificado) inscripcion = inscripciones.find(function(item) { return item.ID === certificado.InscripcionID; });
+  }
+  return certificado && inscripcion ? { certificado: certificado, inscripcion: inscripcion } : null;
+}
+
+function certificadoParaCliente(certificado, inscripcion) {
+  return Object.assign({}, inscripcionEnriquecida(inscripcion, mapaDuracionServicios(), mapaUsuariosPorUsername()), {
+    ID: certificado.ID,
+    InscripcionID: inscripcion.ID,
+    CertificatePublicId: certificado.ID,
+    CodigoCertificado: certificado.CodigoCertificado,
+    CertificateVersion: Number(certificado.CertificateVersion) || 1,
+    TemplateVersion: certificado.TemplateVersion || 'legacy-v1',
+    PdfHash: certificado.PdfHash || '',
+    PdfStorageReference: certificado.PdfStorageReference || '',
+    OriginalCertificateId: certificado.OriginalCertificateId || '',
+    ReissuedCertificateId: certificado.ReissuedCertificateId || '',
+    CertificateStatus: estadoNormalizadoCertificado(certificado),
+    EstadoCertificado: estadoNormalizadoCertificado(certificado),
+    FechaEmisionCertificado: certificado.IssuedAt || inscripcion.FechaEmisionCertificado,
+    IssuedAt: certificado.IssuedAt || inscripcion.FechaEmisionCertificado,
+    IssuedBy: certificado.IssuedBy || inscripcion.EmitidoPor,
+  });
 }
 
 function datosFaltantesCertificado(row) {
@@ -1269,11 +1617,56 @@ function datosFaltantesCertificado(row) {
   return campos.filter(function(item) { return !String(item[1] || '').trim(); }).map(function(item) { return item[0]; });
 }
 
-function emitirCertificado(user, { id, codigoCertificado } = {}) {
-  requireAdmin(user);
+function emitirCertificado(user, params) {
+  return conBloqueoCertificados(function() {
+    return emitirCertificadoBajoBloqueo(user, params || {});
+  });
+}
+
+function emitirCertificadoBajoBloqueo(user, { id } = {}) {
+  requireCertificateAdmin(user, 'CERTIFICATE_ISSUE', { inscripcionId: id, canal: 'api' });
   const sheet = getSheet('Inscripciones');
   const row = sheetToObjects(sheet).find(function(r) { return r.ID === id; });
   if (!row) return { success: false, error: 'Inscripción no encontrada.' };
+  const estadoActual = estadoNormalizadoCertificado(row);
+  if (estadoActual === 'anulado') {
+    return { success: false, error: 'El certificado está anulado. Utilice la reemisión controlada para crear una nueva versión.' };
+  }
+  if (['emitido', 'enviado', 'reemitido'].indexOf(estadoActual) !== -1) {
+    const codigoFaltante = !String(row.CodigoCertificado || '').trim();
+    const fechaFaltante = !String(row.FechaEmisionCertificado || '').trim();
+    if (codigoFaltante || fechaFaltante) {
+      const fechaHistorica = row.FechaEmisionCertificado || row.FechaCreacion || row.FechaInicio || new Date().toISOString();
+      const normalizado = Object.assign({}, row, { FechaEmisionCertificado: fechaHistorica });
+      updateRow(sheet, row, {
+        CodigoCertificado: row.CodigoCertificado || generarCodigoCertificadoUnico(normalizado, row.ID, row.ID),
+        FechaEmisionCertificado: fechaHistorica,
+        EmitidoPor: row.EmitidoPor || user.Username,
+        EstadoEntrega: row.EstadoEntrega || 'pendiente',
+        CertificateVersion: Number(row.CertificateVersion) || 1,
+        TemplateVersion: row.TemplateVersion || 'legacy-v1',
+        CertificateStatus: estadoActual,
+        IssuedAt: row.IssuedAt || fechaHistorica,
+        IssuedBy: row.IssuedBy || row.EmitidoPor || user.Username,
+      });
+      const updatedLegacy = sheetToObjects(sheet).find(function(r) { return r.ID === id; });
+      registrarAuditoriaCertificado({
+        certificadoId: updatedLegacy.CodigoCertificado,
+        inscripcionId: id,
+        usuario: user.Username,
+        rol: user.Rol,
+        accion: 'CERTIFICATE_METADATA_BACKFILLED',
+        estadoAnterior: 'emitido_sin_metadatos',
+        estadoNuevo: 'emitido',
+        canal: 'panel',
+        resultado: 'ok',
+      });
+      const certificadoLegacy = asegurarRegistroCertificado(updatedLegacy, user);
+      return { success: true, alreadyIssued: true, metadataBackfilled: true, data: certificadoParaCliente(certificadoLegacy, updatedLegacy) };
+    }
+    const certificadoExistente = asegurarRegistroCertificado(row, user);
+    return { success: true, alreadyIssued: true, data: certificadoParaCliente(certificadoExistente, row) };
+  }
   if (row.EstadoPago !== 'verificado') return { success: false, error: 'El pago debe estar verificado antes de emitir el certificado.' };
   if (esVerdadero(row.RequiereAvalExterno) && row.EstadoAval !== 'avalado') {
     return { success: false, error: 'El certificado requiere el aval institucional antes de poder emitirse.' };
@@ -1281,32 +1674,471 @@ function emitirCertificado(user, { id, codigoCertificado } = {}) {
   const faltantes = datosFaltantesCertificado(row);
   if (faltantes.length) return { success: false, error: 'Faltan los siguientes datos para generar el certificado: ' + faltantes.join(', ') + '.' };
 
-  const propuesto = String(codigoCertificado || '').trim().toUpperCase();
-  const codigo = /^RA-\d{4}-[A-Z0-9_-]{5,32}$/.test(propuesto) ? propuesto : codigoCertificadoEstable(row);
+  if (row.CodigoCertificado && codigoCertificadoEnUso(row.CodigoCertificado, row.ID, row.ID)) {
+    registrarAuditoriaCertificado({
+      certificadoId: row.CodigoCertificado,
+      inscripcionId: row.ID,
+      usuario: user.Username,
+      rol: user.Rol,
+      accion: 'CERTIFICATE_CODE_CONFLICT',
+      estadoAnterior: estadoActual,
+      estadoNuevo: estadoActual,
+      canal: 'api',
+      resultado: 'rechazado',
+      motivo: 'C\u00f3digo preexistente asignado a otro certificado.',
+    });
+    return { success: false, error: 'El c\u00f3digo del certificado ya est\u00e1 asignado a otro registro.' };
+  }
+
+  const ahora = new Date().toISOString();
+  const codigo = row.CodigoCertificado || generarCodigoCertificadoUnico(
+    Object.assign({}, row, { FechaEmisionCertificado: ahora }),
+    row.ID,
+    row.ID
+  );
   updateRow(sheet, row, {
     EstadoCertificado: 'emitido',
-    CodigoCertificado: row.CodigoCertificado || codigo,
-    FechaEmisionCertificado: row.FechaEmisionCertificado || new Date().toISOString(),
+    CodigoCertificado: codigo,
+    FechaEmisionCertificado: row.FechaEmisionCertificado || ahora,
     EmitidoPor: row.EmitidoPor || user.Username,
     EstadoEntrega: row.EstadoEntrega || 'pendiente',
+    CertificateVersion: 1,
+    TemplateVersion: CERTIFICATE_TEMPLATE_VERSION,
+    CertificateStatus: 'emitido',
+    IssuedAt: row.IssuedAt || row.FechaEmisionCertificado || ahora,
+    IssuedBy: row.IssuedBy || row.EmitidoPor || user.Username,
   });
   const updated = sheetToObjects(sheet).find(function(r) { return r.ID === id; });
-  return { success: true, data: inscripcionEnriquecida(updated, mapaDuracionServicios(), mapaUsuariosPorUsername()) };
+  registrarAuditoriaCertificado({
+    certificadoId: updated.CodigoCertificado,
+    inscripcionId: id,
+    usuario: user.Username,
+    rol: user.Rol,
+    accion: 'CERTIFICATE_ISSUED',
+    estadoAnterior: row.EstadoCertificado || 'pendiente',
+    estadoNuevo: 'emitido',
+    canal: 'panel',
+    resultado: 'ok',
+  });
+  const certificado = asegurarRegistroCertificado(updated, user);
+  return { success: true, data: certificadoParaCliente(certificado, updated) };
+}
+
+function anularCertificado(user, { id, motivo, confirmacion } = {}) {
+  requireCertificateAdmin(user, 'CERTIFICATE_VOID', { inscripcionId: id, canal: 'api' });
+  const motivoSeguro = String(motivo || '').trim();
+  if (confirmacion !== 'ANULAR') return { success: false, error: 'Confirme explícitamente la anulación del certificado.' };
+  if (motivoSeguro.length < 5) return { success: false, error: 'El motivo de anulación es obligatorio y debe ser suficientemente descriptivo.' };
+  const resolved = resolverCertificadoAdministrativo(id, user);
+  if (!resolved) return { success: false, error: 'Certificado no encontrado.' };
+  const certificado = resolved.certificado;
+  const inscripcion = resolved.inscripcion;
+  const estadoAnterior = estadoNormalizadoCertificado(certificado);
+  if (estadoAnterior === 'anulado') return { success: false, error: 'El certificado ya se encuentra anulado.' };
+  if (estadoAnterior === 'reemitido') return { success: false, error: 'El certificado original ya fue reemitido y conserva su estado histórico.' };
+  const ahora = new Date().toISOString();
+  const certSheet = getSheet('Certificados');
+  updateRow(certSheet, certificado, {
+    CertificateStatus: 'anulado',
+    VoidedAt: ahora,
+    VoidedBy: user.Username,
+    VoidReason: motivoSeguro,
+  });
+  const insSheet = getSheet('Inscripciones');
+  updateRow(insSheet, inscripcion, {
+    EstadoCertificado: 'anulado',
+    CertificateStatus: 'anulado',
+    VoidedAt: ahora,
+    VoidedBy: user.Username,
+    VoidReason: motivoSeguro,
+  });
+  registrarAuditoriaCertificado({
+    certificadoId: certificado.CodigoCertificado,
+    inscripcionId: inscripcion.ID,
+    usuario: user.Username,
+    rol: user.Rol,
+    accion: 'CERTIFICATE_VOIDED',
+    estadoAnterior: estadoAnterior,
+    estadoNuevo: 'anulado',
+    canal: 'panel',
+    resultado: 'ok',
+    motivo: motivoSeguro,
+    metadatos: { certificateId: certificado.ID, version: Number(certificado.CertificateVersion) || 1 },
+  });
+  const updated = sheetToObjects(certSheet).find(function(item) { return item.ID === certificado.ID; });
+  const updatedIns = sheetToObjects(insSheet).find(function(item) { return item.ID === inscripcion.ID; });
+  return { success: true, data: certificadoParaCliente(updated, updatedIns) };
+}
+
+function reemitirCertificado(user, params) {
+  return conBloqueoCertificados(function() {
+    return reemitirCertificadoBajoBloqueo(user, params || {});
+  });
+}
+
+function reemitirCertificadoBajoBloqueo(user, { id, motivo, confirmacion } = {}) {
+  requireCertificateAdmin(user, 'CERTIFICATE_REISSUE', { inscripcionId: id, canal: 'api' });
+  const motivoSeguro = String(motivo || '').trim();
+  if (confirmacion !== 'REEMITIR') return { success: false, error: 'Confirme explícitamente la reemisión del certificado.' };
+  if (motivoSeguro.length < 5) return { success: false, error: 'El motivo de reemisión es obligatorio y debe ser suficientemente descriptivo.' };
+  const resolved = resolverCertificadoAdministrativo(id, user);
+  if (!resolved) return { success: false, error: 'Certificado no encontrado.' };
+  const original = resolved.certificado;
+  const inscripcion = resolved.inscripcion;
+  const estadoAnterior = estadoNormalizadoCertificado(original);
+  if (estadoAnterior === 'reemitido') return { success: false, error: 'Este identificador corresponde a un certificado histórico ya reemitido.' };
+  const ahora = new Date().toISOString();
+  const nuevoId = generateId('CRT');
+  const nuevaVersion = (Number(original.CertificateVersion) || 1) + 1;
+  const nuevoCodigo = generarCodigoCertificadoUnico(
+    { ID: nuevoId, FechaEmisionCertificado: ahora },
+    nuevoId,
+    inscripcion.ID
+  );
+  const nuevo = appendCertificado({
+    ID: nuevoId,
+    InscripcionID: inscripcion.ID,
+    CodigoCertificado: nuevoCodigo,
+    CertificateVersion: nuevaVersion,
+    TemplateVersion: CERTIFICATE_TEMPLATE_VERSION,
+    OriginalCertificateId: original.ID,
+    CertificateStatus: 'emitido',
+    IssuedAt: ahora,
+    IssuedBy: user.Username,
+    ReissueReason: motivoSeguro,
+    CreatedAt: ahora,
+  });
+  const certSheet = getSheet('Certificados');
+  updateRow(certSheet, original, {
+    CertificateStatus: 'reemitido',
+    ReissuedCertificateId: nuevo.ID,
+    ReissueReason: motivoSeguro,
+  });
+  const insSheet = getSheet('Inscripciones');
+  updateRow(insSheet, inscripcion, {
+    EstadoCertificado: 'reemitido',
+    CodigoCertificado: nuevo.CodigoCertificado,
+    FechaEmisionCertificado: nuevo.IssuedAt,
+    EmitidoPor: user.Username,
+    CertificateStatus: 'emitido',
+    CertificateVersion: nuevaVersion,
+    TemplateVersion: nuevo.TemplateVersion,
+    OriginalCertificateId: original.ID,
+    ReissuedCertificateId: nuevo.ID,
+    ReissueReason: motivoSeguro,
+    EstadoEntrega: 'pendiente',
+    FechaEntregaCertificado: '',
+    EntregadoPor: '',
+  });
+  registrarAuditoriaCertificado({
+    certificadoId: nuevo.CodigoCertificado,
+    inscripcionId: inscripcion.ID,
+    usuario: user.Username,
+    rol: user.Rol,
+    accion: 'CERTIFICATE_REISSUED',
+    estadoAnterior: estadoAnterior,
+    estadoNuevo: 'reemitido',
+    canal: 'panel',
+    resultado: 'ok',
+    motivo: motivoSeguro,
+    metadatos: {
+      originalCertificateId: original.ID,
+      newCertificateId: nuevo.ID,
+      version: nuevaVersion,
+      templateVersion: nuevo.TemplateVersion,
+    },
+  });
+  const updatedIns = sheetToObjects(insSheet).find(function(item) { return item.ID === inscripcion.ID; });
+  return { success: true, data: certificadoParaCliente(nuevo, updatedIns) };
+}
+
+function getCertificadoParaDescarga(user, { id } = {}) {
+  requireCertificateAdmin(user, 'CERTIFICATE_DOWNLOAD_READ', { inscripcionId: id, canal: 'api' });
+  const resolved = resolverCertificadoAdministrativo(id, user);
+  if (!resolved) return { success: false, error: 'Certificado no encontrado.' };
+  const estado = estadoNormalizadoCertificado(resolved.certificado);
+  if (estado === 'anulado') return { success: false, error: 'El certificado est\u00e1 anulado y no puede descargarse.' };
+  if (['emitido', 'enviado'].indexOf(estado) === -1) {
+    return { success: false, error: 'El certificado no est\u00e1 vigente para descarga.' };
+  }
+  return { success: true, data: certificadoParaCliente(resolved.certificado, resolved.inscripcion) };
+}
+
+function registrarArtefactoCertificado(user, {
+  id, pdfHash, pdfStorageReference, templateVersion, certificateVersion,
+} = {}) {
+  requireCertificateAdmin(user, 'CERTIFICATE_ARTIFACT_REGISTER', { inscripcionId: id, canal: 'api' });
+  const hash = String(pdfHash || '').trim().toLowerCase();
+  const storageReference = String(pdfStorageReference || '').trim();
+  if (!/^[a-f0-9]{64}$/.test(hash)) return { success: false, error: 'El hash SHA-256 del PDF no es v\u00e1lido.' };
+  if (!/^(browser-indexeddb|private-drive|test-memory):[a-zA-Z0-9._:-]+$/.test(storageReference)) {
+    return { success: false, error: 'La referencia privada del PDF no es v\u00e1lida.' };
+  }
+  if (/^https?:\/\//i.test(storageReference)) {
+    return { success: false, error: 'No se permiten enlaces p\u00fablicos como almacenamiento del certificado.' };
+  }
+  const resolved = resolverCertificadoAdministrativo(id, user);
+  if (!resolved) return { success: false, error: 'Certificado no encontrado.' };
+  const certificado = resolved.certificado;
+  const inscripcion = resolved.inscripcion;
+  const estado = estadoNormalizadoCertificado(certificado);
+  if (estado !== 'emitido' && estado !== 'enviado') {
+    return { success: false, error: 'Solo un certificado vigente puede registrar un artefacto PDF.' };
+  }
+  if (certificado.PdfHash && String(certificado.PdfHash).toLowerCase() !== hash) {
+    return { success: false, error: 'El artefacto PDF ya fue fijado y no puede sobrescribirse.' };
+  }
+  if (certificado.PdfStorageReference && String(certificado.PdfStorageReference) !== storageReference) {
+    return { success: false, error: 'La referencia del PDF ya fue fijada y no puede sobrescribirse.' };
+  }
+  const expectedVersion = Number(certificado.CertificateVersion) || 1;
+  if (Number(certificateVersion || expectedVersion) !== expectedVersion) {
+    return { success: false, error: 'La versi\u00f3n del PDF no corresponde al certificado vigente.' };
+  }
+  const resolvedTemplate = String(templateVersion || certificado.TemplateVersion || CERTIFICATE_TEMPLATE_VERSION).trim();
+  if (certificado.PdfHash && certificado.TemplateVersion && certificado.TemplateVersion !== resolvedTemplate) {
+    return { success: false, error: 'La versi\u00f3n de plantilla no corresponde al certificado emitido.' };
+  }
+  updateRow(getSheet('Certificados'), certificado, {
+    PdfHash: hash,
+    PdfStorageReference: storageReference,
+    TemplateVersion: resolvedTemplate,
+  });
+  updateRow(getSheet('Inscripciones'), inscripcion, {
+    PdfHash: hash,
+    PdfStorageReference: storageReference,
+    CertificateVersion: expectedVersion,
+    TemplateVersion: resolvedTemplate,
+  });
+  registrarAuditoriaCertificado({
+    certificadoId: certificado.CodigoCertificado,
+    inscripcionId: inscripcion.ID,
+    usuario: user.Username,
+    rol: user.Rol,
+    accion: certificado.PdfHash ? 'CERTIFICATE_ARTIFACT_CONFIRMED' : 'CERTIFICATE_ARTIFACT_REGISTERED',
+    estadoAnterior: estado,
+    estadoNuevo: estado,
+    canal: 'panel',
+    resultado: 'ok',
+    metadatos: {
+      certificateId: certificado.ID,
+      certificateVersion: expectedVersion,
+      templateVersion: resolvedTemplate,
+      pdfHash: hash,
+      pdfStorageReference: storageReference,
+    },
+  });
+  return {
+    success: true,
+    data: {
+      CertificatePublicId: certificado.ID,
+      CertificateVersion: expectedVersion,
+      TemplateVersion: resolvedTemplate,
+      PdfHash: hash,
+      PdfStorageReference: storageReference,
+    },
+  };
+}
+
+function solicitudDescargaParaCliente(row) {
+  return {
+    ID: row.ID,
+    CertificadoID: row.CertificadoID,
+    InscripcionID: row.InscripcionID,
+    Estado: row.Estado,
+    FechaSolicitud: row.FechaSolicitud,
+    FechaConfirmacion: row.FechaConfirmacion || '',
+    Motivo: row.Motivo || '',
+  };
+}
+
+function solicitarDescargaCertificado(user, { id, pdfHash, pdfStorageReference } = {}) {
+  requireCertificateAdmin(user, 'CERTIFICATE_DOWNLOAD_REQUEST', { inscripcionId: id, canal: 'api' });
+  const resolved = resolverCertificadoAdministrativo(id, user);
+  if (!resolved) return { success: false, error: 'Certificado no encontrado.' };
+  const certificado = resolved.certificado;
+  const inscripcion = resolved.inscripcion;
+  const estado = estadoNormalizadoCertificado(certificado);
+  if (estado !== 'emitido' && estado !== 'enviado') {
+    return { success: false, error: 'El certificado no est\u00e1 vigente para descarga.' };
+  }
+  const hash = String(pdfHash || '').trim().toLowerCase();
+  const reference = String(pdfStorageReference || '').trim();
+  if (!certificado.PdfHash || !certificado.PdfStorageReference) {
+    return { success: false, error: 'El PDF oficial todav\u00eda no tiene hash y referencia inmutable registrados.' };
+  }
+  if (hash !== String(certificado.PdfHash).trim().toLowerCase() || reference !== String(certificado.PdfStorageReference)) {
+    return { success: false, error: 'El artefacto solicitado no coincide con el PDF oficial registrado.' };
+  }
+
+  const sheet = getSheet('DescargasCertificados');
+  const pendientes = sheetToObjects(sheet);
+  var solicitud = pendientes.find(function(item) {
+    return item.CertificadoID === certificado.ID
+      && item.Usuario === user.Username
+      && item.Estado === 'AUDIT_PENDING'
+      && item.PdfHash === hash
+      && item.PdfStorageReference === reference;
+  });
+  if (!solicitud) {
+    const solicitudId = generateId('DLC');
+    sheet.appendRow([
+      solicitudId,
+      certificado.ID,
+      inscripcion.ID,
+      user.Username,
+      user.Rol,
+      'AUDIT_PENDING',
+      new Date().toISOString(),
+      '',
+      '',
+      hash,
+      reference,
+      'panel',
+    ]);
+    solicitud = sheetToObjects(sheet).find(function(item) { return item.ID === solicitudId; });
+  }
+
+  registrarAuditoriaCertificado({
+    certificadoId: certificado.CodigoCertificado,
+    inscripcionId: inscripcion.ID,
+    usuario: user.Username,
+    rol: user.Rol,
+    accion: 'CERTIFICATE_DOWNLOAD_REQUESTED',
+    estadoAnterior: estado,
+    estadoNuevo: 'AUDIT_PENDING',
+    canal: 'panel',
+    resultado: 'pendiente',
+    metadatos: {
+      requestId: solicitud.ID,
+      certificateId: certificado.ID,
+      pdfHash: hash,
+      pdfStorageReference: reference,
+    },
+  });
+
+  return {
+    success: true,
+    requestId: solicitud.ID,
+    auditStatus: 'AUDIT_PENDING',
+    data: certificadoParaCliente(certificado, inscripcion),
+  };
+}
+
+function confirmarDescargaCertificado(user, { solicitudId, resultado, motivo } = {}) {
+  requireCertificateAdmin(user, 'CERTIFICATE_DOWNLOAD_CONFIRM', { canal: 'api' });
+  const estadoFinal = resultado === 'completado'
+    ? 'AUDIT_CONFIRMED'
+    : resultado === 'fallido' ? 'AUDIT_FAILED' : '';
+  if (!estadoFinal) return { success: false, error: 'El resultado de descarga no es v\u00e1lido.' };
+  const sheet = getSheet('DescargasCertificados');
+  const solicitud = sheetToObjects(sheet).find(function(item) { return item.ID === solicitudId; });
+  if (!solicitud) return { success: false, error: 'Solicitud de descarga no encontrada.' };
+  if (solicitud.Estado === estadoFinal) {
+    return { success: true, alreadyConfirmed: true, data: solicitudDescargaParaCliente(solicitud) };
+  }
+  if (solicitud.Estado !== 'AUDIT_PENDING') {
+    return { success: false, error: 'La solicitud de descarga ya fue cerrada con otro resultado.' };
+  }
+  if (solicitud.Usuario !== user.Username) {
+    return { success: false, error: 'Solo el administrador que inici\u00f3 la descarga puede confirmarla.' };
+  }
+  const certificados = sheetToObjects(getSheet('Certificados'));
+  const certificado = certificados.find(function(item) { return item.ID === solicitud.CertificadoID; });
+  const inscripciones = sheetToObjects(getSheet('Inscripciones'));
+  const inscripcion = inscripciones.find(function(item) { return item.ID === solicitud.InscripcionID; });
+  if (!certificado || !inscripcion) return { success: false, error: 'La solicitud perdi\u00f3 su referencia documental.' };
+  const motivoSeguro = String(motivo || '').trim().slice(0, 500);
+
+  registrarAuditoriaCertificado({
+    certificadoId: certificado.CodigoCertificado,
+    inscripcionId: inscripcion.ID,
+    usuario: user.Username,
+    rol: user.Rol,
+    accion: estadoFinal === 'AUDIT_CONFIRMED' ? 'CERTIFICATE_DOWNLOAD_COMPLETED' : 'CERTIFICATE_DOWNLOAD_FAILED',
+    estadoAnterior: 'AUDIT_PENDING',
+    estadoNuevo: estadoFinal,
+    canal: 'panel',
+    resultado: estadoFinal === 'AUDIT_CONFIRMED' ? 'ok' : 'error',
+    motivo: motivoSeguro,
+    metadatos: {
+      requestId: solicitud.ID,
+      certificateId: certificado.ID,
+      pdfHash: solicitud.PdfHash,
+      pdfStorageReference: solicitud.PdfStorageReference,
+    },
+  });
+
+  const ahora = new Date().toISOString();
+  updateRow(sheet, solicitud, {
+    Estado: estadoFinal,
+    FechaConfirmacion: ahora,
+    Motivo: motivoSeguro,
+  });
+  if (estadoFinal === 'AUDIT_CONFIRMED') {
+    updateRow(getSheet('Inscripciones'), inscripcion, {
+      EstadoEntrega: 'descargado',
+      FechaEntregaCertificado: ahora,
+      EntregadoPor: user.Username,
+    });
+  }
+  const updated = sheetToObjects(sheet).find(function(item) { return item.ID === solicitud.ID; });
+  return { success: true, auditStatus: estadoFinal, data: solicitudDescargaParaCliente(updated) };
+}
+
+function getDescargasPendientes(user, { limit } = {}) {
+  requireCertificateAdmin(user, 'CERTIFICATE_PENDING_DOWNLOADS_READ', { canal: 'api' });
+  const max = Math.min(Math.max(Number(limit) || 100, 1), 500);
+  const data = sheetToObjects(getSheet('DescargasCertificados'))
+    .filter(function(item) { return item.Estado === 'AUDIT_PENDING'; })
+    .sort(function(a, b) { return new Date(a.FechaSolicitud || 0) - new Date(b.FechaSolicitud || 0); })
+    .slice(0, max)
+    .map(solicitudDescargaParaCliente);
+  return { success: true, data: data };
 }
 
 function actualizarEntregaCertificado(user, { id, estadoEntrega } = {}) {
-  if (!isVendedor(user)) throw new Error('Acceso denegado.');
-  const permitidos = ['descargado', 'compartido'];
+  requireCertificateAdmin(user, 'CERTIFICATE_DELIVERY_UPDATE', { inscripcionId: id, canal: 'api' });
+  const permitidos = ['descargado', 'compartido', 'enviado_whatsapp'];
   if (permitidos.indexOf(estadoEntrega) === -1) return { success: false, error: 'Estado de entrega no válido.' };
   const sheet = getSheet('Inscripciones');
   const row = sheetToObjects(sheet).find(function(r) { return r.ID === id; });
   if (!row) return { success: false, error: 'Inscripción no encontrada.' };
-  if (!isAdmin(user) && row.CreadoPor !== user.Username) return { success: false, error: 'No autorizado.' };
-  if (row.EstadoCertificado !== 'emitido') return { success: false, error: 'El certificado todavía no ha sido emitido.' };
+  if (['emitido', 'enviado', 'reemitido'].indexOf(estadoNormalizadoCertificado(row)) === -1) return { success: false, error: 'El certificado todavía no ha sido emitido o no está vigente.' };
   updateRow(sheet, row, {
     EstadoEntrega: estadoEntrega,
     FechaEntregaCertificado: new Date().toISOString(),
     EntregadoPor: user.Username,
+  });
+  registrarAuditoriaCertificado({
+    certificadoId: row.CodigoCertificado,
+    inscripcionId: id,
+    usuario: user.Username,
+    rol: user.Rol,
+    accion: estadoEntrega === 'descargado' ? 'CERTIFICATE_DOWNLOADED' : 'CERTIFICATE_SHARED',
+    estadoAnterior: row.EstadoEntrega || 'pendiente',
+    estadoNuevo: estadoEntrega,
+    canal: estadoEntrega === 'enviado_whatsapp' ? 'whatsapp' : 'panel',
+    resultado: 'ok',
+  });
+  return { success: true };
+}
+
+function registrarGeneracionCertificado(user, { id } = {}) {
+  requireCertificateAdmin(user, 'CERTIFICATE_GENERATE', { inscripcionId: id, canal: 'api' });
+  const row = sheetToObjects(getSheet('Inscripciones')).find(function(r) { return r.ID === id; });
+  if (!row) return { success: false, error: 'Inscripción no encontrada.' };
+  if (['emitido', 'enviado', 'reemitido'].indexOf(estadoNormalizadoCertificado(row)) === -1) return { success: false, error: 'El certificado todavía no ha sido emitido o no está vigente.' };
+  registrarAuditoriaCertificado({
+    certificadoId: row.CodigoCertificado,
+    inscripcionId: id,
+    usuario: user.Username,
+    rol: user.Rol,
+    accion: 'CERTIFICATE_GENERATED',
+    estadoAnterior: 'emitido',
+    estadoNuevo: 'emitido',
+    canal: 'panel',
+    resultado: 'ok',
   });
   return { success: true };
 }
@@ -1318,11 +2150,11 @@ function deleteIngresoSeguro(user, { id } = {}) {
 }
 
 function enviarCertificadoEmail(user, { id, pdfBase64, mimeType, filename, email } = {}) {
-  requireAdmin(user);
+  requireCertificateAdmin(user, 'CERTIFICATE_EMAIL_SEND', { inscripcionId: id, canal: 'email' });
   const sheet = getSheet('Inscripciones');
   const row = sheetToObjects(sheet).find(function(r) { return r.ID === id; });
   if (!row) return { success: false, error: 'Inscripción no encontrada.' };
-  if (row.EstadoCertificado !== 'emitido') return { success: false, error: 'El certificado todavía no ha sido emitido.' };
+  if (['emitido', 'enviado', 'reemitido'].indexOf(estadoNormalizadoCertificado(row)) === -1) return { success: false, error: 'El certificado todavía no ha sido emitido o no está vigente.' };
   const destinatario = String(email || row.ClienteEmail || '').trim();
   if (!emailValido(destinatario)) return { success: false, error: 'La inscripción no tiene un correo electrónico válido.' };
   if (mimeType !== 'application/pdf') return { success: false, error: 'Solo se aceptan certificados en formato PDF.' };
@@ -1345,6 +2177,18 @@ function enviarCertificadoEmail(user, { id, pdfBase64, mimeType, filename, email
       attachments: [blob],
     });
   } catch (err) {
+    registrarAuditoriaCertificado({
+      certificadoId: row.CodigoCertificado,
+      inscripcionId: id,
+      usuario: user.Username,
+      rol: user.Rol,
+      accion: 'CERTIFICATE_DELIVERY_FAILED',
+      estadoAnterior: row.EstadoEntrega || 'pendiente',
+      estadoNuevo: row.EstadoEntrega || 'pendiente',
+      canal: 'email',
+      resultado: 'error',
+      motivo: 'MailApp no pudo completar el envío.',
+    });
     return { success: false, error: 'No se pudo enviar el correo. Revise la autorización de MailApp y vuelva a intentarlo.' };
   }
   updateRow(sheet, row, {
@@ -1352,7 +2196,47 @@ function enviarCertificadoEmail(user, { id, pdfBase64, mimeType, filename, email
     FechaEntregaCertificado: new Date().toISOString(),
     EntregadoPor: user.Username,
   });
+  registrarAuditoriaCertificado({
+    certificadoId: row.CodigoCertificado,
+    inscripcionId: id,
+    usuario: user.Username,
+    rol: user.Rol,
+    accion: row.EstadoEntrega === 'enviado_email' ? 'CERTIFICATE_RESENT' : 'CERTIFICATE_SENT',
+    estadoAnterior: row.EstadoEntrega || 'pendiente',
+    estadoNuevo: 'enviado_email',
+    canal: 'email',
+    resultado: 'ok',
+  });
   return { success: true };
+}
+
+function getAuditoriaCertificados(user, { filtros = {} } = {}) {
+  requireCertificateAdmin(user, 'CERTIFICATE_AUDIT_READ', { canal: 'api' });
+  var data = sheetToObjects(getSheet('AuditoriaCertificados'));
+  if (filtros.inscripcionId) data = data.filter(function(e) { return e.InscripcionID === filtros.inscripcionId; });
+  if (filtros.certificadoId) data = data.filter(function(e) { return e.CertificadoID === filtros.certificadoId; });
+  if (filtros.accion) data = data.filter(function(e) { return e.Accion === filtros.accion; });
+  data.sort(function(a, b) { return new Date(b.FechaHora || 0) - new Date(a.FechaHora || 0); });
+  var limit = Math.min(Math.max(Number(filtros.limit) || 100, 1), 500);
+  return {
+    success: true,
+    data: data.slice(0, limit).map(function(e) {
+      return {
+        ID: e.ID,
+        CertificadoID: e.CertificadoID || '',
+        InscripcionID: e.InscripcionID || '',
+        Usuario: e.Usuario || '',
+        Rol: e.Rol || '',
+        Accion: e.Accion || '',
+        FechaHora: e.FechaHora || '',
+        EstadoAnterior: e.EstadoAnterior || '',
+        EstadoNuevo: e.EstadoNuevo || '',
+        Canal: e.Canal || '',
+        Resultado: e.Resultado || '',
+        Motivo: e.Motivo || '',
+      };
+    }),
+  };
 }
 
 // ─────────────────────────────────────────────
@@ -1459,6 +2343,17 @@ function marcarAval(user, { id, avalReferencia, valorAval, avalEnlaceExterno, av
     AvalEnlaceExterno: enlace,
     AvalCodigoExterno: codigo,
   });
+  registrarAuditoriaCertificado({
+    certificadoId: row.CodigoCertificado,
+    inscripcionId: id,
+    usuario: user.Username,
+    rol: user.Rol,
+    accion: 'AVAL_CONFIRMED',
+    estadoAnterior: row.EstadoAval || 'pendiente',
+    estadoNuevo: 'avalado',
+    canal: 'panel_aval',
+    resultado: 'ok',
+  });
   return { success: true };
 }
 
@@ -1495,6 +2390,28 @@ function deleteIfOwner(user, sheetName, id, estadoField) {
 
 function deleteInscripcion(user, { id }) {
   if (!isVendedor(user)) throw new Error('Acceso denegado.');
+  const sheet = getSheet('Inscripciones');
+  const row = sheetToObjects(sheet).find(function(r) { return r.ID === id; });
+  if (!row) return { success: false, error: 'Registro no encontrado.' };
+  if (!isAdmin(user) && row.CreadoPor !== user.Username) return { success: false, error: 'No autorizado.' };
+  if (certificadoProtegidoContraEliminacion(row)) {
+    registrarAuditoriaCertificado({
+      certificadoId: row.CodigoCertificado,
+      inscripcionId: row.ID,
+      usuario: user.Username,
+      rol: user.Rol,
+      accion: 'CERTIFICATE_DELETE_REJECTED',
+      estadoAnterior: row.CertificateStatus || row.EstadoCertificado || 'emitido',
+      estadoNuevo: row.CertificateStatus || row.EstadoCertificado || 'emitido',
+      canal: 'panel',
+      resultado: 'rechazado',
+      motivo: 'La inscripción conserva un certificado histórico protegido.',
+    });
+    return {
+      success: false,
+      error: 'No puede eliminarse una inscripción con certificado emitido. Utilice anulación o corrección controlada.',
+    };
+  }
   return deleteIfOwner(user, 'Inscripciones', id, 'EstadoPago');
 }
 
@@ -1873,6 +2790,161 @@ function migrarInscripcionesCertificadosV2() {
 // SETUP INICIAL — Ejecutar una sola vez
 // ─────────────────────────────────────────────
 
+const CERTIFICATE_V3_MIGRATION_SCHEMAS = {
+  Inscripciones: [
+    'AvalTextoConfirmado','CertificateVersion','TemplateVersion','PdfHash','PdfStorageReference',
+    'OriginalCertificateId','ReissuedCertificateId','CertificateStatus','IssuedAt','IssuedBy',
+    'VoidedAt','VoidedBy','VoidReason','ReissueReason',
+  ],
+  Certificados: SHEET_HEADERS.Certificados,
+  AuditoriaCertificados: SHEET_HEADERS.AuditoriaCertificados,
+  DescargasCertificados: SHEET_HEADERS.DescargasCertificados,
+};
+
+function leerHojaMigracionV3(name) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(name);
+  if (!sheet) return { name: name, sheet: null, headers: [], rows: [], formulas: [] };
+  const lastRow = sheet.getLastRow();
+  const lastColumn = sheet.getLastColumn();
+  if (!lastRow || !lastColumn) return { name: name, sheet: sheet, headers: [], rows: [], formulas: [] };
+  const range = sheet.getRange(1, 1, lastRow, lastColumn);
+  const values = range.getValues();
+  return {
+    name: name,
+    sheet: sheet,
+    headers: values[0].map(function(value) { return String(value || '').trim(); }),
+    rows: values.slice(1),
+    formulas: range.getFormulas(),
+  };
+}
+
+function objetosMigracionV3(snapshot) {
+  return snapshot.rows.map(function(row, index) {
+    const object = { _row: index + 2 };
+    snapshot.headers.forEach(function(header, column) { object[header] = row[column]; });
+    return object;
+  }).filter(function(item) { return item[snapshot.headers[0]] !== '' && item[snapshot.headers[0]] !== undefined; });
+}
+
+function migrarCertificadosV3Diagnostico() {
+  const snapshots = {};
+  const columnasFaltantes = {};
+  const formulas = {};
+  const hojasFaltantes = [];
+  Object.keys(CERTIFICATE_V3_MIGRATION_SCHEMAS).forEach(function(name) {
+    const snapshot = leerHojaMigracionV3(name);
+    snapshots[name] = snapshot;
+    if (!snapshot.sheet) hojasFaltantes.push(name);
+    columnasFaltantes[name] = CERTIFICATE_V3_MIGRATION_SCHEMAS[name].filter(function(header) {
+      return snapshot.headers.indexOf(header) === -1;
+    });
+    formulas[name] = snapshot.formulas.reduce(function(total, row) {
+      return total + row.filter(function(formula) { return !!String(formula || '').trim(); }).length;
+    }, 0);
+  });
+
+  const inscripciones = objetosMigracionV3(snapshots.Inscripciones);
+  const certificados = objetosMigracionV3(snapshots.Certificados);
+  const codeOwners = {};
+  function registerCode(code, owner, source) {
+    const normalized = String(code || '').trim().toUpperCase();
+    if (!normalized) return;
+    if (!codeOwners[normalized]) codeOwners[normalized] = {};
+    codeOwners[normalized][String(owner || source)] = true;
+  }
+  inscripciones.forEach(function(item) { registerCode(item.CodigoCertificado, item.ID, 'Inscripciones'); });
+  certificados.forEach(function(item) { registerCode(item.CodigoCertificado, item.InscripcionID || item.ID, 'Certificados'); });
+  const codigosDuplicados = Object.keys(codeOwners).filter(function(code) {
+    return Object.keys(codeOwners[code]).length > 1;
+  }).map(function(code) { return { codigo: code, propietarios: Object.keys(codeOwners[code]) }; });
+
+  const estadosCompatibles = ['pendiente','en_proceso','emitido','enviado','anulado','reemitido','issued','sent','voided','reissued','descargado','compartido','enviado_email','enviado_whatsapp'];
+  const emitidosSinCodigo = [];
+  const emitidosSinFecha = [];
+  const estadosInconsistentes = [];
+  const certificadosQuePodrianRomperse = [];
+  inscripciones.forEach(function(item) {
+    const estado = String(item.CertificateStatus || item.EstadoCertificado || '').trim().toLowerCase();
+    const emitido = ['emitido','enviado','anulado','reemitido','issued','sent','voided','reissued'].indexOf(estado) !== -1;
+    const reasons = [];
+    if (emitido && !String(item.CodigoCertificado || '').trim()) {
+      emitidosSinCodigo.push(item.ID);
+      reasons.push('sin_codigo');
+    }
+    if (emitido && !String(item.IssuedAt || item.FechaEmisionCertificado || '').trim()) {
+      emitidosSinFecha.push(item.ID);
+      reasons.push('sin_fecha_emision');
+    }
+    if (estado && estadosCompatibles.indexOf(estado) === -1) {
+      estadosInconsistentes.push({ id: item.ID, estado: estado });
+      reasons.push('estado_inconsistente');
+    }
+    if (emitido && !String(item.ClienteNombre || '').trim()) reasons.push('sin_participante');
+    if (emitido && !String(item.ServicioNombre || '').trim()) reasons.push('sin_curso');
+    if (reasons.length) certificadosQuePodrianRomperse.push({ id: item.ID, motivos: reasons });
+  });
+
+  return {
+    soloLectura: true,
+    fechaDiagnostico: new Date().toISOString(),
+    registros: {
+      inscripciones: inscripciones.length,
+      certificados: certificados.length,
+      auditoria: objetosMigracionV3(snapshots.AuditoriaCertificados).length,
+      descargas: objetosMigracionV3(snapshots.DescargasCertificados).length,
+    },
+    hojasFaltantes: hojasFaltantes,
+    columnasFaltantes: columnasFaltantes,
+    formulas: formulas,
+    codigosDuplicados: codigosDuplicados,
+    emitidosSinCodigo: emitidosSinCodigo,
+    emitidosSinFecha: emitidosSinFecha,
+    estadosInconsistentes: estadosInconsistentes,
+    certificadosQuePodrianRomperse: certificadosQuePodrianRomperse,
+  };
+}
+
+function migrarCertificadosV3Aplicar(confirmacion) {
+  const confirmacionConfigurada = PropertiesService.getScriptProperties()
+    .getProperty('CERTIFICATES_V3_MIGRATION_CONFIRMATION');
+  if (confirmacion !== 'APLICAR_CERTIFICADOS_V3' && confirmacionConfigurada !== 'APLICAR_CERTIFICADOS_V3') {
+    throw new Error('Migraci\u00f3n bloqueada: configure o proporcione la confirmaci\u00f3n expl\u00edcita APLICAR_CERTIFICADOS_V3.');
+  }
+  const antes = migrarCertificadosV3Diagnostico();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const agregadas = {};
+  Object.keys(CERTIFICATE_V3_MIGRATION_SCHEMAS).forEach(function(name) {
+    var sheet = ss.getSheetByName(name);
+    const schema = CERTIFICATE_V3_MIGRATION_SCHEMAS[name];
+    if (!sheet) {
+      sheet = ss.insertSheet(name);
+      sheet.getRange(1, 1, 1, schema.length).setValues([schema]);
+      agregadas[name] = schema.slice();
+      return;
+    }
+    const lastColumn = sheet.getLastColumn();
+    const headers = lastColumn ? sheet.getRange(1, 1, 1, lastColumn).getValues()[0] : [];
+    const missing = schema.filter(function(header) { return headers.indexOf(header) === -1; });
+    agregadas[name] = missing.slice();
+    missing.forEach(function(header) {
+      sheet.getRange(1, sheet.getLastColumn() + 1).setValue(header);
+    });
+  });
+  const despues = migrarCertificadosV3Diagnostico();
+  const resumen = {
+    aplicada: true,
+    idempotente: true,
+    fecha: new Date().toISOString(),
+    columnasAgregadas: agregadas,
+    formulasAntes: antes.formulas,
+    formulasDespues: despues.formulas,
+    diagnosticoPosterior: despues,
+    rollback: 'Restaurar la copia de seguridad previa documentada en docs/migrations/CERTIFICATES_V3.md.',
+  };
+  Logger.log(JSON.stringify(resumen));
+  return resumen;
+}
+
 function setupInicial() {
   Object.keys(SHEET_HEADERS).forEach(name => getSheet(name));
   getSheet('ConfigPagos'); // inicializa hoja de cuentas de cobro
@@ -1905,7 +2977,7 @@ function setupInicial() {
   if (!existing.find(u => u.Username === 'admin')) {
     usersSheet.appendRow([
       generateId('USR'), 'Administrador R.A.', 'admin@ratraining.com',
-      'admin', hashPassword('Admin2024!'), 'admin', true, new Date().toISOString(),
+      'admin', hashPassword(getBootstrapAdminPassword()), 'admin', true, new Date().toISOString(),
     ]);
   }
 
@@ -1926,7 +2998,7 @@ function setupInicial() {
       catSheet.appendRow([generateId('CAT'), nombre, tipo, true]);
   });
 
-  Logger.log('✅ Setup completado. Credenciales admin: usuario=admin / contraseña=Admin2024!');
-  Logger.log('⚠️  IMPORTANTE: Cambia la contraseña del admin después del primer login.');
+  Logger.log('Setup completado. No se imprimieron credenciales.');
+  Logger.log('Elimine BOOTSTRAP_ADMIN_PASSWORD de Script Properties y cambie la contraseña temporal después del primer acceso.');
   return '✅ Setup exitoso';
 }

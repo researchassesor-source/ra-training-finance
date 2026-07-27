@@ -1,4 +1,5 @@
 export const CERTIFICATE_CONFIG = {
+  templateVersion: 'ra-canva-2026-v1',
   company: 'R.A. Training',
   brandLine: 'RESEARCH ASSESSOR & TRAINING',
   city: 'Riobamba',

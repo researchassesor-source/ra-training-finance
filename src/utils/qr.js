@@ -1,10 +1,8 @@
 import QRCode from 'qrcode'
+import { getCertificatePublicBaseUrl } from '../config/brand.js'
 
 export function buildVerificationUrl(id) {
-  const configured = String(import.meta.env?.VITE_PUBLIC_APP_URL || '').trim()
-  const browserOrigin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000'
-  const origin = configured || browserOrigin
-  return `${origin.replace(/\/$/, '')}/verificar/${encodeURIComponent(id)}`
+  return `${getCertificatePublicBaseUrl()}/verificar/${encodeURIComponent(id)}`
 }
 
 export function generateQrDataUrl(id) {

@@ -1,15 +1,34 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { saveAs } from 'file-saver'
 import {
-  Award, CheckCircle, Download, FileText, MailCheck, MessageCircle,
-  Pencil, Plus, QrCode, ShoppingBag, Trash2,
+  Award, Ban, CheckCircle, Download, FileText, History, MailCheck, MessageCircle,
+  Pencil, Plus, QrCode, RefreshCw, ShoppingBag, Trash2,
 } from 'lucide-react'
 import { api } from '../../services/api'
+import { certificatePublicUrlStatus } from '../../config/brand'
+import { certificateAvalVisualStatus } from '../../config/certificate'
+import {
+  isControlledCertificateRecoveryAvailable,
+} from '../../services/certificateArtifactStore'
+import { certificatePdfRepository } from '../../services/certificatePdfRepository'
+import {
+  downloadCertificateWithAudit,
+  openCertificatePreviewWindow,
+} from '../../services/certificateDownloadFlow'
 import { useAuth } from '../../context/AuthContext'
 import { fmt, ESTADOS_CERTIFICADO, ESTADOS_PAGO_INS } from '../../utils/formatters'
 import { exportInscripcionPDF, exportInscripcionesCSV, exportInscripcionesPDF } from '../../utils/exporters'
 import { buildVerificationUrl, generateQrDataUrl } from '../../utils/qr'
-import { buildCertificatePdf, certificateCodeFor } from '../../utils/certificateGenerator'
+import { validateCertificateData } from '../../utils/certificateGenerator'
+import {
+  canManageCertificates,
+  certificateCapabilities,
+  certificateLifecycleStatus,
+  certificatePublicId,
+  CERTIFICATE_DELETE_BLOCKED_MESSAGE,
+  CERTIFICATE_PERMISSION_MESSAGE,
+  isCertificateProtectedAgainstDeletion,
+} from '../../utils/certificatePermissions'
 import Modal from '../UI/Modal'
 import ConfirmDialog from '../UI/ConfirmDialog'
 import Spinner from '../UI/Spinner'
@@ -17,6 +36,7 @@ import InscripcionesForm from './InscripcionesForm'
 import VentasVendedorModal from './VentasVendedorModal'
 import EntregaCertificadoModal from './EntregaCertificadoModal'
 import EnvioMasivoCertificadosModal from './EnvioMasivoCertificadosModal'
+import AuditoriaCertificadosModal from './AuditoriaCertificadosModal'
 
 const EMPTY_FILTERS = {
   servicioId: '', vendedor: '', estadoPago: '', estadoCertificado: '', tipoAval: '', desde: '', hasta: '',
@@ -24,6 +44,8 @@ const EMPTY_FILTERS = {
 
 export default function InscripcionesList() {
   const { isAdmin, user } = useAuth()
+  const canManage = canManageCertificates(user)
+  const qrConfiguration = useMemo(() => certificatePublicUrlStatus(), [])
   const [data, setData] = useState([])
   const [servicios, setServicios] = useState([])
   const [vendedores, setVendedores] = useState([])
@@ -44,6 +66,13 @@ export default function InscripcionesList() {
   const [durationSaving, setDurationSaving] = useState(false)
   const [durationError, setDurationError] = useState('')
   const [selectedIds, setSelectedIds] = useState(() => new Set())
+  const [lifecycle, setLifecycle] = useState(null)
+  const [lifecycleReason, setLifecycleReason] = useState('')
+  const [lifecycleConfirmed, setLifecycleConfirmed] = useState(false)
+  const [lifecycleError, setLifecycleError] = useState('')
+  const [lifecycleBusy, setLifecycleBusy] = useState(false)
+  const [auditRetry, setAuditRetry] = useState(null)
+  const [artifactRecovery, setArtifactRecovery] = useState(null)
 
   const load = useCallback(() => {
     setLoading(true)
@@ -82,16 +111,16 @@ export default function InscripcionesList() {
     return {
       sales: data.reduce((sum, item) => sum + (Number(item.Monto) || 0), 0),
       collected: data.filter(item => item.EstadoPago === 'verificado').reduce((sum, item) => sum + (Number(item.Monto) || 0), 0),
-      raPending: data.filter(item => item.EstadoPago === 'verificado' && item.EstadoCertificado !== 'emitido' && !requiresAval(item)).length,
+      raPending: data.filter(item => item.EstadoPago === 'verificado' && certificateLifecycleStatus(item) === 'pendiente' && !requiresAval(item)).length,
       avalPending: data.filter(item => requiresAval(item) && item.EstadoAval !== 'avalado').length,
-      issued: data.filter(item => item.EstadoCertificado === 'emitido').length,
+      issued: data.filter(item => ['emitido', 'enviado', 'reemitido'].includes(certificateLifecycleStatus(item))).length,
     }
   }, [data])
 
-  const selectableCertificates = useMemo(() => data.filter(item => (
-    item.EstadoCertificado === 'emitido' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(item.ClienteEmail || '').trim())
-  )), [data])
-  const selectedCertificates = useMemo(() => data.filter(item => selectedIds.has(item.ID)), [data, selectedIds])
+  const selectableCertificates = useMemo(() => canManage ? data.filter(item => (
+    certificateCapabilities(user, item).canDeliver && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(item.ClienteEmail || '').trim())
+  )) : [], [canManage, data])
+  const selectedCertificates = useMemo(() => canManage ? data.filter(item => selectedIds.has(item.ID)) : [], [canManage, data, selectedIds])
   const allSelectableSelected = selectableCertificates.length > 0
     && selectableCertificates.every(item => selectedIds.has(item.ID))
 
@@ -194,46 +223,159 @@ export default function InscripcionesList() {
     finally { setProcessing('') }
   }
 
+  function openLifecycle(type, item) {
+    setLifecycle({ type, item })
+    setLifecycleReason('')
+    setLifecycleConfirmed(false)
+    setLifecycleError('')
+  }
+
+  async function submitLifecycle(e) {
+    e.preventDefault()
+    const reason = lifecycleReason.trim()
+    if (reason.length < 5) {
+      setLifecycleError('Ingrese un motivo de al menos 5 caracteres.')
+      return
+    }
+    if (!lifecycleConfirmed) {
+      setLifecycleError('Debe confirmar explícitamente esta operación.')
+      return
+    }
+    setLifecycleBusy(true)
+    setLifecycleError('')
+    try {
+      if (lifecycle.type === 'void') await api.anularCertificado(lifecycle.item.ID, reason)
+      else await api.reemitirCertificado(lifecycle.item.ID, reason)
+      setLifecycle(null)
+      load()
+    } catch (err) {
+      setLifecycleError(err.message)
+    } finally {
+      setLifecycleBusy(false)
+    }
+  }
+
   async function emitCertificate(item) {
+    if (!canManage) {
+      setError(CERTIFICATE_PERMISSION_MESSAGE)
+      return
+    }
     setProcessing(`certificate:${item.ID}`)
     setError('')
+    setAuditRetry(null)
     try {
-      const prepared = await buildCertificatePdf({
-        ...item,
-        CodigoCertificado: certificateCodeFor(item),
-        FechaEmisionCertificado: item.FechaEmisionCertificado || new Date().toISOString(),
+      const missing = validateCertificateData(item)
+      if (missing.length) throw new Error(`Faltan los siguientes datos para generar el certificado: ${missing.join(', ')}.`)
+      buildVerificationUrl(certificatePublicId(item))
+      const avalVisual = certificateAvalVisualStatus(item)
+      if (!avalVisual.valid) throw new Error(avalVisual.error)
+      const result = await api.emitirCertificado(item.ID)
+      const prepared = await certificatePdfRepository.prepare(result.data)
+      await api.registrarArtefactoCertificado(item.ID, {
+        pdfHash: prepared.hash,
+        pdfStorageReference: prepared.reference,
+        templateVersion: prepared.templateVersion,
+        certificateVersion: prepared.certificateVersion,
       })
-      const result = await api.emitirCertificado(item.ID, prepared.certificateCode)
-      saveAs(prepared.blob, prepared.filename)
-      await api.actualizarEntregaCertificado(item.ID, 'descargado')
+      const request = await api.solicitarDescargaCertificado(item.ID, {
+        pdfHash: prepared.hash,
+        pdfStorageReference: prepared.reference,
+      })
+      try {
+        saveAs(prepared.blob, prepared.filename)
+      } catch (deliveryError) {
+        await api.confirmarDescargaCertificado(request.requestId, 'fallido', deliveryError.message)
+        throw deliveryError
+      }
+      try {
+        await api.confirmarDescargaCertificado(request.requestId, 'completado')
+      } catch {
+        setAuditRetry({ kind: 'confirm', requestId: request.requestId })
+        const auditError = new Error('La descarga se inició, pero su confirmación de auditoría quedó pendiente. Use “Reintentar auditoría”.')
+        auditError.deliveryStarted = true
+        throw auditError
+      }
       setSelected(result.data)
       load()
     } catch (err) {
       if (isAdmin && /duraci/i.test(err.message || '')) openDurationEditor(item)
-      else setError(err.message)
+      else {
+        if (!err.deliveryStarted) setAuditRetry(current => current || { kind: 'emit', item })
+        setError(err.message)
+      }
     }
     finally { setProcessing('') }
   }
 
   async function downloadCertificate(item) {
+    if (!canManage) {
+      setError(CERTIFICATE_PERMISSION_MESSAGE)
+      return
+    }
+    const preview = openCertificatePreviewWindow()
     setProcessing(`certificate:${item.ID}`)
     setError('')
+    setAuditRetry(null)
+    setArtifactRecovery(null)
     try {
-      const result = await buildCertificatePdf(item)
-      saveAs(result.blob, result.filename)
-      await api.actualizarEntregaCertificado(item.ID, 'descargado')
+      const result = await downloadCertificateWithAudit({
+        id: item.ID,
+        api,
+        repository: certificatePdfRepository,
+        preview,
+        saveFile: saveAs,
+      })
+      if (result.previewWarning) setError(result.previewWarning)
       load()
     } catch (err) {
       if (isAdmin && /duraci/i.test(err.message || '')) openDurationEditor(item)
-      else setError(err.message)
+      else {
+        if (err.auditPending) {
+          setAuditRetry({ kind: 'confirm', requestId: err.requestId })
+          setError('La descarga se inició, pero su confirmación de auditoría quedó pendiente. Use “Reintentar auditoría”.')
+        } else {
+          const recoveryAvailable = isControlledCertificateRecoveryAvailable(err)
+          if (recoveryAvailable) setArtifactRecovery({ item: err.certificate || item, message: err.message })
+          else if (!err.deliveryStarted) setAuditRetry(current => current || { kind: 'download', item })
+          setError(err.message)
+        }
+      }
     }
     finally { setProcessing('') }
   }
 
+  async function retryCertificateAudit() {
+    const retry = auditRetry
+    if (!retry) return
+    if (retry.kind === 'emit') {
+      await emitCertificate(retry.item)
+      return
+    }
+    if (retry.kind === 'download') {
+      await downloadCertificate(retry.item)
+      return
+    }
+    setProcessing('audit:retry')
+    setError('')
+    try {
+      await api.confirmarDescargaCertificado(retry.requestId, 'completado')
+      setAuditRetry(null)
+      load()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setProcessing('')
+    }
+  }
+
   function showQr(item) {
+    if (!canManage) {
+      setError(CERTIFICATE_PERMISSION_MESSAGE)
+      return
+    }
     setQrIns(item)
     setQrDataUrl('')
-    generateQrDataUrl(item.ID)
+    generateQrDataUrl(certificatePublicId(item))
       .then(setQrDataUrl)
       .catch(() => setError('No se pudo generar el código QR.'))
   }
@@ -274,7 +416,7 @@ export default function InscripcionesList() {
             <option value="">Todos los cursos</option>
             {servicios.filter(item => item.Activo === true || item.Activo === 'TRUE').map(item => <option key={item.ID} value={item.ID}>{item.Nombre}</option>)}
           </select>
-          {isAdmin && (
+          {canManage && (
             <select className="input w-full min-w-0 text-sm" value={filtros.vendedor} onChange={e => setFilter('vendedor', e.target.value)}>
               <option value="">Todos los vendedores</option>
               {vendedores.map(item => <option key={item.username} value={item.username}>{item.nombre}</option>)}
@@ -288,6 +430,7 @@ export default function InscripcionesList() {
           <select className="input w-full min-w-0 text-sm" value={filtros.estadoCertificado} onChange={e => setFilter('estadoCertificado', e.target.value)}>
             <option value="">Todos los certificados</option>
             <option value="pendiente">Pendiente</option><option value="en_proceso">En proceso</option><option value="emitido">Emitido</option>
+            <option value="anulado">Anulado</option><option value="reemitido">Reemitido</option>
           </select>
           <select className="input w-full min-w-0 text-sm" value={filtros.tipoAval} onChange={e => setFilter('tipoAval', e.target.value)}>
             <option value="">Todos los avales</option>
@@ -318,10 +461,17 @@ export default function InscripcionesList() {
               <button onClick={() => { setModal('sales'); setSelected(null) }} className="btn-secondary text-sm"><ShoppingBag size={15} /> Ventas por vendedor</button>
               <button onClick={() => exportInscripcionesCSV(data)} className="btn-secondary text-sm" disabled={!data.length}><Download size={15} /> CSV</button>
               <button onClick={() => exportInscripcionesPDF(data, buildExportLabel())} className="btn-secondary text-sm" disabled={!data.length}><FileText size={15} /> PDF</button>
+              <button onClick={() => setModal('certificate-audit')} className="btn-secondary text-sm"><History size={15} /> Auditoría de certificados</button>
             </>
           )}
           <button onClick={() => { setSelected(null); setModal('new') }} className="btn-primary text-sm"><Plus size={15} /> Nueva Inscripción</button>
         </div>
+        {isAdmin && (
+          <div className={`rounded-lg border px-3 py-2 text-xs ${qrConfiguration.valid ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-red-200 bg-red-50 text-red-800'}`}>
+            <span className="font-semibold">QR público · {qrConfiguration.environment} · {qrConfiguration.valid ? 'Configuración válida' : 'Emisión bloqueada'}</span>
+            <span className="ml-2 break-all">{qrConfiguration.valid ? qrConfiguration.url : qrConfiguration.error}</span>
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
@@ -333,7 +483,16 @@ export default function InscripcionesList() {
         <Summary label="Certificados emitidos" value={totals.issued} color="text-emerald-600" />
       </div>
 
-      {error && <p className="text-sm text-red-700 bg-red-50 rounded-lg p-3">{error}</p>}
+      {error && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">
+          <p>{error}</p>
+          {auditRetry && (
+            <button type="button" className="btn-secondary text-xs" onClick={retryCertificateAudit} disabled={Boolean(processing)}>
+              Reintentar auditoría
+            </button>
+          )}
+        </div>
+      )}
 
       {loading ? <Spinner text="Cargando inscripciones..." /> : (
         <div className="card p-0 overflow-hidden">
@@ -379,7 +538,10 @@ export default function InscripcionesList() {
                 {!data.length ? <tr><td colSpan={isAdmin ? 13 : 12} className="text-center py-10 text-gray-400">Sin inscripciones registradas</td></tr> : data.map(item => {
                   const hasAval = item.RequiereAvalExterno === true || item.RequiereAvalExterno === 'TRUE'
                   const avalReady = !hasAval || item.EstadoAval === 'avalado'
-                  const canSelect = item.EstadoCertificado === 'emitido' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(item.ClienteEmail || '').trim())
+                  const avalVisual = certificateAvalVisualStatus(item)
+                  const issuanceConfigurationReady = avalReady && avalVisual.valid && qrConfiguration.valid
+                  const capabilities = certificateCapabilities(user, item)
+                  const canSelect = capabilities.canDeliver && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(item.ClienteEmail || '').trim())
                   const canVerifyPayment = ['pendiente', 'pagado', 'pendiente_verificacion'].includes(item.EstadoPago)
                   const rowBusy = isBusy(item, 'certificate')
                   return (
@@ -416,7 +578,7 @@ export default function InscripcionesList() {
                       <td className="hidden px-2 py-2.5 xl:table-cell">
                         {hasAval && !avalReady && item.EstadoCertificado !== 'emitido'
                           ? <span className="badge-yellow px-1.5 text-[10px] leading-tight" title="Pendiente del aval institucional">Pend. aval</span>
-                          : <span title={item.CodigoCertificado ? `Código: ${item.CodigoCertificado}` : undefined} className={`${ESTADOS_CERTIFICADO[item.EstadoCertificado]?.css || 'badge-gray'} px-1.5 text-[10px] leading-tight`}>{ESTADOS_CERTIFICADO[item.EstadoCertificado]?.label || item.EstadoCertificado}</span>}
+                          : <span title={canManage && item.CodigoCertificado ? `Código: ${item.CodigoCertificado}` : undefined} className={`${ESTADOS_CERTIFICADO[item.EstadoCertificado]?.css || 'badge-gray'} px-1.5 text-[10px] leading-tight`}>{ESTADOS_CERTIFICADO[item.EstadoCertificado]?.label || item.EstadoCertificado}</span>}
                       </td>
                       <td className="hidden px-2 py-2.5 min-w-0 xl:table-cell"><AvalBadge item={item} hasAval={hasAval} /></td>
                       <td className="px-2 py-2.5 min-w-0 xl:hidden">
@@ -430,7 +592,7 @@ export default function InscripcionesList() {
                         <div className="flex flex-col items-start gap-1">
                           {hasAval && !avalReady && item.EstadoCertificado !== 'emitido'
                             ? <span className="badge-yellow px-1.5 text-[10px] leading-tight" title="Pendiente del aval institucional">Pend. aval</span>
-                            : <span title={item.CodigoCertificado ? `Código: ${item.CodigoCertificado}` : undefined} className={`${ESTADOS_CERTIFICADO[item.EstadoCertificado]?.css || 'badge-gray'} px-1.5 text-[10px] leading-tight`}>{ESTADOS_CERTIFICADO[item.EstadoCertificado]?.label || item.EstadoCertificado}</span>}
+                            : <span title={canManage && item.CodigoCertificado ? `Código: ${item.CodigoCertificado}` : undefined} className={`${ESTADOS_CERTIFICADO[item.EstadoCertificado]?.css || 'badge-gray'} px-1.5 text-[10px] leading-tight`}>{ESTADOS_CERTIFICADO[item.EstadoCertificado]?.label || item.EstadoCertificado}</span>}
                           <AvalBadge item={item} hasAval={hasAval} />
                         </div>
                       </td>
@@ -439,13 +601,23 @@ export default function InscripcionesList() {
                         <Action icon={Download} label="Descargar comprobante de inscripción" onClick={() => exportInscripcionPDF(item)} disabled={rowBusy} />
                         <Action icon={Pencil} label="Editar inscripción" onClick={() => { setSelected(item); setModal('edit') }} disabled={rowBusy} />
                         {isAdmin && canVerifyPayment && <Action icon={CheckCircle} label="Verificar pago" onClick={() => setConfirm({ type: 'verify', item })} disabled={rowBusy} css="hover:text-emerald-600 hover:bg-emerald-50" />}
-                        {isAdmin && item.EstadoPago === 'verificado' && item.EstadoCertificado !== 'emitido' && <Action icon={Award}
-                          label={avalReady ? 'Generar y emitir certificado académico' : `Pendiente del aval institucional${item.InstitucionAval ? ` de ${item.InstitucionAval}` : ''}`}
-                          onClick={() => emitCertificate(item)} disabled={rowBusy || !avalReady} css="hover:text-amber-600 hover:bg-amber-50" />}
-                        {item.EstadoCertificado === 'emitido' && <Action icon={Award} label="Descargar certificado académico" onClick={() => downloadCertificate(item)} disabled={rowBusy} css="hover:text-amber-600 hover:bg-amber-50" />}
-                        {item.EstadoCertificado === 'emitido' && <Action icon={QrCode} label="Ver y descargar QR" onClick={() => showQr(item)} disabled={rowBusy} />}
-                        {item.EstadoCertificado === 'emitido' && <Action icon={MailCheck} label="Entregar certificado" onClick={() => { setSelected(item); setModal('delivery') }} disabled={rowBusy} css="hover:text-emerald-600 hover:bg-emerald-50" />}
-                        {(isAdmin || item.EstadoPago === 'pendiente') && <Action icon={Trash2} label="Eliminar inscripción" onClick={() => setConfirm({ type: 'delete', item })} disabled={rowBusy} css="hover:text-red-600 hover:bg-red-50" />}
+                        {capabilities.canIssue && <Action icon={Award}
+                          label={!qrConfiguration.valid
+                            ? qrConfiguration.error
+                            : !avalReady
+                              ? `Pendiente del aval institucional${item.InstitucionAval ? ` de ${item.InstitucionAval}` : ''}`
+                              : !avalVisual.valid ? avalVisual.error : 'Generar y emitir certificado académico'}
+                          onClick={() => emitCertificate(item)} disabled={rowBusy || !issuanceConfigurationReady} css="hover:text-amber-600 hover:bg-amber-50" />}
+                        {capabilities.canDownload && <Action icon={Award} label="Ver y descargar certificado académico" onClick={() => downloadCertificate(item)} disabled={rowBusy} css="hover:text-amber-600 hover:bg-amber-50" />}
+                        {capabilities.canViewQr && <Action icon={QrCode} label="Ver y descargar QR" onClick={() => showQr(item)} disabled={rowBusy} />}
+                        {capabilities.canDeliver && <Action icon={MailCheck} label="Entregar certificado" onClick={() => { setSelected(item); setModal('delivery') }} disabled={rowBusy} css="hover:text-emerald-600 hover:bg-emerald-50" />}
+                        {capabilities.canVoid && <Action icon={Ban} label="Anular certificado" onClick={() => openLifecycle('void', item)} disabled={rowBusy} css="hover:text-red-600 hover:bg-red-50" />}
+                        {capabilities.canReissue && <Action icon={RefreshCw} label="Reemitir certificado" onClick={() => openLifecycle('reissue', item)} disabled={rowBusy} css="hover:text-blue-600 hover:bg-blue-50" />}
+                        {(isAdmin || item.EstadoPago === 'pendiente') && (
+                          isCertificateProtectedAgainstDeletion(item)
+                            ? <Action icon={Trash2} label={CERTIFICATE_DELETE_BLOCKED_MESSAGE} disabled css="cursor-not-allowed text-gray-300" />
+                            : <Action icon={Trash2} label="Eliminar inscripción" onClick={() => setConfirm({ type: 'delete', item })} disabled={rowBusy} css="hover:text-red-600 hover:bg-red-50" />
+                        )}
                       </div></td>
                     </tr>
                   )
@@ -466,9 +638,69 @@ export default function InscripcionesList() {
       <Modal open={modal === 'batch-delivery'} onClose={() => { setModal(null); setSelectedIds(new Set()) }} title="Enviar certificados por correo" size="lg">
         {modal === 'batch-delivery' && <EnvioMasivoCertificadosModal
           inscripciones={selectedCertificates}
+          isAdmin={canManage}
           onClose={() => { setModal(null); setSelectedIds(new Set()) }}
           onUpdated={load}
         />}
+      </Modal>
+      <Modal open={modal === 'certificate-audit'} onClose={() => setModal(null)} title="Auditoría de certificados" size="xl">
+        {modal === 'certificate-audit' && canManage && <AuditoriaCertificadosModal onClose={() => setModal(null)} />}
+      </Modal>
+
+      <Modal open={Boolean(lifecycle)} onClose={() => { if (!lifecycleBusy) setLifecycle(null) }}
+        title={lifecycle?.type === 'void' ? 'Anular certificado' : 'Reemitir certificado'} size="sm">
+        {lifecycle && (
+          <form onSubmit={submitLifecycle} className="space-y-4">
+            <div className={`rounded-lg border p-3 text-sm ${lifecycle.type === 'void' ? 'border-red-200 bg-red-50 text-red-900' : 'border-blue-200 bg-blue-50 text-blue-900'}`}>
+              <p className="font-semibold">{lifecycle.item.ClienteNombre}</p>
+              <p>{lifecycle.item.ServicioNombre}</p>
+              <p className="mt-1 font-mono text-xs">{lifecycle.item.CodigoCertificado}</p>
+              <p className="mt-2 text-xs">
+                {lifecycle.type === 'void'
+                  ? 'El certificado seguirá existiendo y su QR mostrará CERTIFICADO ANULADO.'
+                  : 'Se conservará el certificado anterior y se creará un identificador nuevo.'}
+              </p>
+            </div>
+            <div>
+              <label className="label" htmlFor="certificate-lifecycle-reason">Motivo obligatorio</label>
+              <textarea id="certificate-lifecycle-reason" className="input min-h-24" required value={lifecycleReason}
+                onChange={e => setLifecycleReason(e.target.value)} placeholder="Describa la razón institucional de esta operación" />
+            </div>
+            <label className="flex items-start gap-2 text-sm text-gray-700">
+              <input type="checkbox" className="mt-1" checked={lifecycleConfirmed} onChange={e => setLifecycleConfirmed(e.target.checked)} />
+              <span>Confirmo expresamente que deseo {lifecycle.type === 'void' ? 'anular' : 'reemitir'} este certificado y conservar su historial.</span>
+            </label>
+            {lifecycleError && <p className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{lifecycleError}</p>}
+            <div className="flex gap-3">
+              <button type="button" className="btn-secondary flex-1" disabled={lifecycleBusy} onClick={() => setLifecycle(null)}>Cancelar</button>
+              <button type="submit" className="btn-primary flex-1" disabled={lifecycleBusy || !lifecycleConfirmed}>
+                {lifecycleBusy ? 'Procesando...' : lifecycle.type === 'void' ? 'Anular' : 'Reemitir'}
+              </button>
+            </div>
+          </form>
+        )}
+      </Modal>
+
+      <Modal open={Boolean(artifactRecovery)} onClose={() => setArtifactRecovery(null)} title="Recuperación controlada del certificado" size="sm">
+        {artifactRecovery && (
+          <div className="space-y-4">
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+              <p className="font-semibold">El PDF original no está disponible en este navegador.</p>
+              <p className="mt-2">{artifactRecovery.message}</p>
+            </div>
+            <p className="text-sm text-gray-600">
+              El sistema no modificó ni regeneró silenciosamente el certificado histórico. La recuperación permitida crea una nueva versión, conserva el identificador anterior y registra el motivo en la auditoría.
+            </p>
+            <div className="flex gap-3">
+              <button type="button" className="btn-secondary flex-1" onClick={() => setArtifactRecovery(null)}>Cancelar</button>
+              <button type="button" className="btn-primary flex-1" onClick={() => {
+                const recoveryItem = artifactRecovery.item
+                setArtifactRecovery(null)
+                openLifecycle('reissue', recoveryItem)
+              }}>Iniciar reemisión controlada</button>
+            </div>
+          </div>
+        )}
       </Modal>
 
       <Modal open={Boolean(durationTarget)} onClose={() => { if (!durationSaving) setDurationTarget(null) }} title="Completar duración académica" size="sm">
@@ -479,8 +711,8 @@ export default function InscripcionesList() {
               <p className="mt-1 text-xs">La duración se guardará en el servicio y se aplicará a todas sus inscripciones y certificados.</p>
             </div>
             <div>
-              <label className="label">Duración académica *</label>
-              <input className="input" required autoFocus value={durationValue} onChange={e => setDurationValue(e.target.value)} placeholder="Ej.: 40 o 40 horas" />
+              <label className="label" htmlFor="certificate-duration">Duración académica *</label>
+              <input id="certificate-duration" className="input" required autoFocus value={durationValue} onChange={e => setDurationValue(e.target.value)} placeholder="Ej.: 40 o 40 horas" />
               <p className="mt-1 text-xs text-gray-400">Si escribe solo 40, el certificado mostrará “40 horas académicas”.</p>
             </div>
             {durationError && <p className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{durationError}</p>}
@@ -508,7 +740,7 @@ export default function InscripcionesList() {
       </Modal>
 
       <Modal open={Boolean(qrIns)} onClose={() => setQrIns(null)} title="QR de verificación del certificado" size="sm">
-        {qrIns && <div className="space-y-4 text-center"><p className="text-sm text-gray-600">Este QR independiente puede utilizarse también en certificados físicos externos.</p>{qrDataUrl ? <><img src={qrDataUrl} alt="QR de verificación" className="mx-auto rounded-lg border border-gray-200" width={220} height={220} /><p className="text-xs text-gray-400 break-all">{buildVerificationUrl(qrIns.ID)}</p><a href={qrDataUrl} download={`qr_certificado_${qrIns.ID}.png`} className="btn-primary w-full justify-center"><Download size={15} /> Descargar PNG</a></> : <Spinner text="Generando QR..." />}</div>}
+        {qrIns && <div className="space-y-4 text-center"><p className="text-sm text-gray-600">Este QR independiente conserva la verificación histórica de esta versión.</p>{qrDataUrl ? <><img src={qrDataUrl} alt="QR de verificación" className="mx-auto rounded-lg border border-gray-200" width={220} height={220} /><p className="text-xs text-gray-400 break-all">{buildVerificationUrl(certificatePublicId(qrIns))}</p><a href={qrDataUrl} download={`qr_certificado_${certificatePublicId(qrIns)}.png`} className="btn-primary w-full justify-center"><Download size={15} /> Descargar PNG</a></> : <Spinner text="Generando QR..." />}</div>}
       </Modal>
     </div>
   )

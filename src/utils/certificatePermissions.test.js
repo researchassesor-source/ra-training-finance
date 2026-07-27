@@ -1,0 +1,74 @@
+import { describe, expect, it } from 'vitest'
+import {
+  canManageCertificates,
+  certificateCapabilities,
+  isCertificateProtectedAgainstDeletion,
+} from './certificatePermissions'
+
+const issued = {
+  EstadoPago: 'verificado',
+  EstadoCertificado: 'emitido',
+  RequiereAvalExterno: false,
+}
+
+describe('permisos de certificados', () => {
+  it('concede las acciones oficiales solamente al administrador', () => {
+    expect(canManageCertificates({ rol: 'admin' })).toBe(true)
+    expect(certificateCapabilities({ rol: 'admin' }, issued)).toMatchObject({
+      canDownload: true,
+      canViewQr: true,
+      canDeliver: true,
+      canVoid: true,
+      canReissue: true,
+      canBatchDeliver: true,
+      canViewAudit: true,
+    })
+  })
+
+  it.each(['vendedor', 'aval', 'usuario'])('rechaza todas las acciones administrativas para %s', rol => {
+    expect(canManageCertificates({ rol })).toBe(false)
+    expect(Object.values(certificateCapabilities({ rol }, issued)).every(value => value === false)).toBe(true)
+  })
+
+  it('no permite emitir sin pago verificado o con aval pendiente', () => {
+    const admin = { rol: 'admin' }
+    expect(certificateCapabilities(admin, { ...issued, EstadoCertificado: 'pendiente', EstadoPago: 'pendiente' }).canIssue).toBe(false)
+    expect(certificateCapabilities(admin, {
+      ...issued,
+      EstadoCertificado: 'pendiente',
+      RequiereAvalExterno: true,
+      EstadoAval: 'pendiente',
+    }).canIssue).toBe(false)
+    expect(certificateCapabilities(admin, {
+      ...issued,
+      EstadoCertificado: 'pendiente',
+      RequiereAvalExterno: true,
+      EstadoAval: 'avalado',
+    }).canIssue).toBe(true)
+  })
+
+  it.each([
+    { EstadoCertificado: 'emitido' },
+    { CertificateStatus: 'anulado' },
+    { EstadoCertificado: 'reemitido' },
+    { CodigoCertificado: 'RA-2026-001' },
+    { FechaEmisionCertificado: '2026-07-27T10:00:00.000Z' },
+    { CertificadoEmitido: true },
+  ])('protege contra eliminación física los certificados históricos %#', item => {
+    expect(isCertificateProtectedAgainstDeletion(item)).toBe(true)
+  })
+
+  it('conserva la eliminación para una inscripción pendiente sin certificado', () => {
+    expect(isCertificateProtectedAgainstDeletion({ EstadoCertificado: 'pendiente' })).toBe(false)
+  })
+
+  it('conserva el QR histórico y bloquea descarga/entrega cuando está anulado', () => {
+    expect(certificateCapabilities({ rol: 'admin' }, { ...issued, EstadoCertificado: 'anulado' })).toMatchObject({
+      canDownload: false,
+      canDeliver: false,
+      canViewQr: true,
+      canVoid: false,
+      canReissue: true,
+    })
+  })
+})

@@ -1,7 +1,10 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
-import { Eye, EyeOff, TrendingUp } from 'lucide-react'
+import { Award, Eye, EyeOff, ShieldCheck } from 'lucide-react'
+import logo from '../../assets/brand/logo-ra-training.webp'
+import logoOnLight from '../../assets/brand/logo-ra-training-on-light.png'
+import { BRAND } from '../../config/brand'
 
 export default function Login() {
   const { login } = useAuth()
@@ -29,41 +32,46 @@ export default function Login() {
   return (
     <div className="min-h-screen flex">
       {/* Left panel */}
-      <div className="hidden lg:flex lg:w-1/2 bg-brand-800 flex-col justify-center items-center p-12 text-white">
-        <div className="max-w-md text-center">
-          <div className="w-20 h-20 bg-white/10 rounded-2xl flex items-center justify-center mx-auto mb-6">
-            <TrendingUp size={40} className="text-amber-400" />
-          </div>
-          <h1 className="text-3xl font-bold mb-4">R.A. Training</h1>
-          <p className="text-brand-100 text-lg mb-8">Sistema de Gestión Financiera</p>
-          <div className="grid grid-cols-3 gap-4 text-center">
-            {[['Ingresos', 'Control de entradas'], ['Egresos', 'Gestión de gastos'], ['Proyecciones', 'Visión de futuro']].map(([t, s]) => (
-              <div key={t} className="bg-white/10 rounded-xl p-4">
+      <div className="relative hidden overflow-hidden bg-gradient-to-br from-brand-950 via-brand-800 to-brand-700 lg:flex lg:w-1/2 flex-col justify-center items-center p-12 text-white">
+        <div className="absolute -left-28 -top-28 h-72 w-72 rounded-full border-[32px] border-secondary-500/20" aria-hidden="true" />
+        <div className="relative z-10 max-w-lg text-center">
+          <img src={logo} alt="Símbolo oficial de R.A. Training" className="mx-auto mb-5 h-24 w-auto object-contain" />
+          <p className="text-sm font-semibold uppercase tracking-[0.3em] text-secondary-300">{BRAND.matrixName}</p>
+          <h1 className="mt-2 text-4xl font-bold">{BRAND.appName}</h1>
+          <p className="mt-3 text-lg text-brand-100">{BRAND.subtitle}</p>
+          <div className="mt-8 grid grid-cols-3 gap-4 text-center">
+            {[['Ingresos', 'Control financiero'], ['Certificados', 'Emisión verificable'], ['Auditoría', 'Trazabilidad']].map(([t, s]) => (
+              <div key={t} className="rounded-xl border border-white/10 bg-white/10 p-4 backdrop-blur-sm">
                 <p className="font-semibold">{t}</p>
                 <p className="text-xs text-brand-200 mt-1">{s}</p>
               </div>
             ))}
           </div>
+          <div className="mt-8 inline-flex items-center gap-2 rounded-full border border-secondary-300/40 bg-secondary-500 px-4 py-2 text-sm font-semibold text-brand-950">
+            <ShieldCheck size={17} aria-hidden="true" /> Gestión segura y centralizada
+          </div>
         </div>
       </div>
 
       {/* Right panel */}
-      <div className="flex-1 flex items-center justify-center p-8 bg-gray-50">
-        <div className="w-full max-w-sm">
+      <div className="relative flex flex-1 items-center justify-center overflow-hidden bg-gray-50 p-8">
+        <div className="relative z-10 w-full max-w-sm">
           <div className="text-center mb-8 lg:hidden">
-            <div className="w-14 h-14 bg-brand-700 rounded-2xl flex items-center justify-center mx-auto mb-3">
-              <TrendingUp size={28} className="text-amber-400" />
-            </div>
-            <h1 className="text-2xl font-bold text-gray-900">R.A. Training</h1>
-            <p className="text-gray-500 text-sm">Gestión Financiera</p>
+            <img src={logoOnLight} alt="Símbolo oficial de R.A. Training" className="mx-auto mb-3 h-16 w-16 object-contain drop-shadow-lg" />
+            <h1 className="text-2xl font-bold text-gray-900">{BRAND.fullName}</h1>
+            <p className="text-gray-500 text-sm">{BRAND.subtitle}</p>
           </div>
 
           <div className="card shadow-lg">
-            <h2 className="text-xl font-semibold text-gray-900 mb-6">Iniciar sesión</h2>
+            <div className="mb-6 flex items-center gap-2">
+              <Award className="text-secondary-600" size={22} aria-hidden="true" />
+              <h2 className="text-xl font-semibold text-gray-900">Iniciar sesión</h2>
+            </div>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="label">Usuario</label>
+                <label className="label" htmlFor="login-username">Usuario</label>
                 <input
+                  id="login-username"
                   className="input"
                   type="text"
                   placeholder="nombre.usuario"
@@ -73,9 +81,10 @@ export default function Login() {
                 />
               </div>
               <div>
-                <label className="label">Contraseña</label>
+                <label className="label" htmlFor="login-password">Contraseña</label>
                 <div className="relative">
                   <input
+                    id="login-password"
                     className="input pr-10"
                     type={show ? 'text' : 'password'}
                     placeholder="••••••••"
@@ -84,7 +93,8 @@ export default function Login() {
                     required
                   />
                   <button type="button" onClick={() => setShow(s => !s)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                    className="absolute right-3 top-1/2 -translate-y-1/2 rounded text-gray-400 hover:text-gray-600"
+                    aria-label={show ? 'Ocultar contraseña' : 'Mostrar contraseña'}>
                     {show ? <EyeOff size={16} /> : <Eye size={16} />}
                   </button>
                 </div>
@@ -103,7 +113,7 @@ export default function Login() {
           </div>
 
           <p className="text-center text-xs text-gray-400 mt-6">
-            R.A. Training Finance &copy; {new Date().getFullYear()}
+            {BRAND.fullName} &copy; {new Date().getFullYear()}
           </p>
         </div>
       </div>

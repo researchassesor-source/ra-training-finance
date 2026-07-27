@@ -204,10 +204,34 @@ export const api = {
     bust('getInscripciones', 'getIngresos', 'getDashboard')
     return call('verificarPagoInscripcion', { id, ...correcciones }, getToken())
   },
-  emitirCertificado: (id, codigoCertificado) => {
+  emitirCertificado: (id) => {
     bust('getInscripciones', 'getDashboard')
-    return call('emitirCertificado', { id, codigoCertificado }, getToken())
+    return call('emitirCertificado', { id }, getToken())
   },
+  anularCertificado: (id, motivo) => {
+    bust('getInscripciones', 'getDashboard')
+    return call('anularCertificado', { id, motivo, confirmacion: 'ANULAR' }, getToken())
+  },
+  reemitirCertificado: (id, motivo) => {
+    bust('getInscripciones', 'getDashboard')
+    return call('reemitirCertificado', { id, motivo, confirmacion: 'REEMITIR' }, getToken())
+  },
+  getCertificadoParaDescarga: (id) =>
+    call('getCertificadoParaDescarga', { id }, getToken()),
+  registrarArtefactoCertificado: (id, artifact) => {
+    bust('getInscripciones')
+    return call('registrarArtefactoCertificado', { id, ...artifact }, getToken())
+  },
+  solicitarDescargaCertificado: (id, artifact) =>
+    call('solicitarDescargaCertificado', { id, ...artifact }, getToken()),
+  confirmarDescargaCertificado: (solicitudId, resultado, motivo = '') => {
+    bust('getInscripciones')
+    return call('confirmarDescargaCertificado', { solicitudId, resultado, motivo }, getToken())
+  },
+  getDescargasPendientes: (limit = 100) =>
+    call('getDescargasPendientes', { limit }, getToken()),
+  registrarGeneracionCertificado: (id) =>
+    call('registrarGeneracionCertificado', { id }, getToken()),
   actualizarEntregaCertificado: (id, estadoEntrega) => {
     bust('getInscripciones')
     return call('actualizarEntregaCertificado', { id, estadoEntrega }, getToken())
@@ -216,6 +240,8 @@ export const api = {
     bust('getInscripciones')
     return callPost('enviarCertificadoEmail', { id, ...archivo }, getToken())
   },
+  getAuditoriaCertificados: (filtros = {}) =>
+    call('getAuditoriaCertificados', { filtros }, getToken()),
   deleteInscripcion: (id) => {
     bust('getInscripciones', 'getIngresos', 'getDashboard')
     return call('deleteInscripcion', { id }, getToken())

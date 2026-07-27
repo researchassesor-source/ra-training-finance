@@ -2,8 +2,10 @@ import { useState } from 'react'
 import { saveAs } from 'file-saver'
 import { Download, Mail, MessageCircle, Share2 } from 'lucide-react'
 import { api } from '../../services/api'
-import { buildCertificatePdf } from '../../utils/certificateGenerator'
+import { certificatePdfRepository } from '../../services/certificatePdfRepository'
+import { downloadCertificateWithAudit, openCertificatePreviewWindow } from '../../services/certificateDownloadFlow'
 import { blobToBase64 } from '../../utils/blob'
+import { CERTIFICATE_PERMISSION_MESSAGE } from '../../utils/certificatePermissions'
 
 export default function EntregaCertificadoModal({ inscripcion, isAdmin, onClose, onUpdated }) {
   const [email, setEmail] = useState(inscripcion.ClienteEmail || '')
@@ -20,7 +22,16 @@ export default function EntregaCertificadoModal({ inscripcion, isAdmin, onClose,
   }
 
   async function prepare() {
-    return buildCertificatePdf(inscripcion)
+    const issued = await api.getCertificadoParaDescarga(inscripcion.ID)
+    const result = await certificatePdfRepository.prepare(issued.data)
+    await api.registrarArtefactoCertificado(inscripcion.ID, {
+      pdfHash: result.hash,
+      pdfStorageReference: result.reference,
+      templateVersion: result.templateVersion,
+      certificateVersion: result.certificateVersion,
+    })
+    await api.registrarGeneracionCertificado(inscripcion.ID)
+    return result
   }
 
   async function track(state) {
@@ -33,10 +44,15 @@ export default function EntregaCertificadoModal({ inscripcion, isAdmin, onClose,
     setError('')
     setMessage('')
     try {
-      const result = await prepare()
-      saveAs(result.blob, result.filename)
+      const result = await downloadCertificateWithAudit({
+        id: inscripcion.ID,
+        api,
+        repository: certificatePdfRepository,
+        preview: openCertificatePreviewWindow(),
+        saveFile: saveAs,
+      })
       await track('descargado')
-      setMessage('El PDF se descargó correctamente.')
+      setMessage(result.previewWarning || 'El PDF se descargó y se abrió su vista previa correctamente.')
     } catch (err) { setError(err.message) }
     finally { setBusy('') }
   }
@@ -102,6 +118,15 @@ export default function EntregaCertificadoModal({ inscripcion, isAdmin, onClose,
 
   const disabled = Boolean(busy)
 
+  if (!isAdmin) {
+    return (
+      <div className="space-y-4">
+        <p className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">{CERTIFICATE_PERMISSION_MESSAGE}</p>
+        <div className="flex justify-end"><button type="button" onClick={onClose} className="btn-secondary">Cerrar</button></div>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm bg-gray-50 rounded-lg p-4">
@@ -125,17 +150,15 @@ export default function EntregaCertificadoModal({ inscripcion, isAdmin, onClose,
         </button>
       </div>
 
-      {isAdmin && (
-        <div className="border-t border-gray-100 pt-4 space-y-2">
-          <label className="label">Enviar PDF por correo</label>
-          <div className="flex flex-col sm:flex-row gap-2">
-            <input className="input" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="participante@example.com" />
-            <button type="button" onClick={sendEmail} disabled={disabled} className="btn-primary whitespace-nowrap justify-center">
-              <Mail size={16} /> {busy === 'email' ? 'Enviando...' : 'Enviar correo'}
-            </button>
-          </div>
+      <div className="border-t border-gray-100 pt-4 space-y-2">
+        <label className="label" htmlFor="certificate-delivery-email">Enviar PDF por correo</label>
+        <div className="flex flex-col sm:flex-row gap-2">
+          <input id="certificate-delivery-email" className="input" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="participante@example.com" />
+          <button type="button" onClick={sendEmail} disabled={disabled} className="btn-primary whitespace-nowrap justify-center">
+            <Mail size={16} /> {busy === 'email' ? 'Enviando...' : 'Enviar correo'}
+          </button>
         </div>
-      )}
+      </div>
 
       {message && <p className="text-sm text-emerald-700 bg-emerald-50 rounded-lg p-3">{message}</p>}
       {error && <p className="text-sm text-red-700 bg-red-50 rounded-lg p-3">{error}</p>}

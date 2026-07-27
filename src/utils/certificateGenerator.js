@@ -1,6 +1,7 @@
 import { jsPDF } from 'jspdf'
 import { buildVerificationUrl, generateQrDataUrl } from './qr.js'
 import { CERTIFICATE_CONFIG as cfg } from './certificateConfig.js'
+import { certificateAvalVisualStatus } from '../config/certificate.js'
 
 const PAGE_WIDTH = 381
 const PAGE_HEIGHT = 254
@@ -38,6 +39,30 @@ export function certificateCodeFor(inscripcion) {
     .slice(-10)
     .padStart(8, '0')
   return `RA-${year}-${compact}`
+}
+
+// Los certificados emitidos antes de incorporar los campos de auditoría pueden
+// no traer código o fecha de emisión. El estado "emitido" sigue viniendo del
+// backend; solo reconstruimos metadatos deterministas para mantener compatible
+// la descarga histórica mientras el backend completa esos campos.
+export function normalizeIssuedCertificate(inscripcion) {
+  const status = String(inscripcion?.CertificateStatus || inscripcion?.EstadoCertificado || '').toLowerCase()
+  if (!['emitido', 'enviado', 'reemitido', 'issued', 'sent', 'reissued'].includes(status)) return { ...inscripcion }
+
+  const fallbackDate = inscripcion.FechaEmisionCertificado
+    || inscripcion.FechaCreacion
+    || inscripcion.FechaInicio
+    || ''
+  const normalized = {
+    ...inscripcion,
+    FechaEmisionCertificado: fallbackDate,
+  }
+
+  return {
+    ...normalized,
+    CodigoCertificado: String(inscripcion.CodigoCertificado || '').trim()
+      || (fallbackDate ? certificateCodeFor(normalized) : ''),
+  }
 }
 
 export function validateCertificateData(inscripcion) {
@@ -164,7 +189,7 @@ function drawDynamicFields(doc, inscripcion) {
   const centerX = PAGE_WIDTH / 2
   doc.setTextColor(...COLORS.navy)
 
-  // Nombre: se conserva intacta la línea naranja original que está debajo.
+  // Nombre: la referencia aprobada ya no incluye la línea decorativa inferior.
   cover(doc, 104, 96.1, 173, 13)
   fitOneLine(doc, inscripcion.ClienteNombre, {
     family: 'OpenSansCondensed',
@@ -181,7 +206,7 @@ function drawDynamicFields(doc, inscripcion) {
   doc.setFontSize(12.5)
   doc.text(String(inscripcion.ClienteID), 198.55, 115.75)
 
-  // Curso: los adornos naranjas laterales permanecen en la plantilla.
+  // Curso: la referencia aprobada ya no incluye las líneas decorativas laterales.
   cover(doc, 104.3, 131, 172.4, 16.3)
   const course = fitLines(doc, inscripcion.ServicioNombre, {
     family: 'IBMPlexSansCondensed',
@@ -230,14 +255,56 @@ function drawUniqueVerificationQr(doc, qrDataUrl, verificationUrl) {
   doc.link(317.2, 162.5, 48.4, 75.5, { url: verificationUrl })
 }
 
+function drawAvalBlock(doc, aval) {
+  if (!aval.visible) return
+  const x = 294
+  const y = 111
+  const width = 76
+  const height = 43
+  cover(doc, x, y, width, height)
+  doc.setDrawColor(...cfg.colors.gold)
+  doc.setLineWidth(0.45)
+  doc.roundedRect(x, y, width, height, 2.2, 2.2, 'S')
+  doc.setTextColor(...COLORS.navy)
+  doc.setFont('IBMPlexSansCondensed', 'bold')
+  doc.setFontSize(8.2)
+  doc.text(aval.title, x + width / 2, y + 7, { align: 'center' })
+
+  if (aval.mode === 'pending') {
+    doc.setFont('IBMPlexSansCondensed', 'normal')
+    doc.setFontSize(7.2)
+    doc.text(aval.lines, x + width / 2, y + 19, { align: 'center', lineHeightFactor: 1.2 })
+    return
+  }
+
+  const textX = aval.logo ? x + 17 : x + width / 2
+  const textWidth = aval.logo ? width - 22 : width - 8
+  if (aval.logo) doc.addImage(aval.logo, x + 4, y + 12, 20, 20)
+  doc.setFontSize(7.5)
+  const institutionLines = doc.splitTextToSize(aval.institution, textWidth).slice(0, 2)
+  doc.text(institutionLines, textX, y + 14, { align: aval.logo ? 'left' : 'center', lineHeightFactor: 1.05 })
+  doc.setFont('IBMPlexSansCondensed', 'normal')
+  doc.setFontSize(6.6)
+  doc.text(`Ref.: ${aval.reference}`, textX, y + 26, { align: aval.logo ? 'left' : 'center' })
+  const confirmedLines = doc.splitTextToSize(aval.confirmedText, textWidth).slice(0, 2)
+  doc.text(confirmedLines, textX, y + 32, { align: aval.logo ? 'left' : 'center', lineHeightFactor: 1.05 })
+}
+
 export async function buildCertificatePdf(inscripcion, options = {}) {
-  const missing = validateCertificateData(inscripcion)
+  const certificate = normalizeIssuedCertificate(inscripcion)
+  const aval = certificateAvalVisualStatus(certificate)
+  if (!aval.valid) throw new Error(aval.error)
+  const missing = validateCertificateData(certificate)
   if (missing.length) {
     throw new Error(`Faltan los siguientes datos para generar el certificado: ${missing.join(', ')}.`)
   }
+  const status = String(certificate.CertificateStatus || certificate.EstadoCertificado || '').toLowerCase()
+  if (!['emitido', 'enviado', 'reemitido', 'issued', 'sent', 'reissued'].includes(status) || !String(certificate.CodigoCertificado || '').trim() || !certificate.FechaEmisionCertificado) {
+    throw new Error('El certificado oficial debe ser emitido por un administrador antes de generar el PDF.')
+  }
 
-  const recordId = String(inscripcion.ID).trim()
-  const certificateCode = certificateCodeFor(inscripcion)
+  const recordId = String(certificate.CertificatePublicId || certificate.ReissuedCertificateId || certificate.ID).trim()
+  const certificateCode = certificateCodeFor(certificate)
   const verificationUrl = buildVerificationUrl(recordId)
   const [qrDataUrl, assets] = await Promise.all([
     generateQrDataUrl(recordId),
@@ -252,22 +319,24 @@ export async function buildCertificatePdf(inscripcion, options = {}) {
   })
   registerFonts(doc, assets)
   doc.addImage(assets.template, 'PNG', 0, 0, PAGE_WIDTH, PAGE_HEIGHT, 'canva-template', 'FAST')
-  drawDynamicFields(doc, inscripcion)
+  drawDynamicFields(doc, certificate)
+  drawAvalBlock(doc, aval)
   drawUniqueVerificationQr(doc, qrDataUrl, verificationUrl)
   doc.setProperties({
-    title: `Certificado de ${inscripcion.ClienteNombre}`,
-    subject: `Certificado ${certificateCode} - ${inscripcion.ServicioNombre}`,
+    title: `Certificado de ${certificate.ClienteNombre}`,
+    subject: `Certificado ${certificateCode} - ${certificate.ServicioNombre}`,
     author: 'R.A. Training',
     creator: 'Plataforma R.A. Training',
     keywords: `${certificateCode}, certificado, ${recordId}`,
   })
 
-  const safeName = String(inscripcion.ClienteNombre).trim().replace(/[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ]+/g, '_')
+  const safeName = String(certificate.ClienteNombre).trim().replace(/[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ]+/g, '_')
   return {
     blob: doc.output('blob'),
     filename: `certificado_${safeName || recordId}.pdf`,
     qrDataUrl,
     verificationUrl,
     certificateCode,
+    templateVersion: cfg.templateVersion,
   }
 }
