@@ -31,6 +31,7 @@ describe('seguridad de certificados en Apps Script', () => {
   it('registra intentos rechazados y eventos de emisión/entrega', () => {
     expect(functionSource('requireCertificateAdmin')).toContain("resultado: 'rechazado'")
     expect(functionSource('emitirCertificado')).toContain("accion: 'CERTIFICATE_ISSUED'")
+    expect(functionSource('emitirCertificado')).toContain("accion: 'CERTIFICATE_METADATA_BACKFILLED'")
     expect(functionSource('registrarGeneracionCertificado')).toContain("accion: 'CERTIFICATE_GENERATED'")
     expect(functionSource('enviarCertificadoEmail')).toContain("'CERTIFICATE_RESENT' : 'CERTIFICATE_SENT'")
   })

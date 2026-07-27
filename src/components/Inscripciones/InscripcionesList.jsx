@@ -229,7 +229,8 @@ export default function InscripcionesList() {
     setProcessing(`certificate:${item.ID}`)
     setError('')
     try {
-      const result = await buildCertificatePdf(item)
+      const issued = await api.emitirCertificado(item.ID)
+      const result = await buildCertificatePdf(issued.data)
       await api.registrarGeneracionCertificado(item.ID)
       saveAs(result.blob, result.filename)
       await api.actualizarEntregaCertificado(item.ID, 'descargado')

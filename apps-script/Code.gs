@@ -1373,6 +1373,31 @@ function emitirCertificado(user, { id } = {}) {
   const row = sheetToObjects(sheet).find(function(r) { return r.ID === id; });
   if (!row) return { success: false, error: 'Inscripción no encontrada.' };
   if (row.EstadoCertificado === 'emitido') {
+    const codigoFaltante = !String(row.CodigoCertificado || '').trim();
+    const fechaFaltante = !String(row.FechaEmisionCertificado || '').trim();
+    if (codigoFaltante || fechaFaltante) {
+      const fechaHistorica = row.FechaEmisionCertificado || row.FechaCreacion || row.FechaInicio || new Date().toISOString();
+      const normalizado = Object.assign({}, row, { FechaEmisionCertificado: fechaHistorica });
+      updateRow(sheet, row, {
+        CodigoCertificado: row.CodigoCertificado || codigoCertificadoEstable(normalizado),
+        FechaEmisionCertificado: fechaHistorica,
+        EmitidoPor: row.EmitidoPor || user.Username,
+        EstadoEntrega: row.EstadoEntrega || 'pendiente',
+      });
+      const updatedLegacy = sheetToObjects(sheet).find(function(r) { return r.ID === id; });
+      registrarAuditoriaCertificado({
+        certificadoId: updatedLegacy.CodigoCertificado,
+        inscripcionId: id,
+        usuario: user.Username,
+        rol: user.Rol,
+        accion: 'CERTIFICATE_METADATA_BACKFILLED',
+        estadoAnterior: 'emitido_sin_metadatos',
+        estadoNuevo: 'emitido',
+        canal: 'panel',
+        resultado: 'ok',
+      });
+      return { success: true, alreadyIssued: true, metadataBackfilled: true, data: inscripcionEnriquecida(updatedLegacy, mapaDuracionServicios(), mapaUsuariosPorUsername()) };
+    }
     return { success: true, alreadyIssued: true, data: inscripcionEnriquecida(row, mapaDuracionServicios(), mapaUsuariosPorUsername()) };
   }
   if (row.EstadoPago !== 'verificado') return { success: false, error: 'El pago debe estar verificado antes de emitir el certificado.' };

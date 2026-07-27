@@ -18,6 +18,7 @@ Apps Script incorpora la hoja `AuditoriaCertificados` con los campos:
 - `CERTIFICATE_RESENT`
 - `CERTIFICATE_DELIVERY_FAILED`
 - intentos administrativos rechazados con la acción solicitada y resultado `rechazado`
+- normalización de código y fecha en certificados históricos emitidos (`CERTIFICATE_METADATA_BACKFILLED`)
 
 ## Seguridad
 

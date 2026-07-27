@@ -21,7 +21,8 @@ export default function EntregaCertificadoModal({ inscripcion, isAdmin, onClose,
   }
 
   async function prepare() {
-    const result = await buildCertificatePdf(inscripcion)
+    const issued = await api.emitirCertificado(inscripcion.ID)
+    const result = await buildCertificatePdf(issued.data)
     await api.registrarGeneracionCertificado(inscripcion.ID)
     return result
   }

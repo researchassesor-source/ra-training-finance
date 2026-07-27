@@ -40,6 +40,29 @@ export function certificateCodeFor(inscripcion) {
   return `RA-${year}-${compact}`
 }
 
+// Los certificados emitidos antes de incorporar los campos de auditoría pueden
+// no traer código o fecha de emisión. El estado "emitido" sigue viniendo del
+// backend; solo reconstruimos metadatos deterministas para mantener compatible
+// la descarga histórica mientras el backend completa esos campos.
+export function normalizeIssuedCertificate(inscripcion) {
+  if (inscripcion?.EstadoCertificado !== 'emitido') return { ...inscripcion }
+
+  const fallbackDate = inscripcion.FechaEmisionCertificado
+    || inscripcion.FechaCreacion
+    || inscripcion.FechaInicio
+    || ''
+  const normalized = {
+    ...inscripcion,
+    FechaEmisionCertificado: fallbackDate,
+  }
+
+  return {
+    ...normalized,
+    CodigoCertificado: String(inscripcion.CodigoCertificado || '').trim()
+      || (fallbackDate ? certificateCodeFor(normalized) : ''),
+  }
+}
+
 export function validateCertificateData(inscripcion) {
   const fields = [
     ['ID interno de la inscripción', inscripcion.ID],
@@ -231,16 +254,17 @@ function drawUniqueVerificationQr(doc, qrDataUrl, verificationUrl) {
 }
 
 export async function buildCertificatePdf(inscripcion, options = {}) {
-  const missing = validateCertificateData(inscripcion)
+  const certificate = normalizeIssuedCertificate(inscripcion)
+  const missing = validateCertificateData(certificate)
   if (missing.length) {
     throw new Error(`Faltan los siguientes datos para generar el certificado: ${missing.join(', ')}.`)
   }
-  if (inscripcion.EstadoCertificado !== 'emitido' || !String(inscripcion.CodigoCertificado || '').trim() || !inscripcion.FechaEmisionCertificado) {
+  if (certificate.EstadoCertificado !== 'emitido' || !String(certificate.CodigoCertificado || '').trim() || !certificate.FechaEmisionCertificado) {
     throw new Error('El certificado oficial debe ser emitido por un administrador antes de generar el PDF.')
   }
 
-  const recordId = String(inscripcion.ID).trim()
-  const certificateCode = certificateCodeFor(inscripcion)
+  const recordId = String(certificate.ID).trim()
+  const certificateCode = certificateCodeFor(certificate)
   const verificationUrl = buildVerificationUrl(recordId)
   const [qrDataUrl, assets] = await Promise.all([
     generateQrDataUrl(recordId),
@@ -255,17 +279,17 @@ export async function buildCertificatePdf(inscripcion, options = {}) {
   })
   registerFonts(doc, assets)
   doc.addImage(assets.template, 'PNG', 0, 0, PAGE_WIDTH, PAGE_HEIGHT, 'canva-template', 'FAST')
-  drawDynamicFields(doc, inscripcion)
+  drawDynamicFields(doc, certificate)
   drawUniqueVerificationQr(doc, qrDataUrl, verificationUrl)
   doc.setProperties({
-    title: `Certificado de ${inscripcion.ClienteNombre}`,
-    subject: `Certificado ${certificateCode} - ${inscripcion.ServicioNombre}`,
+    title: `Certificado de ${certificate.ClienteNombre}`,
+    subject: `Certificado ${certificateCode} - ${certificate.ServicioNombre}`,
     author: 'R.A. Training',
     creator: 'Plataforma R.A. Training',
     keywords: `${certificateCode}, certificado, ${recordId}`,
   })
 
-  const safeName = String(inscripcion.ClienteNombre).trim().replace(/[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ]+/g, '_')
+  const safeName = String(certificate.ClienteNombre).trim().replace(/[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ]+/g, '_')
   return {
     blob: doc.output('blob'),
     filename: `certificado_${safeName || recordId}.pdf`,
