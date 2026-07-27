@@ -317,6 +317,8 @@ export async function buildCertificatePdf(inscripcion, options = {}) {
     format: [PAGE_WIDTH, PAGE_HEIGHT],
     compress: true,
   })
+  doc.setFileId(deterministicCertificatePdfFileId(`${recordId}|${certificateCode}|${certificate.CertificateVersion || 1}`))
+  doc.setCreationDate(deterministicCertificatePdfCreationDate(certificate.FechaEmisionCertificado || certificate.IssuedAt))
   registerFonts(doc, assets)
   doc.addImage(assets.template, 'PNG', 0, 0, PAGE_WIDTH, PAGE_HEIGHT, 'canva-template', 'FAST')
   drawDynamicFields(doc, certificate)
@@ -339,4 +341,25 @@ export async function buildCertificatePdf(inscripcion, options = {}) {
     certificateCode,
     templateVersion: cfg.templateVersion,
   }
+}
+
+export function deterministicCertificatePdfFileId(value) {
+  const input = String(value || '')
+  const seeds = [0x811c9dc5, 0x9e3779b9, 0x85ebca6b, 0xc2b2ae35]
+  return seeds.map((seed, seedIndex) => {
+    let hash = seed >>> 0
+    for (let index = 0; index < input.length; index += 1) {
+      hash = Math.imul(hash ^ input.charCodeAt(index) ^ (seedIndex + index), 0x01000193) >>> 0
+    }
+    return hash.toString(16).padStart(8, '0')
+  }).join('').toUpperCase()
+}
+
+export function deterministicCertificatePdfCreationDate(value) {
+  const parsed = new Date(value)
+  const date = Number.isNaN(parsed.getTime()) || parsed.getUTCFullYear() < 1970 || parsed.getUTCFullYear() > 2037
+    ? new Date('2000-01-01T00:00:00.000Z')
+    : parsed
+  const pad = number => String(number).padStart(2, '0')
+  return `D:${date.getUTCFullYear()}${pad(date.getUTCMonth() + 1)}${pad(date.getUTCDate())}${pad(date.getUTCHours())}${pad(date.getUTCMinutes())}${pad(date.getUTCSeconds())}+00'00'`
 }

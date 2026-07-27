@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it, vi } from 'vitest'
 import {
   artifactReferenceFor,
   BrowserIndexedDbCertificateArtifactStore,
@@ -6,6 +6,7 @@ import {
   CertificatePdfRepository,
   MemoryCertificateArtifactStore,
   sha256Hex,
+  HISTORICAL_RECOVERY_AUDIT_ACTION,
 } from './certificateArtifactStore'
 
 beforeAll(async () => {
@@ -116,5 +117,56 @@ describe('repositorio inmutable de PDFs de certificados', () => {
     })
     await expect(repository.prepare({ ID: 'LEGACY-1', CertificateVersion: 1, TemplateVersion: 'legacy-v1' }))
       .rejects.toMatchObject({ code: CERTIFICATE_ARTIFACT_ERROR_CODES.LEGACY_ARTIFACT_MISSING })
+  })
+
+  it('recupera un histórico autorizado, calcula hash y conserva todos los datos persistidos', async () => {
+    const store = new MemoryCertificateArtifactStore()
+    const certificate = {
+      ID: 'LEGACY-RECOVERED', CertificatePublicId: 'LEGACY-RECOVERED', CertificateVersion: 1,
+      TemplateVersion: 'legacy-v1', CodigoCertificado: 'RA-2024-HIST001',
+      ClienteNombre: 'Persona Histórica', ClienteID: '0100000001', ServicioNombre: 'Curso Histórico',
+      Duracion: '40 horas académicas', Modalidad: 'Virtual', FechaInicio: '2024-01-10', FechaFin: '2024-01-12',
+      FechaEmisionCertificado: '2024-01-13T10:00:00.000Z', EstadoCertificado: 'emitido',
+    }
+    const buildPdf = vi.fn(async received => ({
+      blob: new Blob([JSON.stringify(received)], { type: 'application/pdf' }),
+      filename: 'certificado_historico.pdf',
+      templateVersion: 'ra-canva-2026-v1',
+      certificateCode: received.CodigoCertificado,
+    }))
+    const repository = new CertificatePdfRepository({ store, buildPdf })
+
+    const recovered = await repository.prepare(certificate, { allowHistoricalRecovery: true })
+
+    expect(buildPdf).toHaveBeenCalledWith(certificate)
+    expect(recovered).toMatchObject({
+      historicalRecovered: true,
+      historicalArtifact: true,
+      auditAction: HISTORICAL_RECOVERY_AUDIT_ACTION,
+      certificateCode: 'RA-2024-HIST001',
+      templateVersion: 'ra-canva-2026-v1',
+    })
+    expect(recovered.reference).toBe('browser-indexeddb:LEGACY-RECOVERED:v1:historical-recovery')
+    expect(recovered.hash).toMatch(/^[a-f0-9]{64}$/)
+    expect(await store.exists(recovered.reference)).toBe(true)
+  })
+
+  it('permite reconstruir en otro equipo solo cuando reproduce la huella histórica registrada', async () => {
+    const blob = new Blob(['pdf-historico-determinista'], { type: 'application/pdf' })
+    const hash = await sha256Hex(blob)
+    const certificate = {
+      ID: 'LEGACY-OTHER-DEVICE', CertificatePublicId: 'LEGACY-OTHER-DEVICE', CertificateVersion: 1,
+      TemplateVersion: 'ra-canva-2026-v1', PdfHash: hash,
+      PdfStorageReference: 'browser-indexeddb:LEGACY-OTHER-DEVICE:v1:historical-recovery',
+    }
+    const repository = new CertificatePdfRepository({
+      store: new MemoryCertificateArtifactStore(),
+      buildPdf: async () => ({ blob, filename: 'historico.pdf', templateVersion: 'ra-canva-2026-v1' }),
+    })
+
+    await expect(repository.prepare(certificate, { allowHistoricalRecovery: true })).resolves.toMatchObject({
+      hash,
+      historicalRecovered: true,
+    })
   })
 })

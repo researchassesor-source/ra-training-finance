@@ -12,6 +12,7 @@ export default function EntregaCertificadoModal({ inscripcion, isAdmin, onClose,
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
+  const [warning, setWarning] = useState('')
 
   function whatsappUrl(result) {
     const text = `Estimado/a ${inscripcion.ClienteNombre}, R.A. Training ha emitido su certificado del curso ${inscripcion.ServicioNombre}. Código: ${result.certificateCode}. Puede verificar su autenticidad en: ${result.verificationUrl}`
@@ -23,14 +24,19 @@ export default function EntregaCertificadoModal({ inscripcion, isAdmin, onClose,
 
   async function prepare() {
     const issued = await api.getCertificadoParaDescarga(inscripcion.ID)
-    const result = await certificatePdfRepository.prepare(issued.data)
+    const result = await certificatePdfRepository.prepare(issued.data, { allowHistoricalRecovery: true })
     await api.registrarArtefactoCertificado(inscripcion.ID, {
       pdfHash: result.hash,
       pdfStorageReference: result.reference,
       templateVersion: result.templateVersion,
       certificateVersion: result.certificateVersion,
+      historicalRecovery: result.historicalRecovered,
+      auditAction: result.auditAction,
     })
     await api.registrarGeneracionCertificado(inscripcion.ID)
+    if (result.historicalRecovered) {
+      setWarning('Se recuperó el artefacto del certificado histórico con la plantilla vigente. Se conservaron su código, datos, estado y QR.')
+    }
     return result
   }
 
@@ -43,6 +49,7 @@ export default function EntregaCertificadoModal({ inscripcion, isAdmin, onClose,
     setBusy('download')
     setError('')
     setMessage('')
+    setWarning('')
     try {
       const result = await downloadCertificateWithAudit({
         id: inscripcion.ID,
@@ -51,6 +58,7 @@ export default function EntregaCertificadoModal({ inscripcion, isAdmin, onClose,
         preview: openCertificatePreviewWindow(),
         saveFile: saveAs,
       })
+      if (result.historicalRecoveryWarning) setWarning(result.historicalRecoveryWarning)
       await track('descargado')
       setMessage(result.previewWarning || 'El PDF se descargó y se abrió su vista previa correctamente.')
     } catch (err) { setError(err.message) }
@@ -161,6 +169,7 @@ export default function EntregaCertificadoModal({ inscripcion, isAdmin, onClose,
       </div>
 
       {message && <p className="text-sm text-emerald-700 bg-emerald-50 rounded-lg p-3">{message}</p>}
+      {warning && <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{warning}</p>}
       {error && <p className="text-sm text-red-700 bg-red-50 rounded-lg p-3">{error}</p>}
       <div className="flex justify-end">
         <button type="button" onClick={onClose} disabled={disabled} className="btn-secondary">Cerrar</button>

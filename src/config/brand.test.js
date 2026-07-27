@@ -2,7 +2,12 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { PNG } from 'pngjs'
 import { describe, expect, it } from 'vitest'
-import { BRAND, detectCertificateEnvironment, resolveCertificatePublicBaseUrl } from './brand'
+import {
+  BRAND,
+  certificatePublicConfigurationNotice,
+  detectCertificateEnvironment,
+  resolveCertificatePublicBaseUrl,
+} from './brand'
 
 const root = process.cwd()
 
@@ -102,5 +107,26 @@ describe('URL pública canónica de certificados', () => {
     expect(resolveCertificatePublicBaseUrl({ environment: 'preview', configuredUrl: 'no-es-url' }).valid).toBe(false)
     expect(resolveCertificatePublicBaseUrl({ environment: 'production', configuredUrl: 'https://finance.ra-training.com/' }))
       .toMatchObject({ valid: true, url: 'https://finance.ra-training.com' })
+  })
+
+  it('oculta la franja técnica cuando Production está correctamente configurado', () => {
+    expect(certificatePublicConfigurationNotice({
+      environment: 'production', valid: true, url: 'https://ra-training-finance.vercel.app',
+    })).toBeNull()
+  })
+
+  it('mantiene la franja informativa en Preview', () => {
+    expect(certificatePublicConfigurationNotice({
+      environment: 'preview', valid: true, url: 'https://preview.example.test',
+    })).toMatchObject({ tone: 'success', details: 'https://preview.example.test' })
+  })
+
+  it('muestra un error productivo discreto sin exponer la URL configurada', () => {
+    const notice = certificatePublicConfigurationNotice({
+      environment: 'production', valid: false,
+      url: 'https://url-interna-no-debe-mostrarse.example', error: 'URL inválida: https://url-interna-no-debe-mostrarse.example',
+    })
+    expect(notice).toMatchObject({ tone: 'error', details: '' })
+    expect(JSON.stringify(notice)).not.toContain('url-interna-no-debe-mostrarse')
   })
 })

@@ -188,7 +188,7 @@ export async function downloadCertificateWithAudit({
 
     preview?.showStage('Obteniendo el PDF y verificando su integridad SHA-256…')
     const prepared = await step(
-      repository.prepare(certificate),
+      repository.prepare(certificate, { allowHistoricalRecovery: true }),
       preparationTimeoutMs,
       'La preparación del PDF excedió el tiempo permitido.',
     )
@@ -199,6 +199,8 @@ export async function downloadCertificateWithAudit({
       pdfStorageReference: prepared.reference,
       templateVersion: prepared.templateVersion,
       certificateVersion: prepared.certificateVersion,
+      historicalRecovery: prepared.historicalRecovered,
+      auditAction: prepared.auditAction,
     }), requestTimeoutMs, 'El servidor no respondió a tiempo al registrar el PDF oficial.')
 
     preview?.showStage('Registrando la solicitud en la auditoría…')
@@ -233,7 +235,10 @@ export async function downloadCertificateWithAudit({
       throw attachFlowContext(error, { deliveryStarted: true, auditPending: true, requestId, certificate })
     }
 
-    return { ...prepared, certificate, previewWarning }
+    const historicalRecoveryWarning = prepared.historicalRecovered
+      ? 'Se recuperó el artefacto del certificado histórico con la plantilla vigente. Se conservaron su código, datos, estado y QR.'
+      : ''
+    return { ...prepared, certificate, previewWarning, historicalRecoveryWarning }
   } catch (error) {
     const flowError = attachFlowContext(error, { deliveryStarted, requestId, certificate })
     if (requestId && !deliveryStarted) {

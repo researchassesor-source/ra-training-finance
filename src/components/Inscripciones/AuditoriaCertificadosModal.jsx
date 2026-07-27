@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../../services/api'
 import { fmt } from '../../utils/formatters'
+import { certificateAuditActionForDisplay } from '../../utils/certificateAudit'
 import Spinner from '../UI/Spinner'
 
 export default function AuditoriaCertificadosModal({ onClose }) {
@@ -43,7 +44,7 @@ export default function AuditoriaCertificadosModal({ onClose }) {
               ) : events.map(event => (
                 <tr key={event.ID} className="border-t border-gray-100 align-top">
                   <td className="whitespace-nowrap px-3 py-2 text-gray-500">{fmt.date(event.FechaHora)}<span className="block">{fmt.time(event.FechaHora)}</span></td>
-                  <td className="px-3 py-2 font-medium text-gray-900">{event.Accion}</td>
+                  <td className="px-3 py-2 font-medium text-gray-900">{certificateAuditActionForDisplay(event)}</td>
                   <td className="px-3 py-2">{event.Usuario || '—'}<span className="block text-gray-400">{event.Rol || '—'}</span></td>
                   <td className="px-3 py-2 font-mono text-[10px]">{event.InscripcionID || '—'}</td>
                   <td className="px-3 py-2">{event.EstadoAnterior || '—'} → {event.EstadoNuevo || '—'}</td>
