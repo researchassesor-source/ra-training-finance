@@ -47,9 +47,18 @@ function appsScriptLocalProxy(gasUrl) {
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
+  const vercelEnvironment = String(process.env.VERCEL_ENV || env.VERCEL_ENV || '').trim().toLowerCase()
+  const deploymentEnvironment = ['development', 'preview', 'production'].includes(vercelEnvironment)
+    ? vercelEnvironment
+    : ''
 
   return {
     plugins: [react(), appsScriptLocalProxy(env.GAS_URL)],
     base: '/',
+    // Vite no expone VERCEL_ENV al navegador. Se incorpora solo su valor no
+    // sensible para distinguir de forma fiable Preview y Production.
+    define: {
+      'import.meta.env.VITE_VERCEL_ENV': JSON.stringify(deploymentEnvironment),
+    },
   }
 })
