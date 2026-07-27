@@ -36,4 +36,6 @@ Entorno local aislado en la rama `feature/identidad-certificados-permisos`, crea
 - No se hicieron pruebas contra Apps Script ni Google Sheets de producción.
 - No se enviaron correos ni WhatsApp reales.
 - No se implementaron anulación o reemisión porque requieren versionado histórico.
-- El repositorio reporta vulnerabilidades npm preexistentes; no se ejecutó una actualización forzada que pudiera romper compatibilidad.
+- Se actualizaron localmente `jsPDF` 4.2.1, `jspdf-autotable` 5.0.8 y `react-router-dom` 7.18.1. Las pruebas, el build, el login y la generación/renderización del PDF siguieron aprobados.
+- `npm audit --omit=dev` conserva dos alertas altas de React Router asociadas a RSC; Finance es una SPA de Vite y no utiliza RSC. El audit completo conserva además alertas del servidor de desarrollo de Vite. No se forzó el salto a Vite 8.
+- El build mantiene una advertencia no bloqueante por el tamaño del chunk principal; se recomienda dividir módulos pesados de exportación en una fase posterior.
