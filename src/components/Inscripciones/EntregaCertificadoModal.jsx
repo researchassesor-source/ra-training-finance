@@ -21,7 +21,9 @@ export default function EntregaCertificadoModal({ inscripcion, isAdmin, onClose,
   }
 
   async function prepare() {
-    return buildCertificatePdf(inscripcion)
+    const result = await buildCertificatePdf(inscripcion)
+    await api.registrarGeneracionCertificado(inscripcion.ID)
+    return result
   }
 
   async function track(state) {
@@ -136,9 +138,9 @@ export default function EntregaCertificadoModal({ inscripcion, isAdmin, onClose,
       </div>
 
       <div className="border-t border-gray-100 pt-4 space-y-2">
-        <label className="label">Enviar PDF por correo</label>
+        <label className="label" htmlFor="certificate-delivery-email">Enviar PDF por correo</label>
         <div className="flex flex-col sm:flex-row gap-2">
-          <input className="input" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="participante@example.com" />
+          <input id="certificate-delivery-email" className="input" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="participante@example.com" />
           <button type="button" onClick={sendEmail} disabled={disabled} className="btn-primary whitespace-nowrap justify-center">
             <Mail size={16} /> {busy === 'email' ? 'Enviando...' : 'Enviar correo'}
           </button>

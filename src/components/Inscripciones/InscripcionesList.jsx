@@ -209,6 +209,7 @@ export default function InscripcionesList() {
       if (missing.length) throw new Error(`Faltan los siguientes datos para generar el certificado: ${missing.join(', ')}.`)
       const result = await api.emitirCertificado(item.ID)
       const prepared = await buildCertificatePdf(result.data)
+      await api.registrarGeneracionCertificado(item.ID)
       saveAs(prepared.blob, prepared.filename)
       await api.actualizarEntregaCertificado(item.ID, 'descargado')
       setSelected(result.data)
@@ -229,6 +230,7 @@ export default function InscripcionesList() {
     setError('')
     try {
       const result = await buildCertificatePdf(item)
+      await api.registrarGeneracionCertificado(item.ID)
       saveAs(result.blob, result.filename)
       await api.actualizarEntregaCertificado(item.ID, 'descargado')
       load()
@@ -453,7 +455,7 @@ export default function InscripcionesList() {
                         <Action icon={Download} label="Descargar comprobante de inscripción" onClick={() => exportInscripcionPDF(item)} disabled={rowBusy} />
                         <Action icon={Pencil} label="Editar inscripción" onClick={() => { setSelected(item); setModal('edit') }} disabled={rowBusy} />
                         {isAdmin && canVerifyPayment && <Action icon={CheckCircle} label="Verificar pago" onClick={() => setConfirm({ type: 'verify', item })} disabled={rowBusy} css="hover:text-emerald-600 hover:bg-emerald-50" />}
-                        {certificateCapabilities(user, item).canIssue && <Action icon={Award}
+                        {canManage && item.EstadoPago === 'verificado' && item.EstadoCertificado !== 'emitido' && <Action icon={Award}
                           label={avalReady ? 'Generar y emitir certificado académico' : `Pendiente del aval institucional${item.InstitucionAval ? ` de ${item.InstitucionAval}` : ''}`}
                           onClick={() => emitCertificate(item)} disabled={rowBusy || !avalReady} css="hover:text-amber-600 hover:bg-amber-50" />}
                         {certificateCapabilities(user, item).canDownload && <Action icon={Award} label="Descargar certificado académico" onClick={() => downloadCertificate(item)} disabled={rowBusy} css="hover:text-amber-600 hover:bg-amber-50" />}
@@ -497,8 +499,8 @@ export default function InscripcionesList() {
               <p className="mt-1 text-xs">La duración se guardará en el servicio y se aplicará a todas sus inscripciones y certificados.</p>
             </div>
             <div>
-              <label className="label">Duración académica *</label>
-              <input className="input" required autoFocus value={durationValue} onChange={e => setDurationValue(e.target.value)} placeholder="Ej.: 40 o 40 horas" />
+              <label className="label" htmlFor="certificate-duration">Duración académica *</label>
+              <input id="certificate-duration" className="input" required autoFocus value={durationValue} onChange={e => setDurationValue(e.target.value)} placeholder="Ej.: 40 o 40 horas" />
               <p className="mt-1 text-xs text-gray-400">Si escribe solo 40, el certificado mostrará “40 horas académicas”.</p>
             </div>
             {durationError && <p className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{durationError}</p>}

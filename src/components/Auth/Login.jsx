@@ -74,8 +74,9 @@ export default function Login() {
             </div>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="label">Usuario</label>
+                <label className="label" htmlFor="login-username">Usuario</label>
                 <input
+                  id="login-username"
                   className="input"
                   type="text"
                   placeholder="nombre.usuario"
@@ -85,9 +86,10 @@ export default function Login() {
                 />
               </div>
               <div>
-                <label className="label">Contraseña</label>
+                <label className="label" htmlFor="login-password">Contraseña</label>
                 <div className="relative">
                   <input
+                    id="login-password"
                     className="input pr-10"
                     type={show ? 'text' : 'password'}
                     placeholder="••••••••"

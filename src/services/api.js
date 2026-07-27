@@ -204,10 +204,12 @@ export const api = {
     bust('getInscripciones', 'getIngresos', 'getDashboard')
     return call('verificarPagoInscripcion', { id, ...correcciones }, getToken())
   },
-  emitirCertificado: (id, codigoCertificado) => {
+  emitirCertificado: (id) => {
     bust('getInscripciones', 'getDashboard')
-    return call('emitirCertificado', { id, codigoCertificado }, getToken())
+    return call('emitirCertificado', { id }, getToken())
   },
+  registrarGeneracionCertificado: (id) =>
+    call('registrarGeneracionCertificado', { id }, getToken()),
   actualizarEntregaCertificado: (id, estadoEntrega) => {
     bust('getInscripciones')
     return call('actualizarEntregaCertificado', { id, estadoEntrega }, getToken())

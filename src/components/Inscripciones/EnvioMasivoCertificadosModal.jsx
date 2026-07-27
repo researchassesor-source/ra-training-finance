@@ -25,6 +25,7 @@ export default function EnvioMasivoCertificadosModal({ inscripciones, isAdmin, o
       const item = elegibles[index]
       try {
         const certificate = await buildCertificatePdf(item)
+        await api.registrarGeneracionCertificado(item.ID)
         if (certificate.blob.size > 3 * 1024 * 1024) {
           throw new Error('El PDF supera el límite de 3 MB.')
         }

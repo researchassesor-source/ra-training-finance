@@ -81,6 +81,7 @@ function processRequest(data) {
     updateInscripcion:  () => updateInscripcion(user, params),
     verificarPagoInscripcion: () => verificarPagoInscripcion(user, params),
     emitirCertificado:  () => emitirCertificado(user, params),
+    registrarGeneracionCertificado: () => registrarGeneracionCertificado(user, params),
     actualizarEntregaCertificado: () => actualizarEntregaCertificado(user, params),
     enviarCertificadoEmail: () => enviarCertificadoEmail(user, params),
     getAuditoriaCertificados: () => getAuditoriaCertificados(user, params),
@@ -1431,6 +1432,25 @@ function actualizarEntregaCertificado(user, { id, estadoEntrega } = {}) {
   return { success: true };
 }
 
+function registrarGeneracionCertificado(user, { id } = {}) {
+  requireCertificateAdmin(user, 'CERTIFICATE_GENERATE', { inscripcionId: id, canal: 'api' });
+  const row = sheetToObjects(getSheet('Inscripciones')).find(function(r) { return r.ID === id; });
+  if (!row) return { success: false, error: 'Inscripción no encontrada.' };
+  if (row.EstadoCertificado !== 'emitido') return { success: false, error: 'El certificado todavía no ha sido emitido.' };
+  registrarAuditoriaCertificado({
+    certificadoId: row.CodigoCertificado,
+    inscripcionId: id,
+    usuario: user.Username,
+    rol: user.Rol,
+    accion: 'CERTIFICATE_GENERATED',
+    estadoAnterior: 'emitido',
+    estadoNuevo: 'emitido',
+    canal: 'panel',
+    resultado: 'ok',
+  });
+  return { success: true };
+}
+
 function deleteIngresoSeguro(user, { id } = {}) {
   const vinculada = sheetToObjects(getSheet('Inscripciones')).find(function(ins) { return ins.IngresoID === id; });
   if (vinculada) return { success: false, error: 'No se puede eliminar un ingreso vinculado a una inscripción.' };
@@ -1489,7 +1509,7 @@ function enviarCertificadoEmail(user, { id, pdfBase64, mimeType, filename, email
     inscripcionId: id,
     usuario: user.Username,
     rol: user.Rol,
-    accion: 'CERTIFICATE_SENT',
+    accion: row.EstadoEntrega === 'enviado_email' ? 'CERTIFICATE_RESENT' : 'CERTIFICATE_SENT',
     estadoAnterior: row.EstadoEntrega || 'pendiente',
     estadoNuevo: 'enviado_email',
     canal: 'email',

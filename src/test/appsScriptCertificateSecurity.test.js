@@ -15,6 +15,7 @@ function functionSource(name) {
 describe('seguridad de certificados en Apps Script', () => {
   it.each([
     'emitirCertificado',
+    'registrarGeneracionCertificado',
     'actualizarEntregaCertificado',
     'enviarCertificadoEmail',
     'getAuditoriaCertificados',
@@ -30,7 +31,8 @@ describe('seguridad de certificados en Apps Script', () => {
   it('registra intentos rechazados y eventos de emisión/entrega', () => {
     expect(functionSource('requireCertificateAdmin')).toContain("resultado: 'rechazado'")
     expect(functionSource('emitirCertificado')).toContain("accion: 'CERTIFICATE_ISSUED'")
-    expect(functionSource('enviarCertificadoEmail')).toContain("accion: 'CERTIFICATE_SENT'")
+    expect(functionSource('registrarGeneracionCertificado')).toContain("accion: 'CERTIFICATE_GENERATED'")
+    expect(functionSource('enviarCertificadoEmail')).toContain("'CERTIFICATE_RESENT' : 'CERTIFICATE_SENT'")
   })
 
   it('limita el resumen de vendedor y la verificación pública', () => {
