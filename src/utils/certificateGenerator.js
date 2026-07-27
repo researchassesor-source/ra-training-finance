@@ -164,7 +164,7 @@ function drawDynamicFields(doc, inscripcion) {
   const centerX = PAGE_WIDTH / 2
   doc.setTextColor(...COLORS.navy)
 
-  // Nombre: se conserva intacta la línea naranja original que está debajo.
+  // Nombre: la referencia aprobada ya no incluye la línea decorativa inferior.
   cover(doc, 104, 96.1, 173, 13)
   fitOneLine(doc, inscripcion.ClienteNombre, {
     family: 'OpenSansCondensed',
@@ -181,7 +181,7 @@ function drawDynamicFields(doc, inscripcion) {
   doc.setFontSize(12.5)
   doc.text(String(inscripcion.ClienteID), 198.55, 115.75)
 
-  // Curso: los adornos naranjas laterales permanecen en la plantilla.
+  // Curso: la referencia aprobada ya no incluye las líneas decorativas laterales.
   cover(doc, 104.3, 131, 172.4, 16.3)
   const course = fitLines(doc, inscripcion.ServicioNombre, {
     family: 'IBMPlexSansCondensed',
