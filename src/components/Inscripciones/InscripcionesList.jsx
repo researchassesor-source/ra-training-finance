@@ -5,6 +5,7 @@ import {
   Pencil, Plus, QrCode, RefreshCw, ShoppingBag, Trash2,
 } from 'lucide-react'
 import { api } from '../../services/api'
+import { certificatePublicUrlStatus } from '../../config/brand'
 import {
   certificateArtifactStore,
   CertificatePdfRepository,
@@ -44,6 +45,7 @@ const certificatePdfRepository = new CertificatePdfRepository({
 export default function InscripcionesList() {
   const { isAdmin, user } = useAuth()
   const canManage = canManageCertificates(user)
+  const qrConfiguration = useMemo(() => certificatePublicUrlStatus(), [])
   const [data, setData] = useState([])
   const [servicios, setServicios] = useState([])
   const [vendedores, setVendedores] = useState([])
@@ -480,6 +482,12 @@ export default function InscripcionesList() {
           )}
           <button onClick={() => { setSelected(null); setModal('new') }} className="btn-primary text-sm"><Plus size={15} /> Nueva Inscripción</button>
         </div>
+        {isAdmin && (
+          <div className={`rounded-lg border px-3 py-2 text-xs ${qrConfiguration.valid ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-red-200 bg-red-50 text-red-800'}`}>
+            <span className="font-semibold">QR público · {qrConfiguration.environment} · {qrConfiguration.valid ? 'Configuración válida' : 'Emisión bloqueada'}</span>
+            <span className="ml-2 break-all">{qrConfiguration.valid ? qrConfiguration.url : qrConfiguration.error}</span>
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">

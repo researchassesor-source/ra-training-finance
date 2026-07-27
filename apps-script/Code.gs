@@ -4,7 +4,6 @@
 // ============================================================
 
 const CONFIG = {
-  SECRET: 'RATraining$ecret2024',   // Cambiar antes de producción
   SESSION_EXPIRY_HOURS: 24,
 };
 
@@ -141,7 +140,7 @@ const SHEET_HEADERS = {
   Proyecciones:     ['ID','Evento','Tipo','FechaEstimada','MontoProyectado','MontoReal','Estado','Notas','CreadoPor','FechaCreacion'],
   Categorias:       ['ID','Nombre','Tipo','Activo'],
   Servicios:        ['ID','Nombre','Tipo','Modalidad','Precio','Duracion','Descripcion','Activo','FechaCreacion','FechaEvento','FechaFinEvento','LugarEvento'],
-  Inscripciones:    ['ID','ClienteNombre','ClienteID','ClienteEmail','ClienteTelefono','ServicioID','ServicioNombre','Modalidad','FechaInicio','Monto','MetodoPago','RazonSocial','RUC','DireccionFactura','EstadoPago','EstadoCertificado','IngresoID','Notas','CreadoPor','FechaCreacion','FechaEmisionCertificado','RequiereAvalExterno','EstadoAval','AvalReferencia','FechaAval','ValorAval','FechaFin','NumeroComprobante','FechaPago','FechaVerificacionPago','VerificadoPor','InstitucionAval','CodigoCertificado','EmitidoPor','EstadoEntrega','FechaEntregaCertificado','EntregadoPor','AvalEnlaceExterno','AvalCodigoExterno','CertificateVersion','TemplateVersion','PdfHash','PdfStorageReference','OriginalCertificateId','ReissuedCertificateId','CertificateStatus','IssuedAt','IssuedBy','VoidedAt','VoidedBy','VoidReason','ReissueReason'],
+  Inscripciones:    ['ID','ClienteNombre','ClienteID','ClienteEmail','ClienteTelefono','ServicioID','ServicioNombre','Modalidad','FechaInicio','Monto','MetodoPago','RazonSocial','RUC','DireccionFactura','EstadoPago','EstadoCertificado','IngresoID','Notas','CreadoPor','FechaCreacion','FechaEmisionCertificado','RequiereAvalExterno','EstadoAval','AvalReferencia','FechaAval','ValorAval','FechaFin','NumeroComprobante','FechaPago','FechaVerificacionPago','VerificadoPor','InstitucionAval','CodigoCertificado','EmitidoPor','EstadoEntrega','FechaEntregaCertificado','EntregadoPor','AvalEnlaceExterno','AvalCodigoExterno','AvalTextoConfirmado','CertificateVersion','TemplateVersion','PdfHash','PdfStorageReference','OriginalCertificateId','ReissuedCertificateId','CertificateStatus','IssuedAt','IssuedBy','VoidedAt','VoidedBy','VoidReason','ReissueReason'],
   Sesiones:         ['Token','Username','UserID','Rol','Nombre','Expira'],
   ConfigPagos:      ['ID','Nombre','Tipo','Detalles','Instrucciones','Activo','FechaCreacion'],
   Convenios:        ['ID','Organizacion','Representante','Cargo','Objeto','ObligacionesRA','ObligacionesAliado','Vigencia','FechaInicio','FechaFin','Estado','Notas','CreadoPor','FechaCreacion'],
@@ -230,10 +229,26 @@ function bustSheet() {
   try { CacheService.getScriptCache().removeAll(Array.prototype.slice.call(arguments)); } catch(e) {}
 }
 
+function getAuthSecret() {
+  const secret = PropertiesService.getScriptProperties().getProperty('AUTH_SECRET');
+  if (!secret || String(secret).length < 32) {
+    throw new Error('La autenticaci\u00f3n no est\u00e1 configurada de forma segura. Contacte al administrador.');
+  }
+  return String(secret);
+}
+
+function getBootstrapAdminPassword() {
+  const password = PropertiesService.getScriptProperties().getProperty('BOOTSTRAP_ADMIN_PASSWORD');
+  if (!password || String(password).length < 12) {
+    throw new Error('La contrase\u00f1a temporal del administrador no est\u00e1 configurada de forma segura.');
+  }
+  return String(password);
+}
+
 function hashPassword(password) {
   const bytes = Utilities.computeDigest(
     Utilities.DigestAlgorithm.SHA_256,
-    password + CONFIG.SECRET
+    password + getAuthSecret()
   );
   return bytes.map(b => ('0' + (b & 0xFF).toString(16)).slice(-2)).join('');
 }
@@ -2807,7 +2822,7 @@ function setupInicial() {
   if (!existing.find(u => u.Username === 'admin')) {
     usersSheet.appendRow([
       generateId('USR'), 'Administrador R.A.', 'admin@ratraining.com',
-      'admin', hashPassword('Admin2024!'), 'admin', true, new Date().toISOString(),
+      'admin', hashPassword(getBootstrapAdminPassword()), 'admin', true, new Date().toISOString(),
     ]);
   }
 
@@ -2828,7 +2843,7 @@ function setupInicial() {
       catSheet.appendRow([generateId('CAT'), nombre, tipo, true]);
   });
 
-  Logger.log('✅ Setup completado. Credenciales admin: usuario=admin / contraseña=Admin2024!');
-  Logger.log('⚠️  IMPORTANTE: Cambia la contraseña del admin después del primer login.');
+  Logger.log('Setup completado. No se imprimieron credenciales.');
+  Logger.log('Elimine BOOTSTRAP_ADMIN_PASSWORD de Script Properties y cambie la contraseña temporal después del primer acceso.');
   return '✅ Setup exitoso';
 }

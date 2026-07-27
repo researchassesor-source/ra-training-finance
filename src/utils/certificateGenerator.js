@@ -1,6 +1,7 @@
 import { jsPDF } from 'jspdf'
 import { buildVerificationUrl, generateQrDataUrl } from './qr.js'
 import { CERTIFICATE_CONFIG as cfg } from './certificateConfig.js'
+import { certificateAvalVisualStatus } from '../config/certificate.js'
 
 const PAGE_WIDTH = 381
 const PAGE_HEIGHT = 254
@@ -254,8 +255,45 @@ function drawUniqueVerificationQr(doc, qrDataUrl, verificationUrl) {
   doc.link(317.2, 162.5, 48.4, 75.5, { url: verificationUrl })
 }
 
+function drawAvalBlock(doc, aval) {
+  if (!aval.visible) return
+  const x = 294
+  const y = 111
+  const width = 76
+  const height = 43
+  cover(doc, x, y, width, height)
+  doc.setDrawColor(...cfg.colors.gold)
+  doc.setLineWidth(0.45)
+  doc.roundedRect(x, y, width, height, 2.2, 2.2, 'S')
+  doc.setTextColor(...COLORS.navy)
+  doc.setFont('IBMPlexSansCondensed', 'bold')
+  doc.setFontSize(8.2)
+  doc.text(aval.title, x + width / 2, y + 7, { align: 'center' })
+
+  if (aval.mode === 'pending') {
+    doc.setFont('IBMPlexSansCondensed', 'normal')
+    doc.setFontSize(7.2)
+    doc.text(aval.lines, x + width / 2, y + 19, { align: 'center', lineHeightFactor: 1.2 })
+    return
+  }
+
+  const textX = aval.logo ? x + 17 : x + width / 2
+  const textWidth = aval.logo ? width - 22 : width - 8
+  if (aval.logo) doc.addImage(aval.logo, x + 4, y + 12, 20, 20)
+  doc.setFontSize(7.5)
+  const institutionLines = doc.splitTextToSize(aval.institution, textWidth).slice(0, 2)
+  doc.text(institutionLines, textX, y + 14, { align: aval.logo ? 'left' : 'center', lineHeightFactor: 1.05 })
+  doc.setFont('IBMPlexSansCondensed', 'normal')
+  doc.setFontSize(6.6)
+  doc.text(`Ref.: ${aval.reference}`, textX, y + 26, { align: aval.logo ? 'left' : 'center' })
+  const confirmedLines = doc.splitTextToSize(aval.confirmedText, textWidth).slice(0, 2)
+  doc.text(confirmedLines, textX, y + 32, { align: aval.logo ? 'left' : 'center', lineHeightFactor: 1.05 })
+}
+
 export async function buildCertificatePdf(inscripcion, options = {}) {
   const certificate = normalizeIssuedCertificate(inscripcion)
+  const aval = certificateAvalVisualStatus(certificate)
+  if (!aval.valid) throw new Error(aval.error)
   const missing = validateCertificateData(certificate)
   if (missing.length) {
     throw new Error(`Faltan los siguientes datos para generar el certificado: ${missing.join(', ')}.`)
@@ -282,6 +320,7 @@ export async function buildCertificatePdf(inscripcion, options = {}) {
   registerFonts(doc, assets)
   doc.addImage(assets.template, 'PNG', 0, 0, PAGE_WIDTH, PAGE_HEIGHT, 'canva-template', 'FAST')
   drawDynamicFields(doc, certificate)
+  drawAvalBlock(doc, aval)
   drawUniqueVerificationQr(doc, qrDataUrl, verificationUrl)
   doc.setProperties({
     title: `Certificado de ${certificate.ClienteNombre}`,

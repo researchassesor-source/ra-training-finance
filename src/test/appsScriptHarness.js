@@ -66,7 +66,7 @@ class Sheet {
   setFrozenRows() {}
 }
 
-export function createAppsScriptHarness({ authSecret = 'test-only-secret' } = {}) {
+export function createAppsScriptHarness({ authSecret = 'test-only-secret-with-at-least-32-characters' } = {}) {
   const sheets = {}
   const locks = { waits: 0, releases: 0 }
   const spreadsheet = {
