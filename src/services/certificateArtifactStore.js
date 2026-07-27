@@ -1,6 +1,11 @@
+import { HISTORICAL_RECOVERY_AUDIT_ACTION } from '../utils/certificateAudit'
+
 const DB_NAME = 'ra-training-certificate-artifacts'
 const STORE_NAME = 'pdf-artifacts'
 const DB_VERSION = 1
+const HISTORICAL_RECOVERY_REFERENCE_SUFFIX = ':historical-recovery'
+
+export { HISTORICAL_RECOVERY_AUDIT_ACTION }
 
 export const CERTIFICATE_ARTIFACT_ERROR_CODES = Object.freeze({
   INVALID_BINARY: 'CERTIFICATE_INVALID_BINARY',
@@ -95,6 +100,17 @@ export function artifactReferenceFor(certificate) {
     )
   }
   return `browser-indexeddb:${publicId}:v${version}`
+}
+
+export function isHistoricalCertificateArtifact(certificate = {}) {
+  const templateVersion = String(certificate.TemplateVersion || '').trim()
+  const reference = String(certificate.PdfStorageReference || '').trim()
+  return /^legacy(?:-|$)/i.test(templateVersion)
+    || reference.endsWith(HISTORICAL_RECOVERY_REFERENCE_SUFFIX)
+}
+
+export function historicalArtifactReferenceFor(certificate) {
+  return `${artifactReferenceFor(certificate)}${HISTORICAL_RECOVERY_REFERENCE_SUFFIX}`
 }
 
 export class CertificateArtifactStore {
@@ -250,8 +266,13 @@ export class CertificatePdfRepository {
     this.timeoutMs = timeoutMs
   }
 
-  async prepare(certificate) {
-    const reference = String(certificate.PdfStorageReference || artifactReferenceFor(certificate))
+  async prepare(certificate, { allowHistoricalRecovery = false } = {}) {
+    const historicalArtifact = isHistoricalCertificateArtifact(certificate)
+    const historicalRecoveryAllowed = Boolean(allowHistoricalRecovery && historicalArtifact)
+    const fallbackReference = historicalRecoveryAllowed
+      ? historicalArtifactReferenceFor(certificate)
+      : artifactReferenceFor(certificate)
+    const reference = String(certificate.PdfStorageReference || fallbackReference)
     if (!reference.startsWith('browser-indexeddb:') && !reference.startsWith('test-memory:')) {
       throw new CertificateArtifactError(
         CERTIFICATE_ARTIFACT_ERROR_CODES.STORAGE_REFERENCE_UNSUPPORTED,
@@ -278,18 +299,23 @@ export class CertificatePdfRepository {
           'La verificación SHA-256 del certificado falló. No se permitirá la descarga.',
         )
       }
-      return { ...existing, reused: true }
+      return {
+        ...existing,
+        reused: true,
+        historicalArtifact: Boolean(existing.historicalArtifact || historicalArtifact),
+        historicalRecovered: false,
+      }
     }
-    if (expectedHash) {
+    if (expectedHash && !historicalRecoveryAllowed) {
       throw new CertificateArtifactError(
         CERTIFICATE_ARTIFACT_ERROR_CODES.ARTIFACT_NOT_LOCAL,
         'El PDF oficial existe, pero no está disponible en este navegador o dispositivo. No se regeneró ni sustituyó automáticamente.',
       )
     }
-    if (/^legacy(?:-|$)/i.test(String(certificate.TemplateVersion || ''))) {
+    if (historicalArtifact && !historicalRecoveryAllowed) {
       throw new CertificateArtifactError(
         CERTIFICATE_ARTIFACT_ERROR_CODES.LEGACY_ARTIFACT_MISSING,
-        'El certificado histórico no tiene su artefacto PDF original registrado. Debe migrarse o reemitirse de forma controlada; no se regeneró con la plantilla actual.',
+        'El certificado histórico no tiene su artefacto PDF original registrado.',
       )
     }
     const generated = await withCertificateTimeout(
@@ -304,6 +330,12 @@ export class CertificatePdfRepository {
       CERTIFICATE_ARTIFACT_ERROR_CODES.STORAGE_TIMEOUT,
       'El cálculo SHA-256 del certificado no respondió a tiempo.',
     )
+    if (expectedHash && hash !== expectedHash) {
+      throw new CertificateArtifactError(
+        CERTIFICATE_ARTIFACT_ERROR_CODES.HASH_MISMATCH,
+        'El PDF histórico regenerado no coincide con la huella oficial registrada. No se permitirá la descarga.',
+      )
+    }
     const record = {
       ...generated,
       reference,
@@ -312,6 +344,9 @@ export class CertificatePdfRepository {
       certificateVersion: Number(certificate.CertificateVersion) || 1,
       templateVersion: generated.templateVersion || certificate.TemplateVersion,
       createdAt: new Date().toISOString(),
+      historicalArtifact: historicalRecoveryAllowed,
+      historicalRecovered: historicalRecoveryAllowed,
+      auditAction: historicalRecoveryAllowed ? HISTORICAL_RECOVERY_AUDIT_ACTION : '',
     }
     await withCertificateTimeout(
       this.store.save(record),

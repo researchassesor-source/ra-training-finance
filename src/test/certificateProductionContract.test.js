@@ -9,6 +9,7 @@ import {
   MemoryCertificateArtifactStore,
 } from '../services/certificateArtifactStore'
 import { downloadCertificateWithAudit } from '../services/certificateDownloadFlow'
+import { certificateAuditActionForDisplay } from '../utils/certificateAudit'
 import { createAppsScriptHarness } from './appsScriptHarness'
 
 const CERTIFICATE_ACTIONS = [
@@ -137,6 +138,66 @@ describe('contrato real de certificados entre frontend y Apps Script productivo'
     await expect(repository.prepare(response.data)).rejects.toMatchObject({
       code: CERTIFICATE_ARTIFACT_ERROR_CODES.LEGACY_ARTIFACT_MISSING,
     })
+  })
+
+  it('recupera el histórico en el flujo administrativo sin cambiar código, datos ni estado', async () => {
+    const harness = productionHarness({ templateVersion: 'legacy-v1' })
+    const requests = connectFrontendToBackend(harness)
+    const repository = new CertificatePdfRepository({
+      store: new MemoryCertificateArtifactStore(),
+      buildPdf: async certificate => ({
+        blob: new Blob([JSON.stringify({
+          codigo: certificate.CodigoCertificado,
+          participante: certificate.ClienteNombre,
+          identificacion: certificate.ClienteID,
+          curso: certificate.ServicioNombre,
+          duracion: certificate.Duracion,
+          modalidad: certificate.Modalidad,
+          inicio: certificate.FechaInicio,
+          fin: certificate.FechaFin,
+          estado: certificate.EstadoCertificado,
+          qr: certificate.CertificatePublicId,
+        })], { type: 'application/pdf' }),
+        filename: 'certificado_historico.pdf',
+        templateVersion: 'ra-canva-2026-v1',
+        certificateCode: certificate.CodigoCertificado,
+      }),
+    })
+    const saveFile = vi.fn()
+
+    const result = await downloadCertificateWithAudit({ id: 'INS-PROD-1', api, repository, saveFile })
+
+    expect(result).toMatchObject({
+      historicalRecovered: true,
+      certificateCode: 'RA-2026-PROD1',
+      certificate: {
+        ClienteNombre: 'Participante Producción',
+        ClienteID: '0100000001',
+        ServicioNombre: 'Curso Producción',
+        Modalidad: 'Virtual',
+        EstadoCertificado: 'emitido',
+        CodigoCertificado: 'RA-2026-PROD1',
+      },
+    })
+    expect(result.hash).toMatch(/^[a-f0-9]{64}$/)
+    expect(result.reference).toContain(':historical-recovery')
+    expect(result.auditAction).toBe('CERTIFICATE_HISTORICAL_ARTIFACT_RECOVERED')
+    expect(saveFile).toHaveBeenCalledOnce()
+    expect(requests.find(request => request.action === 'registrarArtefactoCertificado')).toMatchObject({
+      historicalRecovery: true,
+      auditAction: 'CERTIFICATE_HISTORICAL_ARTIFACT_RECOVERED',
+    })
+    expect(harness.objects('Inscripciones')[0]).toMatchObject({
+      ID: 'INS-PROD-1', CodigoCertificado: 'RA-2026-PROD1',
+      ClienteNombre: 'Participante Producción', EstadoCertificado: 'emitido',
+    })
+    expect(harness.objects('AuditoriaCertificados').map(item => item.Accion)).toEqual(expect.arrayContaining([
+      'CERTIFICATE_ARTIFACT_REGISTERED', 'CERTIFICATE_DOWNLOAD_REQUESTED', 'CERTIFICATE_DOWNLOAD_COMPLETED',
+    ]))
+    const artifactAudit = harness.objects('AuditoriaCertificados')
+      .find(item => item.Accion === 'CERTIFICATE_ARTIFACT_REGISTERED')
+    expect(artifactAudit.Metadatos).toContain(':historical-recovery')
+    expect(certificateAuditActionForDisplay(artifactAudit)).toBe('CERTIFICATE_HISTORICAL_ARTIFACT_RECOVERED')
   })
 
   it('expone la acción exacta cuando el deployment activo usa un backend anterior', async () => {

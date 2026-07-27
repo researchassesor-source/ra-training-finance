@@ -5,7 +5,7 @@ import {
   Pencil, Plus, QrCode, RefreshCw, ShoppingBag, Trash2,
 } from 'lucide-react'
 import { api } from '../../services/api'
-import { certificatePublicUrlStatus } from '../../config/brand'
+import { certificatePublicConfigurationNotice, certificatePublicUrlStatus } from '../../config/brand'
 import { certificateAvalVisualStatus } from '../../config/certificate'
 import {
   isControlledCertificateRecoveryAvailable,
@@ -46,6 +46,7 @@ export default function InscripcionesList() {
   const { isAdmin, user } = useAuth()
   const canManage = canManageCertificates(user)
   const qrConfiguration = useMemo(() => certificatePublicUrlStatus(), [])
+  const qrConfigurationNotice = useMemo(() => certificatePublicConfigurationNotice(qrConfiguration), [qrConfiguration])
   const [data, setData] = useState([])
   const [servicios, setServicios] = useState([])
   const [vendedores, setVendedores] = useState([])
@@ -73,6 +74,7 @@ export default function InscripcionesList() {
   const [lifecycleBusy, setLifecycleBusy] = useState(false)
   const [auditRetry, setAuditRetry] = useState(null)
   const [artifactRecovery, setArtifactRecovery] = useState(null)
+  const [certificateNotice, setCertificateNotice] = useState('')
 
   const load = useCallback(() => {
     setLoading(true)
@@ -317,6 +319,7 @@ export default function InscripcionesList() {
     setError('')
     setAuditRetry(null)
     setArtifactRecovery(null)
+    setCertificateNotice('')
     try {
       const result = await downloadCertificateWithAudit({
         id: item.ID,
@@ -326,6 +329,7 @@ export default function InscripcionesList() {
         saveFile: saveAs,
       })
       if (result.previewWarning) setError(result.previewWarning)
+      if (result.historicalRecoveryWarning) setCertificateNotice(result.historicalRecoveryWarning)
       load()
     } catch (err) {
       if (isAdmin && /duraci/i.test(err.message || '')) openDurationEditor(item)
@@ -466,10 +470,10 @@ export default function InscripcionesList() {
           )}
           <button onClick={() => { setSelected(null); setModal('new') }} className="btn-primary text-sm"><Plus size={15} /> Nueva Inscripción</button>
         </div>
-        {isAdmin && (
-          <div className={`rounded-lg border px-3 py-2 text-xs ${qrConfiguration.valid ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-red-200 bg-red-50 text-red-800'}`}>
-            <span className="font-semibold">QR público · {qrConfiguration.environment} · {qrConfiguration.valid ? 'Configuración válida' : 'Emisión bloqueada'}</span>
-            <span className="ml-2 break-all">{qrConfiguration.valid ? qrConfiguration.url : qrConfiguration.error}</span>
+        {isAdmin && qrConfigurationNotice && (
+          <div className={`rounded-lg border px-3 py-2 text-xs ${qrConfigurationNotice.tone === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-red-200 bg-red-50 text-red-800'}`}>
+            <span className="font-semibold">{qrConfigurationNotice.title}</span>
+            {qrConfigurationNotice.details && <span className="ml-2 break-all">{qrConfigurationNotice.details}</span>}
           </div>
         )}
       </div>
@@ -491,6 +495,11 @@ export default function InscripcionesList() {
               Reintentar auditoría
             </button>
           )}
+        </div>
+      )}
+      {isAdmin && certificateNotice && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          {certificateNotice}
         </div>
       )}
 

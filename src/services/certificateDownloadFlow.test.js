@@ -124,4 +124,27 @@ describe('vista previa y descarga auditada de certificados', () => {
     expect(publicErrorMessage(new Error('Authorization Bearer token-secreto')))
       .toBe('No se pudo preparar el certificado. Inténtelo nuevamente o contacte al administrador.')
   })
+
+  it('recupera y descarga inmediatamente un certificado histórico con auditoría marcada', async () => {
+    const fixture = flowFixture({
+      repository: {
+        prepare: vi.fn(async () => ({
+          ...preparedFixture(),
+          reference: 'browser-indexeddb:DEMO:v1:historical-recovery',
+          historicalRecovered: true,
+          auditAction: 'CERTIFICATE_HISTORICAL_ARTIFACT_RECOVERED',
+        })),
+      },
+    })
+
+    const result = await downloadCertificateWithAudit({ id: 'DEMO', ...fixture })
+
+    expect(fixture.repository.prepare).toHaveBeenCalledWith(fixture.certificate, { allowHistoricalRecovery: true })
+    expect(fixture.api.registrarArtefactoCertificado).toHaveBeenCalledWith('DEMO', expect.objectContaining({
+      historicalRecovery: true,
+      auditAction: 'CERTIFICATE_HISTORICAL_ARTIFACT_RECOVERED',
+    }))
+    expect(fixture.saveFile).toHaveBeenCalledOnce()
+    expect(result.historicalRecoveryWarning).toContain('plantilla vigente')
+  })
 })

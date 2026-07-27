@@ -25,12 +25,14 @@ export default function EnvioMasivoCertificadosModal({ inscripciones, isAdmin, o
       const item = elegibles[index]
       try {
         const issued = await api.getCertificadoParaDescarga(item.ID)
-        const certificate = await certificatePdfRepository.prepare(issued.data)
+        const certificate = await certificatePdfRepository.prepare(issued.data, { allowHistoricalRecovery: true })
         await api.registrarArtefactoCertificado(item.ID, {
           pdfHash: certificate.hash,
           pdfStorageReference: certificate.reference,
           templateVersion: certificate.templateVersion,
           certificateVersion: certificate.certificateVersion,
+          historicalRecovery: certificate.historicalRecovered,
+          auditAction: certificate.auditAction,
         })
         await api.registrarGeneracionCertificado(item.ID)
         if (certificate.blob.size > 3 * 1024 * 1024) {

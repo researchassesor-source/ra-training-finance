@@ -1,5 +1,31 @@
-import { describe, expect, it } from 'vitest'
-import { normalizeIssuedCertificate } from './certificateGenerator'
+import crypto from 'node:crypto'
+import fs from 'node:fs'
+import path from 'node:path'
+import { beforeAll, describe, expect, it } from 'vitest'
+import { sha256Hex } from '../services/certificateArtifactStore'
+import {
+  buildCertificatePdf,
+  deterministicCertificatePdfCreationDate,
+  deterministicCertificatePdfFileId,
+  normalizeIssuedCertificate,
+} from './certificateGenerator'
+
+beforeAll(() => {
+  if (!globalThis.crypto?.subtle) {
+    Object.defineProperty(globalThis, 'crypto', { value: crypto.webcrypto, configurable: true })
+  }
+})
+
+function certificateAssetDataUrls() {
+  const root = path.join(process.cwd(), 'src/assets/certificate/canva')
+  const dataUrl = (filename, mimeType) => `data:${mimeType};base64,${fs.readFileSync(path.join(root, filename)).toString('base64')}`
+  return {
+    template: dataUrl('certificate-template.png', 'image/png'),
+    plexRegular: dataUrl('IBMPlexSansCondensed-Regular.ttf', 'font/ttf'),
+    plexBold: dataUrl('IBMPlexSansCondensed-Bold.ttf', 'font/ttf'),
+    nameItalic: dataUrl('OpenSansCondensed-MediumItalic.ttf', 'font/ttf'),
+  }
+}
 
 describe('compatibilidad de metadatos de certificados históricos', () => {
   it('reconstruye código y fecha para un certificado ya emitido', () => {
@@ -60,4 +86,28 @@ describe('compatibilidad de metadatos de certificados históricos', () => {
     })
     expect(normalized.EstadoCertificado).toBe('anulado')
   })
+
+  it('fija metadatos PDF deterministas para reproducir la misma huella en otro equipo', () => {
+    const identity = 'INS-HIST|RA-2024-HIST|1'
+    expect(deterministicCertificatePdfFileId(identity)).toMatch(/^[A-F0-9]{32}$/)
+    expect(deterministicCertificatePdfFileId(identity)).toBe(deterministicCertificatePdfFileId(identity))
+    expect(deterministicCertificatePdfCreationDate('2024-01-13T10:20:30.000Z'))
+      .toBe("D:20240113102030+00'00'")
+  })
+
+  it('genera exactamente la misma huella PDF con los mismos datos históricos', async () => {
+    const certificate = {
+      ID: 'INS-HASH-HIST', CertificatePublicId: 'INS-HASH-HIST', CertificateVersion: 1,
+      ClienteNombre: 'Persona Histórica', ClienteID: '0100000001', ServicioNombre: 'Curso Histórico',
+      Duracion: '40 horas', Modalidad: 'Virtual', FechaInicio: '2024-01-10', FechaFin: '2024-01-12',
+      EstadoPago: 'verificado', EstadoCertificado: 'emitido', CertificateStatus: 'emitido',
+      CodigoCertificado: 'RA-2024-HASH001', FechaEmisionCertificado: '2024-01-13T10:20:30.000Z',
+      RequiereAvalExterno: false,
+    }
+    const assetDataUrls = certificateAssetDataUrls()
+    const first = await buildCertificatePdf(certificate, { assetDataUrls })
+    const second = await buildCertificatePdf(certificate, { assetDataUrls })
+
+    expect(await sha256Hex(first.blob)).toBe(await sha256Hex(second.blob))
+  }, 20_000)
 })

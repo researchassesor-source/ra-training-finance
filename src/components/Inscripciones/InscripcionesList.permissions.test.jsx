@@ -7,6 +7,7 @@ const state = vi.hoisted(() => ({
   rows: [],
   order: [],
   qrValid: true,
+  qrEnvironment: 'development',
 }))
 
 const apiMock = vi.hoisted(() => ({
@@ -48,8 +49,18 @@ vi.mock('../../context/AuthContext', () => ({
 vi.mock('../../services/api', () => ({ api: apiMock }))
 vi.mock('../../config/brand', () => ({
   certificatePublicUrlStatus: () => state.qrValid
-    ? { valid: true, environment: 'development', url: 'http://localhost:5173', error: '' }
-    : { valid: false, environment: 'preview', url: '', error: 'VITE_PUBLIC_APP_URL es obligatoria para emitir certificados en Preview y Production.' },
+    ? { valid: true, environment: state.qrEnvironment, url: 'http://localhost:5173', error: '' }
+    : { valid: false, environment: state.qrEnvironment, url: '', error: 'VITE_PUBLIC_APP_URL es obligatoria para emitir certificados en Preview y Production.' },
+  certificatePublicConfigurationNotice: status => {
+    if (status.environment === 'production') {
+      return status.valid ? null : { tone: 'error', title: 'La verificación pública de certificados requiere revisión administrativa.', details: '' }
+    }
+    return {
+      tone: status.valid ? 'success' : 'error',
+      title: `QR público · ${status.environment} · ${status.valid ? 'Configuración válida' : 'Emisión bloqueada'}`,
+      details: status.valid ? status.url : status.error,
+    }
+  },
 }))
 vi.mock('../../services/certificatePdfRepository', () => ({
   certificatePdfRepository: {
@@ -101,6 +112,7 @@ describe('acciones visibles en inscripciones', () => {
     state.rows = [emittedRow]
     state.order = []
     state.qrValid = true
+    state.qrEnvironment = 'development'
     Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => 'blob:certificate-preview') })
     Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() })
     vi.spyOn(window, 'open').mockReturnValue({
@@ -136,6 +148,15 @@ describe('acciones visibles en inscripciones', () => {
     expect(screen.queryByRole('button', { name: /Auditoría de certificados/i })).not.toBeInTheDocument()
   })
 
+  it('mantiene bloqueada la recuperación y descarga para el rol aval', async () => {
+    state.user = { rol: 'aval', username: 'aval.demo', nombre: 'Institución Aval' }
+    render(<InscripcionesList />)
+    await screen.findByText('Participante Demo')
+    expect(screen.queryByRole('button', { name: 'Ver y descargar certificado académico' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Entregar certificado' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Auditoría de certificados/i })).not.toBeInTheDocument()
+  })
+
   it('solicita auditoría antes de descargar y confirma el resultado después', async () => {
     state.user = { rol: 'admin', username: 'admin.demo', nombre: 'Admin Demo' }
     render(<InscripcionesList />)
@@ -151,19 +172,53 @@ describe('acciones visibles en inscripciones', () => {
     expect(state.order).toEqual(['requested', 'saved', 'completado'])
   })
 
-  it('ofrece reemisión controlada si el certificado histórico no tiene artefacto local', async () => {
+  it('recupera el histórico, lo descarga y advierte al administrador sin exigir reemisión', async () => {
     state.user = { rol: 'admin', username: 'admin.demo', nombre: 'Admin Demo' }
-    const missingArtifact = new Error('El PDF oficial existe, pero no está disponible en este navegador o dispositivo.')
-    missingArtifact.code = 'CERTIFICATE_ARTIFACT_NOT_LOCAL'
-    certificateMocks.prepare.mockRejectedValueOnce(missingArtifact)
+    certificateMocks.prepare.mockResolvedValueOnce({
+      blob: new Blob(['pdf-historico'], { type: 'application/pdf' }),
+      filename: 'certificado_historico.pdf',
+      hash: 'b'.repeat(64),
+      reference: 'browser-indexeddb:INS-DEMO-001:v1:historical-recovery',
+      templateVersion: 'ra-canva-2026-v1',
+      certificateVersion: 1,
+      historicalRecovered: true,
+      auditAction: 'CERTIFICATE_HISTORICAL_ARTIFACT_RECOVERED',
+    })
     render(<InscripcionesList />)
     await screen.findByText('Participante Demo')
 
     fireEvent.click(screen.getByRole('button', { name: 'Ver y descargar certificado académico' }))
 
-    expect(await screen.findByText('Recuperación controlada del certificado')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Iniciar reemisión controlada' })).toBeInTheDocument()
-    expect(certificateMocks.saveAs).not.toHaveBeenCalled()
+    expect(await screen.findByText(/Se recuperó el artefacto del certificado histórico con la plantilla vigente/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Iniciar reemisión controlada' })).not.toBeInTheDocument()
+    expect(certificateMocks.saveAs).toHaveBeenCalledWith(expect.any(Blob), 'certificado_historico.pdf')
+  })
+
+  it('oculta la franja técnica válida en Production', async () => {
+    state.user = { rol: 'admin', username: 'admin.demo', nombre: 'Admin Demo' }
+    state.qrEnvironment = 'production'
+    render(<InscripcionesList />)
+    await screen.findByText('Participante Demo')
+    expect(screen.queryByText(/QR público/)).not.toBeInTheDocument()
+  })
+
+  it('mantiene la franja técnica en Preview', async () => {
+    state.user = { rol: 'admin', username: 'admin.demo', nombre: 'Admin Demo' }
+    state.qrEnvironment = 'preview'
+    render(<InscripcionesList />)
+    await screen.findByText('Participante Demo')
+    expect(screen.getByText(/QR público · preview/)).toBeInTheDocument()
+  })
+
+  it('muestra solo un aviso administrativo discreto si Production es inválido', async () => {
+    state.user = { rol: 'admin', username: 'admin.demo', nombre: 'Admin Demo' }
+    state.qrEnvironment = 'production'
+    state.qrValid = false
+    render(<InscripcionesList />)
+    await screen.findByText('Participante Demo')
+    expect(screen.getByText('La verificación pública de certificados requiere revisión administrativa.')).toBeInTheDocument()
+    expect(screen.queryByText(/VITE_PUBLIC_APP_URL/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/http:\/\//)).not.toBeInTheDocument()
   })
 
   it('bloquea la emisión en Preview cuando falta la URL pública canónica', async () => {

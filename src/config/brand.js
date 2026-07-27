@@ -80,6 +80,22 @@ export function certificatePublicUrlStatus() {
   })
 }
 
+export function certificatePublicConfigurationNotice(status = certificatePublicUrlStatus()) {
+  if (status.environment === 'production') {
+    if (status.valid) return null
+    return {
+      tone: 'error',
+      title: 'La verificación pública de certificados requiere revisión administrativa.',
+      details: '',
+    }
+  }
+  return {
+    tone: status.valid ? 'success' : 'error',
+    title: `QR público · ${status.environment} · ${status.valid ? 'Configuración válida' : 'Emisión bloqueada'}`,
+    details: status.valid ? status.url : status.error,
+  }
+}
+
 export function getCertificatePublicBaseUrl() {
   const status = certificatePublicUrlStatus()
   if (!status.valid) throw new Error(status.error)
