@@ -284,6 +284,15 @@ function esVerdadero(value) {
   return value === true || String(value).toLowerCase() === 'true';
 }
 
+function certificadoProtegidoContraEliminacion(row) {
+  var estado = String(row.CertificateStatus || row.EstadoCertificado || '').trim().toLowerCase();
+  var protegidos = ['emitido', 'enviado', 'anulado', 'reemitido', 'issued', 'sent', 'voided', 'reissued'];
+  return esVerdadero(row.CertificadoEmitido)
+    || protegidos.indexOf(estado) !== -1
+    || !!String(row.CodigoCertificado || '').trim()
+    || !!String(row.FechaCertificado || row.FechaEmisionCertificado || row.IssuedAt || '').trim();
+}
+
 function emailValido(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || '').trim());
 }
@@ -1723,6 +1732,28 @@ function deleteIfOwner(user, sheetName, id, estadoField) {
 
 function deleteInscripcion(user, { id }) {
   if (!isVendedor(user)) throw new Error('Acceso denegado.');
+  const sheet = getSheet('Inscripciones');
+  const row = sheetToObjects(sheet).find(function(r) { return r.ID === id; });
+  if (!row) return { success: false, error: 'Registro no encontrado.' };
+  if (!isAdmin(user) && row.CreadoPor !== user.Username) return { success: false, error: 'No autorizado.' };
+  if (certificadoProtegidoContraEliminacion(row)) {
+    registrarAuditoriaCertificado({
+      certificadoId: row.CodigoCertificado,
+      inscripcionId: row.ID,
+      usuario: user.Username,
+      rol: user.Rol,
+      accion: 'CERTIFICATE_DELETE_REJECTED',
+      estadoAnterior: row.CertificateStatus || row.EstadoCertificado || 'emitido',
+      estadoNuevo: row.CertificateStatus || row.EstadoCertificado || 'emitido',
+      canal: 'panel',
+      resultado: 'rechazado',
+      motivo: 'La inscripción conserva un certificado histórico protegido.',
+    });
+    return {
+      success: false,
+      error: 'No puede eliminarse una inscripción con certificado emitido. Utilice anulación o corrección controlada.',
+    };
+  }
   return deleteIfOwner(user, 'Inscripciones', id, 'EstadoPago');
 }
 

@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { canManageCertificates, certificateCapabilities } from './certificatePermissions'
+import {
+  canManageCertificates,
+  certificateCapabilities,
+  isCertificateProtectedAgainstDeletion,
+} from './certificatePermissions'
 
 const issued = {
   EstadoPago: 'verificado',
@@ -39,5 +43,20 @@ describe('permisos de certificados', () => {
       RequiereAvalExterno: true,
       EstadoAval: 'avalado',
     }).canIssue).toBe(true)
+  })
+
+  it.each([
+    { EstadoCertificado: 'emitido' },
+    { CertificateStatus: 'anulado' },
+    { EstadoCertificado: 'reemitido' },
+    { CodigoCertificado: 'RA-2026-001' },
+    { FechaEmisionCertificado: '2026-07-27T10:00:00.000Z' },
+    { CertificadoEmitido: true },
+  ])('protege contra eliminación física los certificados históricos %#', item => {
+    expect(isCertificateProtectedAgainstDeletion(item)).toBe(true)
+  })
+
+  it('conserva la eliminación para una inscripción pendiente sin certificado', () => {
+    expect(isCertificateProtectedAgainstDeletion({ EstadoCertificado: 'pendiente' })).toBe(false)
   })
 })

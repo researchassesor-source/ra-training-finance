@@ -36,6 +36,13 @@ describe('seguridad de certificados en Apps Script', () => {
     expect(functionSource('enviarCertificadoEmail')).toContain("'CERTIFICATE_RESENT' : 'CERTIFICATE_SENT'")
   })
 
+  it('bloquea la eliminación física de certificados y audita el rechazo', () => {
+    const deletion = functionSource('deleteInscripcion')
+    expect(deletion).toContain('certificadoProtegidoContraEliminacion(row)')
+    expect(deletion).toContain("accion: 'CERTIFICATE_DELETE_REJECTED'")
+    expect(deletion).toContain('No puede eliminarse una inscripción con certificado emitido')
+  })
+
   it('limita el resumen de vendedor y la verificación pública', () => {
     expect(functionSource('resumenCertificadoParaVendedor')).toContain("resumen.CodigoCertificado = ''")
     const publicVerification = functionSource('handleVerificarCertificado')

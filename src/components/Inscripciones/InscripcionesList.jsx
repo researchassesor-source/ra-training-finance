@@ -10,7 +10,13 @@ import { fmt, ESTADOS_CERTIFICADO, ESTADOS_PAGO_INS } from '../../utils/formatte
 import { exportInscripcionPDF, exportInscripcionesCSV, exportInscripcionesPDF } from '../../utils/exporters'
 import { buildVerificationUrl, generateQrDataUrl } from '../../utils/qr'
 import { buildCertificatePdf, validateCertificateData } from '../../utils/certificateGenerator'
-import { canManageCertificates, certificateCapabilities, CERTIFICATE_PERMISSION_MESSAGE } from '../../utils/certificatePermissions'
+import {
+  canManageCertificates,
+  certificateCapabilities,
+  CERTIFICATE_DELETE_BLOCKED_MESSAGE,
+  CERTIFICATE_PERMISSION_MESSAGE,
+  isCertificateProtectedAgainstDeletion,
+} from '../../utils/certificatePermissions'
 import Modal from '../UI/Modal'
 import ConfirmDialog from '../UI/ConfirmDialog'
 import Spinner from '../UI/Spinner'
@@ -482,7 +488,11 @@ export default function InscripcionesList() {
                         {certificateCapabilities(user, item).canDownload && <Action icon={Award} label="Ver y descargar certificado académico" onClick={() => downloadCertificate(item)} disabled={rowBusy} css="hover:text-amber-600 hover:bg-amber-50" />}
                         {certificateCapabilities(user, item).canViewQr && <Action icon={QrCode} label="Ver y descargar QR" onClick={() => showQr(item)} disabled={rowBusy} />}
                         {certificateCapabilities(user, item).canDeliver && <Action icon={MailCheck} label="Entregar certificado" onClick={() => { setSelected(item); setModal('delivery') }} disabled={rowBusy} css="hover:text-emerald-600 hover:bg-emerald-50" />}
-                        {(isAdmin || item.EstadoPago === 'pendiente') && <Action icon={Trash2} label="Eliminar inscripción" onClick={() => setConfirm({ type: 'delete', item })} disabled={rowBusy} css="hover:text-red-600 hover:bg-red-50" />}
+                        {(isAdmin || item.EstadoPago === 'pendiente') && (
+                          isCertificateProtectedAgainstDeletion(item)
+                            ? <Action icon={Trash2} label={CERTIFICATE_DELETE_BLOCKED_MESSAGE} disabled css="cursor-not-allowed text-gray-300" />
+                            : <Action icon={Trash2} label="Eliminar inscripción" onClick={() => setConfirm({ type: 'delete', item })} disabled={rowBusy} css="hover:text-red-600 hover:bg-red-50" />
+                        )}
                       </div></td>
                     </tr>
                   )

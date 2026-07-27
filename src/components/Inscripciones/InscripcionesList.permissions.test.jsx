@@ -90,6 +90,8 @@ describe('acciones visibles en inscripciones', () => {
     expect(screen.getByRole('button', { name: 'Ver y descargar QR' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Entregar certificado' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Auditoría de certificados/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /No puede eliminarse una inscripción con certificado emitido/i })).toBeDisabled()
+    expect(screen.queryByRole('button', { name: 'Eliminar inscripción' })).not.toBeInTheDocument()
   })
 
   it('oculta las acciones oficiales al vendedor y conserva el estado', async () => {
