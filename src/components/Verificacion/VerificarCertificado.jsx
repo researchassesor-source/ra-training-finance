@@ -4,7 +4,7 @@ import { api } from '../../services/api'
 import { fmt } from '../../utils/formatters'
 import Spinner from '../UI/Spinner'
 import { AlertTriangle, CheckCircle2, ExternalLink, RefreshCw, XCircle } from 'lucide-react'
-import logo from '../../assets/brand/logo-ra-training.webp'
+import logoOnLight from '../../assets/brand/logo-ra-training-on-light.png'
 import { BRAND } from '../../config/brand'
 
 export default function VerificarCertificado() {
@@ -26,9 +26,7 @@ export default function VerificarCertificado() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-brand-50 via-white to-secondary-50 p-6">
       <div className="w-full max-w-md">
         <div className="text-center mb-6">
-          <div className="w-16 h-16 bg-brand-800 rounded-2xl flex items-center justify-center mx-auto mb-3 p-2 shadow-lg">
-            <img src={logo} alt="Símbolo oficial de R.A. Training" className="h-full w-auto object-contain" />
-          </div>
+          <img src={logoOnLight} alt="Símbolo oficial de R.A. Training" className="mx-auto mb-3 h-16 w-16 object-contain drop-shadow-lg" />
           <h1 className="text-xl font-bold text-gray-900">{BRAND.fullName}</h1>
           <p className="text-gray-500 text-sm">Verificación de Certificados</p>
         </div>

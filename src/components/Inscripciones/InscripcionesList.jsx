@@ -8,14 +8,18 @@ import { api } from '../../services/api'
 import { certificatePublicUrlStatus } from '../../config/brand'
 import { certificateAvalVisualStatus } from '../../config/certificate'
 import {
-  certificateArtifactStore,
-  CertificatePdfRepository,
+  isControlledCertificateRecoveryAvailable,
 } from '../../services/certificateArtifactStore'
+import { certificatePdfRepository } from '../../services/certificatePdfRepository'
+import {
+  downloadCertificateWithAudit,
+  openCertificatePreviewWindow,
+} from '../../services/certificateDownloadFlow'
 import { useAuth } from '../../context/AuthContext'
 import { fmt, ESTADOS_CERTIFICADO, ESTADOS_PAGO_INS } from '../../utils/formatters'
 import { exportInscripcionPDF, exportInscripcionesCSV, exportInscripcionesPDF } from '../../utils/exporters'
 import { buildVerificationUrl, generateQrDataUrl } from '../../utils/qr'
-import { buildCertificatePdf, validateCertificateData } from '../../utils/certificateGenerator'
+import { validateCertificateData } from '../../utils/certificateGenerator'
 import {
   canManageCertificates,
   certificateCapabilities,
@@ -37,11 +41,6 @@ import AuditoriaCertificadosModal from './AuditoriaCertificadosModal'
 const EMPTY_FILTERS = {
   servicioId: '', vendedor: '', estadoPago: '', estadoCertificado: '', tipoAval: '', desde: '', hasta: '',
 }
-
-const certificatePdfRepository = new CertificatePdfRepository({
-  store: certificateArtifactStore,
-  buildPdf: buildCertificatePdf,
-})
 
 export default function InscripcionesList() {
   const { isAdmin, user } = useAuth()
@@ -73,6 +72,7 @@ export default function InscripcionesList() {
   const [lifecycleError, setLifecycleError] = useState('')
   const [lifecycleBusy, setLifecycleBusy] = useState(false)
   const [auditRetry, setAuditRetry] = useState(null)
+  const [artifactRecovery, setArtifactRecovery] = useState(null)
 
   const load = useCallback(() => {
     setLoading(true)
@@ -312,53 +312,33 @@ export default function InscripcionesList() {
       setError(CERTIFICATE_PERMISSION_MESSAGE)
       return
     }
-    const previewWindow = window.open('', '_blank')
-    if (previewWindow) {
-      previewWindow.opener = null
-      previewWindow.document.title = 'Generando certificado…'
-      previewWindow.document.body.innerHTML = '<p style="font:16px system-ui;padding:24px;color:#114899">Generando vista previa del certificado…</p>'
-    }
+    const preview = openCertificatePreviewWindow()
     setProcessing(`certificate:${item.ID}`)
     setError('')
     setAuditRetry(null)
+    setArtifactRecovery(null)
     try {
-      const current = await api.getCertificadoParaDescarga(item.ID)
-      const result = await certificatePdfRepository.prepare(current.data)
-      await api.registrarArtefactoCertificado(item.ID, {
-        pdfHash: result.hash,
-        pdfStorageReference: result.reference,
-        templateVersion: result.templateVersion,
-        certificateVersion: result.certificateVersion,
+      const result = await downloadCertificateWithAudit({
+        id: item.ID,
+        api,
+        repository: certificatePdfRepository,
+        preview,
+        saveFile: saveAs,
       })
-      const request = await api.solicitarDescargaCertificado(item.ID, {
-        pdfHash: result.hash,
-        pdfStorageReference: result.reference,
-      })
-      const previewUrl = URL.createObjectURL(result.blob)
-      try {
-        saveAs(result.blob, result.filename)
-        if (previewWindow) previewWindow.location.replace(previewUrl)
-      } catch (deliveryError) {
-        URL.revokeObjectURL(previewUrl)
-        await api.confirmarDescargaCertificado(request.requestId, 'fallido', deliveryError.message)
-        throw deliveryError
-      }
-      window.setTimeout(() => URL.revokeObjectURL(previewUrl), 60_000)
-      try {
-        await api.confirmarDescargaCertificado(request.requestId, 'completado')
-      } catch {
-        setAuditRetry({ kind: 'confirm', requestId: request.requestId })
-        const auditError = new Error('La descarga se inició, pero su confirmación de auditoría quedó pendiente. Use “Reintentar auditoría”.')
-        auditError.deliveryStarted = true
-        throw auditError
-      }
+      if (result.previewWarning) setError(result.previewWarning)
       load()
     } catch (err) {
-      if (!err.deliveryStarted && previewWindow && !previewWindow.closed) previewWindow.close()
       if (isAdmin && /duraci/i.test(err.message || '')) openDurationEditor(item)
       else {
-        if (!err.deliveryStarted) setAuditRetry(current => current || { kind: 'download', item })
-        setError(err.message)
+        if (err.auditPending) {
+          setAuditRetry({ kind: 'confirm', requestId: err.requestId })
+          setError('La descarga se inició, pero su confirmación de auditoría quedó pendiente. Use “Reintentar auditoría”.')
+        } else {
+          const recoveryAvailable = isControlledCertificateRecoveryAvailable(err)
+          if (recoveryAvailable) setArtifactRecovery({ item: err.certificate || item, message: err.message })
+          else if (!err.deliveryStarted) setAuditRetry(current => current || { kind: 'download', item })
+          setError(err.message)
+        }
       }
     }
     finally { setProcessing('') }
@@ -698,6 +678,28 @@ export default function InscripcionesList() {
               </button>
             </div>
           </form>
+        )}
+      </Modal>
+
+      <Modal open={Boolean(artifactRecovery)} onClose={() => setArtifactRecovery(null)} title="Recuperación controlada del certificado" size="sm">
+        {artifactRecovery && (
+          <div className="space-y-4">
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+              <p className="font-semibold">El PDF original no está disponible en este navegador.</p>
+              <p className="mt-2">{artifactRecovery.message}</p>
+            </div>
+            <p className="text-sm text-gray-600">
+              El sistema no modificó ni regeneró silenciosamente el certificado histórico. La recuperación permitida crea una nueva versión, conserva el identificador anterior y registra el motivo en la auditoría.
+            </p>
+            <div className="flex gap-3">
+              <button type="button" className="btn-secondary flex-1" onClick={() => setArtifactRecovery(null)}>Cancelar</button>
+              <button type="button" className="btn-primary flex-1" onClick={() => {
+                const recoveryItem = artifactRecovery.item
+                setArtifactRecovery(null)
+                openLifecycle('reissue', recoveryItem)
+              }}>Iniciar reemisión controlada</button>
+            </div>
+          </div>
         )}
       </Modal>
 

@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { CheckCircle2, Mail, XCircle } from 'lucide-react'
 import { api } from '../../services/api'
 import { blobToBase64 } from '../../utils/blob'
-import { buildCertificatePdf } from '../../utils/certificateGenerator'
+import { certificatePdfRepository } from '../../services/certificatePdfRepository'
 import { CERTIFICATE_PERMISSION_MESSAGE } from '../../utils/certificatePermissions'
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -24,8 +24,14 @@ export default function EnvioMasivoCertificadosModal({ inscripciones, isAdmin, o
     for (let index = 0; index < elegibles.length; index += 1) {
       const item = elegibles[index]
       try {
-        const issued = await api.emitirCertificado(item.ID)
-        const certificate = await buildCertificatePdf(issued.data)
+        const issued = await api.getCertificadoParaDescarga(item.ID)
+        const certificate = await certificatePdfRepository.prepare(issued.data)
+        await api.registrarArtefactoCertificado(item.ID, {
+          pdfHash: certificate.hash,
+          pdfStorageReference: certificate.reference,
+          templateVersion: certificate.templateVersion,
+          certificateVersion: certificate.certificateVersion,
+        })
         await api.registrarGeneracionCertificado(item.ID)
         if (certificate.blob.size > 3 * 1024 * 1024) {
           throw new Error('El PDF supera el límite de 3 MB.')

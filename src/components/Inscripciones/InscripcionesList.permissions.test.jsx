@@ -51,10 +51,9 @@ vi.mock('../../config/brand', () => ({
     ? { valid: true, environment: 'development', url: 'http://localhost:5173', error: '' }
     : { valid: false, environment: 'preview', url: '', error: 'VITE_PUBLIC_APP_URL es obligatoria para emitir certificados en Preview y Production.' },
 }))
-vi.mock('../../services/certificateArtifactStore', () => ({
-  certificateArtifactStore: {},
-  CertificatePdfRepository: class {
-    prepare(certificate) { return certificateMocks.prepare(certificate) }
+vi.mock('../../services/certificatePdfRepository', () => ({
+  certificatePdfRepository: {
+    prepare: certificate => certificateMocks.prepare(certificate),
   },
 }))
 vi.mock('file-saver', () => ({ saveAs: certificateMocks.saveAs }))
@@ -150,6 +149,21 @@ describe('acciones visibles en inscripciones', () => {
     ))
     await waitFor(() => expect(apiMock.confirmarDescargaCertificado).toHaveBeenCalledWith('DLC-1', 'completado'))
     expect(state.order).toEqual(['requested', 'saved', 'completado'])
+  })
+
+  it('ofrece reemisión controlada si el certificado histórico no tiene artefacto local', async () => {
+    state.user = { rol: 'admin', username: 'admin.demo', nombre: 'Admin Demo' }
+    const missingArtifact = new Error('El PDF oficial existe, pero no está disponible en este navegador o dispositivo.')
+    missingArtifact.code = 'CERTIFICATE_ARTIFACT_NOT_LOCAL'
+    certificateMocks.prepare.mockRejectedValueOnce(missingArtifact)
+    render(<InscripcionesList />)
+    await screen.findByText('Participante Demo')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ver y descargar certificado académico' }))
+
+    expect(await screen.findByText('Recuperación controlada del certificado')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Iniciar reemisión controlada' })).toBeInTheDocument()
+    expect(certificateMocks.saveAs).not.toHaveBeenCalled()
   })
 
   it('bloquea la emisión en Preview cuando falta la URL pública canónica', async () => {

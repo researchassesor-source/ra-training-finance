@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { saveAs } from 'file-saver'
 import { Download, Mail, MessageCircle, Share2 } from 'lucide-react'
 import { api } from '../../services/api'
-import { buildCertificatePdf } from '../../utils/certificateGenerator'
+import { certificatePdfRepository } from '../../services/certificatePdfRepository'
+import { downloadCertificateWithAudit, openCertificatePreviewWindow } from '../../services/certificateDownloadFlow'
 import { blobToBase64 } from '../../utils/blob'
 import { CERTIFICATE_PERMISSION_MESSAGE } from '../../utils/certificatePermissions'
 
@@ -21,8 +22,14 @@ export default function EntregaCertificadoModal({ inscripcion, isAdmin, onClose,
   }
 
   async function prepare() {
-    const issued = await api.emitirCertificado(inscripcion.ID)
-    const result = await buildCertificatePdf(issued.data)
+    const issued = await api.getCertificadoParaDescarga(inscripcion.ID)
+    const result = await certificatePdfRepository.prepare(issued.data)
+    await api.registrarArtefactoCertificado(inscripcion.ID, {
+      pdfHash: result.hash,
+      pdfStorageReference: result.reference,
+      templateVersion: result.templateVersion,
+      certificateVersion: result.certificateVersion,
+    })
     await api.registrarGeneracionCertificado(inscripcion.ID)
     return result
   }
@@ -37,10 +44,15 @@ export default function EntregaCertificadoModal({ inscripcion, isAdmin, onClose,
     setError('')
     setMessage('')
     try {
-      const result = await prepare()
-      saveAs(result.blob, result.filename)
+      const result = await downloadCertificateWithAudit({
+        id: inscripcion.ID,
+        api,
+        repository: certificatePdfRepository,
+        preview: openCertificatePreviewWindow(),
+        saveFile: saveAs,
+      })
       await track('descargado')
-      setMessage('El PDF se descargó correctamente.')
+      setMessage(result.previewWarning || 'El PDF se descargó y se abrió su vista previa correctamente.')
     } catch (err) { setError(err.message) }
     finally { setBusy('') }
   }

@@ -50,11 +50,21 @@ export function resolveCertificatePublicBaseUrl({ environment, configuredUrl, br
   }
 }
 
-function runtimeCertificateEnvironment() {
-  const explicit = import.meta.env?.VITE_DEPLOYMENT_ENV
+export function detectCertificateEnvironment({ explicit, mode, isDev, hostname } = {}) {
   if (explicit) return explicit
-  if (import.meta.env?.MODE === 'test' || import.meta.env?.DEV) return 'development'
+  if (mode === 'test' || isDev || isLocalHostname(hostname)) return 'development'
+  const host = String(hostname || '').toLowerCase()
+  if (host.endsWith('.vercel.app') && /(?:^|-)git-|-[a-z0-9]{6,}-/.test(host)) return 'preview'
   return 'production'
+}
+
+function runtimeCertificateEnvironment() {
+  return detectCertificateEnvironment({
+    explicit: import.meta.env?.VITE_DEPLOYMENT_ENV,
+    mode: import.meta.env?.MODE,
+    isDev: import.meta.env?.DEV,
+    hostname: typeof window !== 'undefined' ? window.location.hostname : '',
+  })
 }
 
 export function certificatePublicUrlStatus() {

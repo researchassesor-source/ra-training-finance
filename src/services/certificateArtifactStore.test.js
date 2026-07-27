@@ -1,6 +1,8 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 import {
   artifactReferenceFor,
+  BrowserIndexedDbCertificateArtifactStore,
+  CERTIFICATE_ARTIFACT_ERROR_CODES,
   CertificatePdfRepository,
   MemoryCertificateArtifactStore,
   sha256Hex,
@@ -14,7 +16,7 @@ beforeAll(async () => {
 })
 
 describe('repositorio inmutable de PDFs de certificados', () => {
-  it('calcula SHA-256, almacena una vez y reutiliza exactamente el mismo blob', async () => {
+  it('genera un certificado nuevo, calcula SHA-256 y reutiliza exactamente el mismo blob', async () => {
     const store = new MemoryCertificateArtifactStore()
     const blob = new Blob(['certificado-fixture'], { type: 'application/pdf' })
     let generations = 0
@@ -37,6 +39,39 @@ describe('repositorio inmutable de PDFs de certificados', () => {
     expect(generations).toBe(1)
   })
 
+  it('acepta un artefacto existente cuando el hash local y el oficial son correctos', async () => {
+    const blob = new Blob(['certificado-correcto'], { type: 'application/pdf' })
+    const hash = await sha256Hex(blob)
+    const store = new MemoryCertificateArtifactStore()
+    await store.save({ reference: 'test-memory:HASH-OK:v1', hash, blob, filename: 'ok.pdf' })
+    const repository = new CertificatePdfRepository({ store, buildPdf: async () => ({}) })
+
+    await expect(repository.prepare({
+      ID: 'HASH-OK',
+      CertificateVersion: 1,
+      PdfHash: hash,
+      PdfStorageReference: 'test-memory:HASH-OK:v1',
+    })).resolves.toMatchObject({ reused: true, hash })
+  })
+
+  it('bloquea un artefacto cuyo hash SHA-256 es incorrecto', async () => {
+    const blob = new Blob(['certificado-adulterado'], { type: 'application/pdf' })
+    const store = new MemoryCertificateArtifactStore()
+    await store.save({
+      reference: 'test-memory:HASH-BAD:v1',
+      hash: await sha256Hex(blob),
+      blob,
+    })
+    const repository = new CertificatePdfRepository({ store, buildPdf: async () => ({}) })
+
+    await expect(repository.prepare({
+      ID: 'HASH-BAD',
+      CertificateVersion: 1,
+      PdfHash: 'f'.repeat(64),
+      PdfStorageReference: 'test-memory:HASH-BAD:v1',
+    })).rejects.toMatchObject({ code: CERTIFICATE_ARTIFACT_ERROR_CODES.HASH_MISMATCH })
+  })
+
   it('bloquea sustitución y regeneración cuando ya existe un hash oficial', async () => {
     const store = new MemoryCertificateArtifactStore()
     await store.save({ reference: 'test-memory:CRT-2:v1', hash: 'a'.repeat(64), blob: new Blob(['uno']) })
@@ -46,7 +81,28 @@ describe('repositorio inmutable de PDFs de certificados', () => {
     const repository = new CertificatePdfRepository({ store: new MemoryCertificateArtifactStore(), buildPdf: async () => ({}) })
     await expect(repository.prepare({
       ID: 'CRT-3', CertificateVersion: 1, PdfHash: 'c'.repeat(64), PdfStorageReference: 'test-memory:CRT-3:v1',
-    })).rejects.toThrow('no está disponible')
+    })).rejects.toMatchObject({ code: CERTIFICATE_ARTIFACT_ERROR_CODES.ARTIFACT_NOT_LOCAL })
+  })
+
+  it('detecta un IndexedDB vacío sin regenerar el certificado oficial', async () => {
+    const repository = new CertificatePdfRepository({
+      store: new MemoryCertificateArtifactStore(),
+      buildPdf: async () => { throw new Error('no debe regenerarse') },
+    })
+
+    await expect(repository.prepare({
+      ID: 'EMPTY-IDB',
+      CertificateVersion: 1,
+      PdfHash: 'a'.repeat(64),
+      PdfStorageReference: 'test-memory:EMPTY-IDB:v1',
+    })).rejects.toMatchObject({ code: CERTIFICATE_ARTIFACT_ERROR_CODES.ARTIFACT_NOT_LOCAL })
+  })
+
+  it('falla con un mensaje explícito cuando IndexedDB no responde', async () => {
+    const hungIndexedDb = { open: () => ({}) }
+    const store = new BrowserIndexedDbCertificateArtifactStore(hungIndexedDb, { timeoutMs: 5 })
+    await expect(store.get('browser-indexeddb:HUNG:v1'))
+      .rejects.toMatchObject({ code: CERTIFICATE_ARTIFACT_ERROR_CODES.STORAGE_TIMEOUT })
   })
 
   it('genera referencias separadas por versión', () => {
@@ -59,6 +115,6 @@ describe('repositorio inmutable de PDFs de certificados', () => {
       buildPdf: async () => { throw new Error('no debe invocarse') },
     })
     await expect(repository.prepare({ ID: 'LEGACY-1', CertificateVersion: 1, TemplateVersion: 'legacy-v1' }))
-      .rejects.toThrow('no se regenerará con la plantilla actual')
+      .rejects.toMatchObject({ code: CERTIFICATE_ARTIFACT_ERROR_CODES.LEGACY_ARTIFACT_MISSING })
   })
 })

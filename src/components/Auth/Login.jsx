@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { Award, Eye, EyeOff, ShieldCheck } from 'lucide-react'
 import logo from '../../assets/brand/logo-ra-training.webp'
+import logoOnLight from '../../assets/brand/logo-ra-training-on-light.png'
 import { BRAND } from '../../config/brand'
 
 export default function Login() {
@@ -56,9 +57,7 @@ export default function Login() {
       <div className="relative flex flex-1 items-center justify-center overflow-hidden bg-gray-50 p-8">
         <div className="relative z-10 w-full max-w-sm">
           <div className="text-center mb-8 lg:hidden">
-            <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-2xl bg-brand-800 p-2 shadow-lg">
-              <img src={logo} alt="Símbolo oficial de R.A. Training" className="h-full w-auto object-contain" />
-            </div>
+            <img src={logoOnLight} alt="Símbolo oficial de R.A. Training" className="mx-auto mb-3 h-16 w-16 object-contain drop-shadow-lg" />
             <h1 className="text-2xl font-bold text-gray-900">{BRAND.fullName}</h1>
             <p className="text-gray-500 text-sm">{BRAND.subtitle}</p>
           </div>
