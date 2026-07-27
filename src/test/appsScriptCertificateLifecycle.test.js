@@ -112,4 +112,67 @@ describe('ciclo de vida de certificados en Apps Script', () => {
     expect(overwrite.success).toBe(false)
     expect(harness.objects('Certificados')[0]).toMatchObject({ PdfHash: 'a'.repeat(64), PdfStorageReference: artifact.pdfStorageReference })
   })
+
+  it('exige intención auditada antes de descargar y confirma el resultado después', () => {
+    const harness = seededHarness()
+    const { processRequest } = harness.context
+    processRequest({ action: 'emitirCertificado', token: 'admin-token', id: 'INS-VOID' })
+    const artifact = {
+      id: 'INS-VOID', pdfHash: 'd'.repeat(64), pdfStorageReference: 'browser-indexeddb:INS-VOID:v1',
+      templateVersion: 'ra-canva-2026-v1', certificateVersion: 1,
+    }
+    expect(processRequest({ action: 'registrarArtefactoCertificado', token: 'admin-token', ...artifact }).success).toBe(true)
+
+    const requested = processRequest({
+      action: 'solicitarDescargaCertificado', token: 'admin-token', id: 'INS-VOID',
+      pdfHash: artifact.pdfHash, pdfStorageReference: artifact.pdfStorageReference,
+    })
+    expect(requested).toMatchObject({ success: true, auditStatus: 'AUDIT_PENDING' })
+    expect(harness.objects('DescargasCertificados')[0].Estado).toBe('AUDIT_PENDING')
+
+    const confirmed = processRequest({
+      action: 'confirmarDescargaCertificado', token: 'admin-token', solicitudId: requested.requestId, resultado: 'completado',
+    })
+    expect(confirmed).toMatchObject({ success: true, auditStatus: 'AUDIT_CONFIRMED' })
+    expect(harness.objects('DescargasCertificados')[0].Estado).toBe('AUDIT_CONFIRMED')
+    expect(harness.objects('AuditoriaCertificados').map(item => item.Accion)).toEqual(expect.arrayContaining([
+      'CERTIFICATE_DOWNLOAD_REQUESTED', 'CERTIFICATE_DOWNLOAD_COMPLETED',
+    ]))
+  })
+
+  it('no autoriza una descarga invisible cuando falla la escritura de auditoría', () => {
+    const harness = seededHarness()
+    const { processRequest } = harness.context
+    processRequest({ action: 'emitirCertificado', token: 'admin-token', id: 'INS-VOID' })
+    const artifact = {
+      id: 'INS-VOID', pdfHash: 'e'.repeat(64), pdfStorageReference: 'browser-indexeddb:INS-VOID:v1',
+      templateVersion: 'ra-canva-2026-v1', certificateVersion: 1,
+    }
+    processRequest({ action: 'registrarArtefactoCertificado', token: 'admin-token', ...artifact })
+    harness.sheets.AuditoriaCertificados.appendRow = () => { throw new Error('fixture audit failure') }
+
+    const requested = processRequest({
+      action: 'solicitarDescargaCertificado', token: 'admin-token', id: 'INS-VOID',
+      pdfHash: artifact.pdfHash, pdfStorageReference: artifact.pdfStorageReference,
+    })
+    expect(requested.success).toBe(false)
+    expect(requested.error).toContain('auditoría obligatoria')
+    expect(harness.objects('DescargasCertificados')[0].Estado).toBe('AUDIT_PENDING')
+  })
+
+  it('audita el reporte de pago cuando se incorpora un comprobante', () => {
+    const harness = seededHarness()
+    const { processRequest } = harness.context
+    const updated = processRequest({
+      action: 'updateInscripcion', token: 'admin-token', id: 'INS-VOID',
+      inscripcion: {
+        clienteNombre: 'Persona Anulación', clienteID: '0000000001', clienteEmail: 'persona@example.test',
+        clienteTelefono: '0999999999', servicioId: 'SRV-1', servicioNombre: 'Curso Test', modalidad: 'Virtual',
+        fechaInicio: '2026-07-01', fechaFin: '2026-07-02', monto: 20, metodoPago: 'transferencia',
+        numeroComprobante: 'COMP-TEST-001', fechaPago: '2026-07-01', requiereAvalExterno: false,
+      },
+    })
+    expect(updated.success).toBe(true)
+    expect(harness.objects('AuditoriaCertificados').map(item => item.Accion)).toContain('PAYMENT_REPORTED')
+  })
 })

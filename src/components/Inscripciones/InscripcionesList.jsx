@@ -69,6 +69,7 @@ export default function InscripcionesList() {
   const [lifecycleConfirmed, setLifecycleConfirmed] = useState(false)
   const [lifecycleError, setLifecycleError] = useState('')
   const [lifecycleBusy, setLifecycleBusy] = useState(false)
+  const [auditRetry, setAuditRetry] = useState(null)
 
   const load = useCallback(() => {
     setLoading(true)
@@ -258,6 +259,7 @@ export default function InscripcionesList() {
     }
     setProcessing(`certificate:${item.ID}`)
     setError('')
+    setAuditRetry(null)
     try {
       const missing = validateCertificateData(item)
       if (missing.length) throw new Error(`Faltan los siguientes datos para generar el certificado: ${missing.join(', ')}.`)
@@ -269,14 +271,32 @@ export default function InscripcionesList() {
         templateVersion: prepared.templateVersion,
         certificateVersion: prepared.certificateVersion,
       })
-      await api.registrarGeneracionCertificado(item.ID)
-      saveAs(prepared.blob, prepared.filename)
-      await api.actualizarEntregaCertificado(item.ID, 'descargado')
+      const request = await api.solicitarDescargaCertificado(item.ID, {
+        pdfHash: prepared.hash,
+        pdfStorageReference: prepared.reference,
+      })
+      try {
+        saveAs(prepared.blob, prepared.filename)
+      } catch (deliveryError) {
+        await api.confirmarDescargaCertificado(request.requestId, 'fallido', deliveryError.message)
+        throw deliveryError
+      }
+      try {
+        await api.confirmarDescargaCertificado(request.requestId, 'completado')
+      } catch {
+        setAuditRetry({ kind: 'confirm', requestId: request.requestId })
+        const auditError = new Error('La descarga se inició, pero su confirmación de auditoría quedó pendiente. Use “Reintentar auditoría”.')
+        auditError.deliveryStarted = true
+        throw auditError
+      }
       setSelected(result.data)
       load()
     } catch (err) {
       if (isAdmin && /duraci/i.test(err.message || '')) openDurationEditor(item)
-      else setError(err.message)
+      else {
+        if (!err.deliveryStarted) setAuditRetry(current => current || { kind: 'emit', item })
+        setError(err.message)
+      }
     }
     finally { setProcessing('') }
   }
@@ -294,6 +314,7 @@ export default function InscripcionesList() {
     }
     setProcessing(`certificate:${item.ID}`)
     setError('')
+    setAuditRetry(null)
     try {
       const current = await api.getCertificadoParaDescarga(item.ID)
       const result = await certificatePdfRepository.prepare(current.data)
@@ -303,30 +324,62 @@ export default function InscripcionesList() {
         templateVersion: result.templateVersion,
         certificateVersion: result.certificateVersion,
       })
+      const request = await api.solicitarDescargaCertificado(item.ID, {
+        pdfHash: result.hash,
+        pdfStorageReference: result.reference,
+      })
       const previewUrl = URL.createObjectURL(result.blob)
-      saveAs(result.blob, result.filename)
-      if (previewWindow) previewWindow.location.replace(previewUrl)
+      try {
+        saveAs(result.blob, result.filename)
+        if (previewWindow) previewWindow.location.replace(previewUrl)
+      } catch (deliveryError) {
+        URL.revokeObjectURL(previewUrl)
+        await api.confirmarDescargaCertificado(request.requestId, 'fallido', deliveryError.message)
+        throw deliveryError
+      }
       window.setTimeout(() => URL.revokeObjectURL(previewUrl), 60_000)
-
-      // La descarga y la vista previa no dependen de la latencia de auditoría.
-      // El backend normaliza y registra el certificado en segundo plano.
-      void (async () => {
-        try {
-          await api.emitirCertificado(item.ID)
-          await api.registrarGeneracionCertificado(item.ID)
-          await api.actualizarEntregaCertificado(item.ID, 'descargado')
-          load()
-        } catch {
-          // El PDF ya fue generado. La próxima sincronización reintentará la
-          // normalización histórica sin bloquear al administrador.
-        }
-      })()
+      try {
+        await api.confirmarDescargaCertificado(request.requestId, 'completado')
+      } catch {
+        setAuditRetry({ kind: 'confirm', requestId: request.requestId })
+        const auditError = new Error('La descarga se inició, pero su confirmación de auditoría quedó pendiente. Use “Reintentar auditoría”.')
+        auditError.deliveryStarted = true
+        throw auditError
+      }
+      load()
     } catch (err) {
-      if (previewWindow && !previewWindow.closed) previewWindow.close()
+      if (!err.deliveryStarted && previewWindow && !previewWindow.closed) previewWindow.close()
       if (isAdmin && /duraci/i.test(err.message || '')) openDurationEditor(item)
-      else setError(err.message)
+      else {
+        if (!err.deliveryStarted) setAuditRetry(current => current || { kind: 'download', item })
+        setError(err.message)
+      }
     }
     finally { setProcessing('') }
+  }
+
+  async function retryCertificateAudit() {
+    const retry = auditRetry
+    if (!retry) return
+    if (retry.kind === 'emit') {
+      await emitCertificate(retry.item)
+      return
+    }
+    if (retry.kind === 'download') {
+      await downloadCertificate(retry.item)
+      return
+    }
+    setProcessing('audit:retry')
+    setError('')
+    try {
+      await api.confirmarDescargaCertificado(retry.requestId, 'completado')
+      setAuditRetry(null)
+      load()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setProcessing('')
+    }
   }
 
   function showQr(item) {
@@ -438,7 +491,16 @@ export default function InscripcionesList() {
         <Summary label="Certificados emitidos" value={totals.issued} color="text-emerald-600" />
       </div>
 
-      {error && <p className="text-sm text-red-700 bg-red-50 rounded-lg p-3">{error}</p>}
+      {error && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">
+          <p>{error}</p>
+          {auditRetry && (
+            <button type="button" className="btn-secondary text-xs" onClick={retryCertificateAudit} disabled={Boolean(processing)}>
+              Reintentar auditoría
+            </button>
+          )}
+        </div>
+      )}
 
       {loading ? <Spinner text="Cargando inscripciones..." /> : (
         <div className="card p-0 overflow-hidden">

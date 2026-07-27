@@ -32,6 +32,8 @@ describe('repositorio inmutable de PDFs de certificados', () => {
     expect(first.reference).toBe('browser-indexeddb:CRT-1:v1')
     expect(first.hash).toBe(await sha256Hex(blob))
     expect(second.reused).toBe(true)
+    expect(await store.exists(first.reference)).toBe(true)
+    expect(await store.verifyHash(blob, first.hash)).toBe(true)
     expect(generations).toBe(1)
   })
 
@@ -51,4 +53,3 @@ describe('repositorio inmutable de PDFs de certificados', () => {
     expect(artifactReferenceFor({ CertificatePublicId: 'CRT-X', CertificateVersion: 2 })).toBe('browser-indexeddb:CRT-X:v2')
   })
 })
-

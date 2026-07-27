@@ -222,6 +222,14 @@ export const api = {
     bust('getInscripciones')
     return call('registrarArtefactoCertificado', { id, ...artifact }, getToken())
   },
+  solicitarDescargaCertificado: (id, artifact) =>
+    call('solicitarDescargaCertificado', { id, ...artifact }, getToken()),
+  confirmarDescargaCertificado: (solicitudId, resultado, motivo = '') => {
+    bust('getInscripciones')
+    return call('confirmarDescargaCertificado', { solicitudId, resultado, motivo }, getToken())
+  },
+  getDescargasPendientes: (limit = 100) =>
+    call('getDescargasPendientes', { limit }, getToken()),
   registrarGeneracionCertificado: (id) =>
     call('registrarGeneracionCertificado', { id }, getToken()),
   actualizarEntregaCertificado: (id, estadoEntrega) => {

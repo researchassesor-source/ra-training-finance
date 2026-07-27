@@ -5,6 +5,7 @@ import InscripcionesList from './InscripcionesList'
 const state = vi.hoisted(() => ({
   user: { rol: 'admin', username: 'admin.demo', nombre: 'Admin Demo' },
   rows: [],
+  order: [],
 }))
 
 const apiMock = vi.hoisted(() => ({
@@ -13,6 +14,10 @@ const apiMock = vi.hoisted(() => ({
   getUsuarios: vi.fn(async () => ({ data: [] })),
   getConfigPagos: vi.fn(async () => ({ data: [] })),
   emitirCertificado: vi.fn(async () => ({ data: state.rows[0] })),
+  getCertificadoParaDescarga: vi.fn(async () => ({ data: state.rows[0] })),
+  registrarArtefactoCertificado: vi.fn(async () => ({ success: true })),
+  solicitarDescargaCertificado: vi.fn(async () => { state.order.push('requested'); return { success: true, requestId: 'DLC-1' } }),
+  confirmarDescargaCertificado: vi.fn(async (_id, result) => { state.order.push(result); return { success: true } }),
   registrarGeneracionCertificado: vi.fn(async () => ({ success: true })),
   actualizarEntregaCertificado: vi.fn(async () => ({ success: true })),
 }))
@@ -22,7 +27,15 @@ const certificateMocks = vi.hoisted(() => ({
     blob: new Blob(['pdf'], { type: 'application/pdf' }),
     filename: 'certificado_demo.pdf',
   })),
-  saveAs: vi.fn(),
+  prepare: vi.fn(async () => ({
+    blob: new Blob(['pdf'], { type: 'application/pdf' }),
+    filename: 'certificado_demo.pdf',
+    hash: 'a'.repeat(64),
+    reference: 'browser-indexeddb:INS-DEMO-001:v1',
+    templateVersion: 'test-v1',
+    certificateVersion: 1,
+  })),
+  saveAs: vi.fn(() => state.order.push('saved')),
 }))
 
 vi.mock('../../context/AuthContext', () => ({
@@ -32,6 +45,12 @@ vi.mock('../../context/AuthContext', () => ({
   }),
 }))
 vi.mock('../../services/api', () => ({ api: apiMock }))
+vi.mock('../../services/certificateArtifactStore', () => ({
+  certificateArtifactStore: {},
+  CertificatePdfRepository: class {
+    prepare(certificate) { return certificateMocks.prepare(certificate) }
+  },
+}))
 vi.mock('file-saver', () => ({ saveAs: certificateMocks.saveAs }))
 vi.mock('../../utils/exporters', () => ({
   exportInscripcionPDF: vi.fn(),
@@ -65,11 +84,17 @@ const emittedRow = {
   EstadoEntrega: 'pendiente',
   RequiereAvalExterno: false,
   CodigoCertificado: 'RA-2026-DEMO001',
+  CertificatePublicId: 'INS-DEMO-001',
+  CertificateVersion: 1,
+  TemplateVersion: 'test-v1',
+  FechaEmisionCertificado: '2026-07-02T12:00:00.000Z',
 }
 
 describe('acciones visibles en inscripciones', () => {
   beforeEach(() => {
+    vi.clearAllMocks()
     state.rows = [emittedRow]
+    state.order = []
     Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => 'blob:certificate-preview') })
     Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() })
     vi.spyOn(window, 'open').mockReturnValue({
@@ -105,9 +130,8 @@ describe('acciones visibles en inscripciones', () => {
     expect(screen.queryByRole('button', { name: /Auditoría de certificados/i })).not.toBeInTheDocument()
   })
 
-  it('descarga antes de esperar la auditoría remota', async () => {
+  it('solicita auditoría antes de descargar y confirma el resultado después', async () => {
     state.user = { rol: 'admin', username: 'admin.demo', nombre: 'Admin Demo' }
-    apiMock.emitirCertificado.mockImplementationOnce(() => new Promise(() => {}))
     render(<InscripcionesList />)
     await screen.findByText('Participante Demo')
 
@@ -117,5 +141,7 @@ describe('acciones visibles en inscripciones', () => {
       expect.any(Blob),
       'certificado_demo.pdf',
     ))
+    await waitFor(() => expect(apiMock.confirmarDescargaCertificado).toHaveBeenCalledWith('DLC-1', 'completado'))
+    expect(state.order).toEqual(['requested', 'saved', 'completado'])
   })
 })

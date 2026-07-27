@@ -36,8 +36,31 @@ export function artifactReferenceFor(certificate) {
   return `browser-indexeddb:${publicId}:v${version}`
 }
 
-export class MemoryCertificateArtifactStore {
+export class CertificateArtifactStore {
+  async get() {
+    throw new Error('CertificateArtifactStore.get() debe ser implementado por el proveedor.')
+  }
+
+  async save() {
+    throw new Error('CertificateArtifactStore.save() debe ser implementado por el proveedor.')
+  }
+
+  async exists(reference) {
+    return Boolean(await this.get(reference))
+  }
+
+  async calculateHash(blob) {
+    return sha256Hex(blob)
+  }
+
+  async verifyHash(blob, expectedHash) {
+    return (await this.calculateHash(blob)) === String(expectedHash || '').trim().toLowerCase()
+  }
+}
+
+export class MemoryCertificateArtifactStore extends CertificateArtifactStore {
   constructor() {
+    super()
     this.records = new Map()
   }
 
@@ -55,8 +78,9 @@ export class MemoryCertificateArtifactStore {
   }
 }
 
-export class BrowserIndexedDbCertificateArtifactStore {
+export class BrowserIndexedDbCertificateArtifactStore extends CertificateArtifactStore {
   constructor(indexedDb = globalThis.indexedDB) {
+    super()
     this.indexedDb = indexedDb
     this.dbPromise = null
   }
@@ -115,8 +139,8 @@ export class CertificatePdfRepository {
     const expectedHash = String(certificate.PdfHash || '').trim().toLowerCase()
     const existing = await this.store.get(reference)
     if (existing) {
-      const actualHash = await sha256Hex(existing.blob)
-      if (actualHash !== existing.hash || (expectedHash && actualHash !== expectedHash)) {
+      const actualHash = await this.store.calculateHash(existing.blob)
+      if (actualHash !== existing.hash || (expectedHash && !(await this.store.verifyHash(existing.blob, expectedHash)))) {
         throw new Error('La verificación SHA-256 del certificado falló. No se permitirá la descarga.')
       }
       return { ...existing, reused: true }
@@ -125,7 +149,7 @@ export class CertificatePdfRepository {
       throw new Error('El PDF oficial no está disponible en este dispositivo. No se regenerará ni sustituirá automáticamente.')
     }
     const generated = await this.buildPdf(certificate)
-    const hash = await sha256Hex(generated.blob)
+    const hash = await this.store.calculateHash(generated.blob)
     const record = {
       ...generated,
       reference,
