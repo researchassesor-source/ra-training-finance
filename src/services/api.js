@@ -14,7 +14,19 @@ async function call(action, params = {}, token = null) {
   let data
   try { data = await res.json() }
   catch { throw new Error('El servidor devolvió una respuesta inválida.') }
-  if (!data.success) throw new Error(data.error || 'Error desconocido')
+  if (!data.success) {
+    const backendMessage = String(data.error || 'Error desconocido')
+    if (backendMessage === 'Acción no reconocida.' || backendMessage === 'Acción no reconocida') {
+      const error = new Error(
+        `El backend activo no reconoce la acción "${action}". `
+        + 'Actualice la versión desplegada de Apps Script antes de reactivar esta interfaz.',
+      )
+      error.code = 'BACKEND_ACTION_UNSUPPORTED'
+      error.action = action
+      throw error
+    }
+    throw new Error(backendMessage)
+  }
   return data
 }
 

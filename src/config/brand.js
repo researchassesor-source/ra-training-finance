@@ -50,17 +50,22 @@ export function resolveCertificatePublicBaseUrl({ environment, configuredUrl, br
   }
 }
 
-export function detectCertificateEnvironment({ explicit, mode, isDev, hostname } = {}) {
-  if (explicit) return explicit
+export function detectCertificateEnvironment({ explicit, platform, mode, isDev, hostname } = {}) {
+  const platformEnvironment = String(platform || '').trim().toLowerCase()
+  // VERCEL_ENV lo fija Vercel para cada deployment y tiene prioridad sobre una
+  // variable VITE_DEPLOYMENT_ENV heredada o configurada por error en dos entornos.
+  if (['development', 'preview', 'production'].includes(platformEnvironment)) return platformEnvironment
+  if (explicit) return normalizedEnvironment(explicit)
   if (mode === 'test' || isDev || isLocalHostname(hostname)) return 'development'
   const host = String(hostname || '').toLowerCase()
-  if (host.endsWith('.vercel.app') && /(?:^|-)git-|-[a-z0-9]{6,}-/.test(host)) return 'preview'
+  if (host.endsWith('.vercel.app') && host.includes('-git-')) return 'preview'
   return 'production'
 }
 
 function runtimeCertificateEnvironment() {
   return detectCertificateEnvironment({
     explicit: import.meta.env?.VITE_DEPLOYMENT_ENV,
+    platform: import.meta.env?.VITE_VERCEL_ENV,
     mode: import.meta.env?.MODE,
     isDev: import.meta.env?.DEV,
     hostname: typeof window !== 'undefined' ? window.location.hostname : '',

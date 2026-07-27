@@ -66,6 +66,28 @@ describe('URL pública canónica de certificados', () => {
     })).toBe('preview')
   })
 
+  it('usa VERCEL_ENV como fuente autoritativa para un deployment productivo', () => {
+    expect(detectCertificateEnvironment({
+      platform: 'production',
+      explicit: 'preview',
+      hostname: 'ra-training-finance-researchassesor-sources-projects.vercel.app',
+    })).toBe('production')
+  })
+
+  it('mantiene Preview cuando Vercel identifica el deployment como Preview', () => {
+    expect(detectCertificateEnvironment({
+      platform: 'preview',
+      explicit: 'production',
+      hostname: 'ra-training-finance-2vscplbfz-researchassesor-sources-projects.vercel.app',
+    })).toBe('preview')
+  })
+
+  it('no confunde el dominio productivo de Vercel con una Preview por sus guiones', () => {
+    expect(detectCertificateEnvironment({
+      hostname: 'ra-training-finance-researchassesor-sources-projects.vercel.app',
+    })).toBe('production')
+  })
+
   it('permite el origen local únicamente en desarrollo', () => {
     expect(resolveCertificatePublicBaseUrl({ environment: 'development', browserOrigin: 'http://localhost:5173' }))
       .toMatchObject({ valid: true, url: 'http://localhost:5173' })
