@@ -74,6 +74,7 @@ export function createAppsScriptHarness({ authSecret = 'test-only-secret-with-at
     insertSheet: name => (sheets[name] = new Sheet(name)),
   }
   const properties = new Map(authSecret ? [['AUTH_SECRET', authSecret]] : [])
+  const logs = []
   const context = {
     console,
     SpreadsheetApp: { getActiveSpreadsheet: () => spreadsheet },
@@ -99,6 +100,7 @@ export function createAppsScriptHarness({ authSecret = 'test-only-secret-with-at
       getUuid: () => crypto.randomUUID(),
     },
     MailApp: { sendEmail: () => {} },
+    Logger: { log: value => logs.push(String(value)) },
   }
   vm.createContext(context)
   vm.runInContext(code, context)
@@ -121,5 +123,5 @@ export function createAppsScriptHarness({ authSecret = 'test-only-secret-with-at
     return rows.map(row => Object.fromEntries(headers.map((header, index) => [header, row[index] ?? ''])))
   }
 
-  return { code, context, ensureSheet, locks, objects, properties, seed, sheets, sourceHeaders }
+  return { code, context, ensureSheet, locks, logs, objects, properties, seed, sheets, sourceHeaders }
 }

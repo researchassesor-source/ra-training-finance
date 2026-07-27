@@ -6,6 +6,7 @@ const state = vi.hoisted(() => ({
   user: { rol: 'admin', username: 'admin.demo', nombre: 'Admin Demo' },
   rows: [],
   order: [],
+  qrValid: true,
 }))
 
 const apiMock = vi.hoisted(() => ({
@@ -45,6 +46,11 @@ vi.mock('../../context/AuthContext', () => ({
   }),
 }))
 vi.mock('../../services/api', () => ({ api: apiMock }))
+vi.mock('../../config/brand', () => ({
+  certificatePublicUrlStatus: () => state.qrValid
+    ? { valid: true, environment: 'development', url: 'http://localhost:5173', error: '' }
+    : { valid: false, environment: 'preview', url: '', error: 'VITE_PUBLIC_APP_URL es obligatoria para emitir certificados en Preview y Production.' },
+}))
 vi.mock('../../services/certificateArtifactStore', () => ({
   certificateArtifactStore: {},
   CertificatePdfRepository: class {
@@ -95,6 +101,7 @@ describe('acciones visibles en inscripciones', () => {
     vi.clearAllMocks()
     state.rows = [emittedRow]
     state.order = []
+    state.qrValid = true
     Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => 'blob:certificate-preview') })
     Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() })
     vi.spyOn(window, 'open').mockReturnValue({
@@ -143,5 +150,22 @@ describe('acciones visibles en inscripciones', () => {
     ))
     await waitFor(() => expect(apiMock.confirmarDescargaCertificado).toHaveBeenCalledWith('DLC-1', 'completado'))
     expect(state.order).toEqual(['requested', 'saved', 'completado'])
+  })
+
+  it('bloquea la emisión en Preview cuando falta la URL pública canónica', async () => {
+    state.user = { rol: 'admin', username: 'admin.demo', nombre: 'Admin Demo' }
+    state.qrValid = false
+    state.rows = [{
+      ...emittedRow,
+      EstadoCertificado: 'pendiente',
+      CertificateStatus: 'pendiente',
+      CodigoCertificado: '',
+      FechaEmisionCertificado: '',
+    }]
+    render(<InscripcionesList />)
+    await screen.findByText('Participante Demo')
+    const issue = screen.getByRole('button', { name: 'VITE_PUBLIC_APP_URL es obligatoria para emitir certificados en Preview y Production.' })
+    expect(issue).toBeDisabled()
+    expect(apiMock.emitirCertificado).not.toHaveBeenCalled()
   })
 })

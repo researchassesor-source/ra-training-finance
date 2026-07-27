@@ -9,7 +9,10 @@ function functionSource(name) {
   const start = code.indexOf(`function ${name}(`)
   if (start < 0) throw new Error(`No existe ${name}`)
   const next = code.indexOf('\nfunction ', start + 10)
-  return code.slice(start, next < 0 ? code.length : next)
+  const source = code.slice(start, next < 0 ? code.length : next)
+  const companion = `${name}BajoBloqueo`
+  if (code.includes(`function ${companion}(`)) return source + '\n' + functionSource(companion)
+  return source
 }
 
 describe('seguridad de certificados en Apps Script', () => {

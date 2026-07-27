@@ -1,33 +1,32 @@
 # Flujo de certificados
 
-La base existente mantiene sus valores persistidos. Esta fase no ejecuta una migración destructiva; documenta sus equivalencias funcionales.
+La implementación V3 conserva valores históricos mediante un mapa de compatibilidad y no exige renombrarlos.
 
-| Estado formal | Valores actuales / condición |
+| Estado/evento formal | Persistencia compatible |
 |---|---|
-| `INSCRIPTION_CREATED` | Inscripción creada; `EstadoCertificado=pendiente` |
-| `PAYMENT_PENDING` | `EstadoPago=pendiente`, `pagado` o `pendiente_verificacion` |
+| `INSCRIPTION_CREATED` | `EstadoCertificado=pendiente` |
+| `PAYMENT_REPORTED` | comprobante, fecha o estado de pago reportado |
 | `PAYMENT_VERIFIED` | `EstadoPago=verificado` |
-| `DATA_REVIEWED` | Datos mínimos validados antes de emitir |
-| `AVAL_PENDING` | Requiere aval y `EstadoAval!=avalado` |
+| `AVAL_PENDING` | requiere aval y `EstadoAval!=avalado` |
 | `AVAL_CONFIRMED` | `EstadoAval=avalado` |
-| `READY_TO_ISSUE` | Pago verificado, datos completos y aval listo cuando aplica |
-| `CERTIFICATE_ISSUED` | `EstadoCertificado=emitido` |
-| `CERTIFICATE_SENT` | `EstadoEntrega=compartido` o `enviado_email` |
-| `DELIVERY_FAILED` | Evento de auditoría; se conserva el último estado de entrega válido |
-| `REQUIRES_CORRECTION` | Validación rechazada antes de emitir; no se persiste un valor nuevo |
-| `VOIDED` | Pendiente de diseño institucional; no implementado |
-| `REISSUED` | Pendiente de diseño institucional; no implementado |
+| `CERTIFICATE_ISSUED` | `emitido` o legado `issued` |
+| `CERTIFICATE_SENT` | `enviado`, `sent`, `compartido` o `enviado_email` |
+| `CERTIFICATE_VOIDED` | `anulado` o legado `voided` |
+| `CERTIFICATE_REISSUED` | original `reemitido`/`reissued`; versión nueva `emitido` |
 
-## Reglas aplicadas
+## Emisión y descarga
 
-1. El vendedor crea y corrige sus inscripciones dentro de las reglas existentes.
-2. Solo administración verifica el pago.
-3. Si el certificado requiere aval, no puede emitirse hasta que el rol autorizado confirme la referencia, código o enlace.
-4. El backend valida participante, identificación, curso, duración, fechas y modalidad.
-5. El backend asigna el código estable; no confía en un código propuesto por el cliente.
-6. Una segunda solicitud de emisión devuelve el registro ya emitido y no crea un duplicado.
-7. Solo administración genera, descarga o entrega el PDF oficial.
-8. Cada descarga o entrega actualiza trazabilidad y auditoría.
-9. Los certificados históricos `emitido` siguen verificándose con su ID y código existente.
+1. Administración verifica pago, datos académicos y aval cuando aplica.
+2. Apps Script adquiere `LockService`, comprueba unicidad y asigna código dentro del bloqueo.
+3. Se crea un registro versionado y se audita la emisión.
+4. El repositorio genera una vez el PDF, calcula SHA-256 y guarda una referencia privada inmutable.
+5. El frontend registra el artefacto en backend.
+6. Backend crea una solicitud `AUDIT_PENDING` y registra `CERTIFICATE_DOWNLOAD_REQUESTED`.
+7. Solo entonces se entrega el archivo.
+8. Frontend confirma `CERTIFICATE_DOWNLOAD_COMPLETED` o `CERTIFICATE_DOWNLOAD_FAILED`; los pendientes quedan visibles para reconciliación.
 
-La anulación y reemisión no se añadieron porque el modelo actual no conserva versiones históricas suficientes para hacerlo de forma segura. Deben diseñarse con historial inmutable antes de habilitarse.
+## Anulación y reemisión
+
+La anulación exige administrador, motivo y confirmación explícita. Conserva certificado/QR y la página pública muestra `CERTIFICADO ANULADO`. La reemisión conserva la versión original como `reemitido`, genera nuevo ID/código/versión y enlaza el QR histórico con el vigente.
+
+Una inscripción con certificado emitido, enviado, anulado o reemitido, o con código/fecha de emisión, no puede eliminarse físicamente. Los históricos sin versión usan fallback 1. Un histórico `legacy-*` sin PDF original no se regenera con la plantilla actual.

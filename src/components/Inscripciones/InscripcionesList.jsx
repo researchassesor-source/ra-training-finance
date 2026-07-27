@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import { api } from '../../services/api'
 import { certificatePublicUrlStatus } from '../../config/brand'
+import { certificateAvalVisualStatus } from '../../config/certificate'
 import {
   certificateArtifactStore,
   CertificatePdfRepository,
@@ -265,6 +266,9 @@ export default function InscripcionesList() {
     try {
       const missing = validateCertificateData(item)
       if (missing.length) throw new Error(`Faltan los siguientes datos para generar el certificado: ${missing.join(', ')}.`)
+      buildVerificationUrl(certificatePublicId(item))
+      const avalVisual = certificateAvalVisualStatus(item)
+      if (!avalVisual.valid) throw new Error(avalVisual.error)
       const result = await api.emitirCertificado(item.ID)
       const prepared = await certificatePdfRepository.prepare(result.data)
       await api.registrarArtefactoCertificado(item.ID, {
@@ -554,6 +558,8 @@ export default function InscripcionesList() {
                 {!data.length ? <tr><td colSpan={isAdmin ? 13 : 12} className="text-center py-10 text-gray-400">Sin inscripciones registradas</td></tr> : data.map(item => {
                   const hasAval = item.RequiereAvalExterno === true || item.RequiereAvalExterno === 'TRUE'
                   const avalReady = !hasAval || item.EstadoAval === 'avalado'
+                  const avalVisual = certificateAvalVisualStatus(item)
+                  const issuanceConfigurationReady = avalReady && avalVisual.valid && qrConfiguration.valid
                   const capabilities = certificateCapabilities(user, item)
                   const canSelect = capabilities.canDeliver && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(item.ClienteEmail || '').trim())
                   const canVerifyPayment = ['pendiente', 'pagado', 'pendiente_verificacion'].includes(item.EstadoPago)
@@ -616,8 +622,12 @@ export default function InscripcionesList() {
                         <Action icon={Pencil} label="Editar inscripción" onClick={() => { setSelected(item); setModal('edit') }} disabled={rowBusy} />
                         {isAdmin && canVerifyPayment && <Action icon={CheckCircle} label="Verificar pago" onClick={() => setConfirm({ type: 'verify', item })} disabled={rowBusy} css="hover:text-emerald-600 hover:bg-emerald-50" />}
                         {capabilities.canIssue && <Action icon={Award}
-                          label={avalReady ? 'Generar y emitir certificado académico' : `Pendiente del aval institucional${item.InstitucionAval ? ` de ${item.InstitucionAval}` : ''}`}
-                          onClick={() => emitCertificate(item)} disabled={rowBusy || !avalReady} css="hover:text-amber-600 hover:bg-amber-50" />}
+                          label={!qrConfiguration.valid
+                            ? qrConfiguration.error
+                            : !avalReady
+                              ? `Pendiente del aval institucional${item.InstitucionAval ? ` de ${item.InstitucionAval}` : ''}`
+                              : !avalVisual.valid ? avalVisual.error : 'Generar y emitir certificado académico'}
+                          onClick={() => emitCertificate(item)} disabled={rowBusy || !issuanceConfigurationReady} css="hover:text-amber-600 hover:bg-amber-50" />}
                         {capabilities.canDownload && <Action icon={Award} label="Ver y descargar certificado académico" onClick={() => downloadCertificate(item)} disabled={rowBusy} css="hover:text-amber-600 hover:bg-amber-50" />}
                         {capabilities.canViewQr && <Action icon={QrCode} label="Ver y descargar QR" onClick={() => showQr(item)} disabled={rowBusy} />}
                         {capabilities.canDeliver && <Action icon={MailCheck} label="Entregar certificado" onClick={() => { setSelected(item); setModal('delivery') }} disabled={rowBusy} css="hover:text-emerald-600 hover:bg-emerald-50" />}

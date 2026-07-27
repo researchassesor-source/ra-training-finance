@@ -52,4 +52,13 @@ describe('repositorio inmutable de PDFs de certificados', () => {
   it('genera referencias separadas por versión', () => {
     expect(artifactReferenceFor({ CertificatePublicId: 'CRT-X', CertificateVersion: 2 })).toBe('browser-indexeddb:CRT-X:v2')
   })
+
+  it('no regenera un histórico sin artefacto usando la plantilla actual', async () => {
+    const repository = new CertificatePdfRepository({
+      store: new MemoryCertificateArtifactStore(),
+      buildPdf: async () => { throw new Error('no debe invocarse') },
+    })
+    await expect(repository.prepare({ ID: 'LEGACY-1', CertificateVersion: 1, TemplateVersion: 'legacy-v1' }))
+      .rejects.toThrow('no se regenerará con la plantilla actual')
+  })
 })

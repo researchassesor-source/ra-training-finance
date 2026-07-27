@@ -2790,6 +2790,161 @@ function migrarInscripcionesCertificadosV2() {
 // SETUP INICIAL — Ejecutar una sola vez
 // ─────────────────────────────────────────────
 
+const CERTIFICATE_V3_MIGRATION_SCHEMAS = {
+  Inscripciones: [
+    'AvalTextoConfirmado','CertificateVersion','TemplateVersion','PdfHash','PdfStorageReference',
+    'OriginalCertificateId','ReissuedCertificateId','CertificateStatus','IssuedAt','IssuedBy',
+    'VoidedAt','VoidedBy','VoidReason','ReissueReason',
+  ],
+  Certificados: SHEET_HEADERS.Certificados,
+  AuditoriaCertificados: SHEET_HEADERS.AuditoriaCertificados,
+  DescargasCertificados: SHEET_HEADERS.DescargasCertificados,
+};
+
+function leerHojaMigracionV3(name) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(name);
+  if (!sheet) return { name: name, sheet: null, headers: [], rows: [], formulas: [] };
+  const lastRow = sheet.getLastRow();
+  const lastColumn = sheet.getLastColumn();
+  if (!lastRow || !lastColumn) return { name: name, sheet: sheet, headers: [], rows: [], formulas: [] };
+  const range = sheet.getRange(1, 1, lastRow, lastColumn);
+  const values = range.getValues();
+  return {
+    name: name,
+    sheet: sheet,
+    headers: values[0].map(function(value) { return String(value || '').trim(); }),
+    rows: values.slice(1),
+    formulas: range.getFormulas(),
+  };
+}
+
+function objetosMigracionV3(snapshot) {
+  return snapshot.rows.map(function(row, index) {
+    const object = { _row: index + 2 };
+    snapshot.headers.forEach(function(header, column) { object[header] = row[column]; });
+    return object;
+  }).filter(function(item) { return item[snapshot.headers[0]] !== '' && item[snapshot.headers[0]] !== undefined; });
+}
+
+function migrarCertificadosV3Diagnostico() {
+  const snapshots = {};
+  const columnasFaltantes = {};
+  const formulas = {};
+  const hojasFaltantes = [];
+  Object.keys(CERTIFICATE_V3_MIGRATION_SCHEMAS).forEach(function(name) {
+    const snapshot = leerHojaMigracionV3(name);
+    snapshots[name] = snapshot;
+    if (!snapshot.sheet) hojasFaltantes.push(name);
+    columnasFaltantes[name] = CERTIFICATE_V3_MIGRATION_SCHEMAS[name].filter(function(header) {
+      return snapshot.headers.indexOf(header) === -1;
+    });
+    formulas[name] = snapshot.formulas.reduce(function(total, row) {
+      return total + row.filter(function(formula) { return !!String(formula || '').trim(); }).length;
+    }, 0);
+  });
+
+  const inscripciones = objetosMigracionV3(snapshots.Inscripciones);
+  const certificados = objetosMigracionV3(snapshots.Certificados);
+  const codeOwners = {};
+  function registerCode(code, owner, source) {
+    const normalized = String(code || '').trim().toUpperCase();
+    if (!normalized) return;
+    if (!codeOwners[normalized]) codeOwners[normalized] = {};
+    codeOwners[normalized][String(owner || source)] = true;
+  }
+  inscripciones.forEach(function(item) { registerCode(item.CodigoCertificado, item.ID, 'Inscripciones'); });
+  certificados.forEach(function(item) { registerCode(item.CodigoCertificado, item.InscripcionID || item.ID, 'Certificados'); });
+  const codigosDuplicados = Object.keys(codeOwners).filter(function(code) {
+    return Object.keys(codeOwners[code]).length > 1;
+  }).map(function(code) { return { codigo: code, propietarios: Object.keys(codeOwners[code]) }; });
+
+  const estadosCompatibles = ['pendiente','en_proceso','emitido','enviado','anulado','reemitido','issued','sent','voided','reissued','descargado','compartido','enviado_email','enviado_whatsapp'];
+  const emitidosSinCodigo = [];
+  const emitidosSinFecha = [];
+  const estadosInconsistentes = [];
+  const certificadosQuePodrianRomperse = [];
+  inscripciones.forEach(function(item) {
+    const estado = String(item.CertificateStatus || item.EstadoCertificado || '').trim().toLowerCase();
+    const emitido = ['emitido','enviado','anulado','reemitido','issued','sent','voided','reissued'].indexOf(estado) !== -1;
+    const reasons = [];
+    if (emitido && !String(item.CodigoCertificado || '').trim()) {
+      emitidosSinCodigo.push(item.ID);
+      reasons.push('sin_codigo');
+    }
+    if (emitido && !String(item.IssuedAt || item.FechaEmisionCertificado || '').trim()) {
+      emitidosSinFecha.push(item.ID);
+      reasons.push('sin_fecha_emision');
+    }
+    if (estado && estadosCompatibles.indexOf(estado) === -1) {
+      estadosInconsistentes.push({ id: item.ID, estado: estado });
+      reasons.push('estado_inconsistente');
+    }
+    if (emitido && !String(item.ClienteNombre || '').trim()) reasons.push('sin_participante');
+    if (emitido && !String(item.ServicioNombre || '').trim()) reasons.push('sin_curso');
+    if (reasons.length) certificadosQuePodrianRomperse.push({ id: item.ID, motivos: reasons });
+  });
+
+  return {
+    soloLectura: true,
+    fechaDiagnostico: new Date().toISOString(),
+    registros: {
+      inscripciones: inscripciones.length,
+      certificados: certificados.length,
+      auditoria: objetosMigracionV3(snapshots.AuditoriaCertificados).length,
+      descargas: objetosMigracionV3(snapshots.DescargasCertificados).length,
+    },
+    hojasFaltantes: hojasFaltantes,
+    columnasFaltantes: columnasFaltantes,
+    formulas: formulas,
+    codigosDuplicados: codigosDuplicados,
+    emitidosSinCodigo: emitidosSinCodigo,
+    emitidosSinFecha: emitidosSinFecha,
+    estadosInconsistentes: estadosInconsistentes,
+    certificadosQuePodrianRomperse: certificadosQuePodrianRomperse,
+  };
+}
+
+function migrarCertificadosV3Aplicar(confirmacion) {
+  const confirmacionConfigurada = PropertiesService.getScriptProperties()
+    .getProperty('CERTIFICATES_V3_MIGRATION_CONFIRMATION');
+  if (confirmacion !== 'APLICAR_CERTIFICADOS_V3' && confirmacionConfigurada !== 'APLICAR_CERTIFICADOS_V3') {
+    throw new Error('Migraci\u00f3n bloqueada: configure o proporcione la confirmaci\u00f3n expl\u00edcita APLICAR_CERTIFICADOS_V3.');
+  }
+  const antes = migrarCertificadosV3Diagnostico();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const agregadas = {};
+  Object.keys(CERTIFICATE_V3_MIGRATION_SCHEMAS).forEach(function(name) {
+    var sheet = ss.getSheetByName(name);
+    const schema = CERTIFICATE_V3_MIGRATION_SCHEMAS[name];
+    if (!sheet) {
+      sheet = ss.insertSheet(name);
+      sheet.getRange(1, 1, 1, schema.length).setValues([schema]);
+      agregadas[name] = schema.slice();
+      return;
+    }
+    const lastColumn = sheet.getLastColumn();
+    const headers = lastColumn ? sheet.getRange(1, 1, 1, lastColumn).getValues()[0] : [];
+    const missing = schema.filter(function(header) { return headers.indexOf(header) === -1; });
+    agregadas[name] = missing.slice();
+    missing.forEach(function(header) {
+      sheet.getRange(1, sheet.getLastColumn() + 1).setValue(header);
+    });
+  });
+  const despues = migrarCertificadosV3Diagnostico();
+  const resumen = {
+    aplicada: true,
+    idempotente: true,
+    fecha: new Date().toISOString(),
+    columnasAgregadas: agregadas,
+    formulasAntes: antes.formulas,
+    formulasDespues: despues.formulas,
+    diagnosticoPosterior: despues,
+    rollback: 'Restaurar la copia de seguridad previa documentada en docs/migrations/CERTIFICATES_V3.md.',
+  };
+  Logger.log(JSON.stringify(resumen));
+  return resumen;
+}
+
 function setupInicial() {
   Object.keys(SHEET_HEADERS).forEach(name => getSheet(name));
   getSheet('ConfigPagos'); // inicializa hoja de cuentas de cobro

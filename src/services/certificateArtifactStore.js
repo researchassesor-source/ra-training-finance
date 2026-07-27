@@ -148,6 +148,9 @@ export class CertificatePdfRepository {
     if (expectedHash) {
       throw new Error('El PDF oficial no está disponible en este dispositivo. No se regenerará ni sustituirá automáticamente.')
     }
+    if (/^legacy(?:-|$)/i.test(String(certificate.TemplateVersion || ''))) {
+      throw new Error('El certificado histórico no tiene su artefacto PDF original registrado. Debe recuperarse e importarse de forma controlada; no se regenerará con la plantilla actual.')
+    }
     const generated = await this.buildPdf(certificate)
     const hash = await this.store.calculateHash(generated.blob)
     const record = {

@@ -1,31 +1,16 @@
 # Auditoría de certificados
 
-Apps Script incorpora la hoja `AuditoriaCertificados` con los campos:
+`AuditoriaCertificados` registra ID, certificado, inscripción, usuario, rol, acción, fecha/hora, estados, canal, resultado, motivo y metadatos limitados. `DescargasCertificados` conserva la reconciliación `AUDIT_PENDING`, `AUDIT_CONFIRMED` o `AUDIT_FAILED`.
 
-`ID`, `CertificadoID`, `InscripcionID`, `Usuario`, `Rol`, `Accion`, `FechaHora`, `EstadoAnterior`, `EstadoNuevo`, `Canal`, `Resultado`, `Motivo`, `Metadatos`.
+Eventos principales:
 
-## Eventos implementados
+- `INSCRIPTION_CREATED`, `ENROLLMENT_UPDATED`, `PAYMENT_REPORTED`, `PAYMENT_VERIFIED`;
+- `AVAL_CONFIRMED`;
+- `CERTIFICATE_ISSUED`, `CERTIFICATE_METADATA_BACKFILLED`, `CERTIFICATE_ARTIFACT_REGISTERED`;
+- `CERTIFICATE_DOWNLOAD_REQUESTED`, `CERTIFICATE_DOWNLOAD_COMPLETED`, `CERTIFICATE_DOWNLOAD_FAILED`;
+- `CERTIFICATE_SENT`, `CERTIFICATE_RESENT`, `CERTIFICATE_SHARED`, `CERTIFICATE_DELIVERY_FAILED`;
+- `CERTIFICATE_VOIDED`, `CERTIFICATE_REISSUED`;
+- `CERTIFICATE_DELETE_REJECTED`, `CERTIFICATE_CODE_CONFLICT`;
+- intentos administrativos rechazados con resultado `rechazado`.
 
-- `INSCRIPTION_CREATED`
-- `ENROLLMENT_UPDATED`
-- `PAYMENT_VERIFIED`
-- `AVAL_CONFIRMED`
-- `CERTIFICATE_ISSUED`
-- `CERTIFICATE_GENERATED`
-- `CERTIFICATE_DOWNLOADED`
-- `CERTIFICATE_SHARED`
-- `CERTIFICATE_SENT`
-- `CERTIFICATE_RESENT`
-- `CERTIFICATE_DELIVERY_FAILED`
-- intentos administrativos rechazados con la acción solicitada y resultado `rechazado`
-- normalización de código y fecha en certificados históricos emitidos (`CERTIFICATE_METADATA_BACKFILLED`)
-
-## Seguridad
-
-- La consulta está limitada a administradores y se muestra en modo de solo lectura.
-- Se limita el tamaño de motivo y metadatos.
-- No se guardan contraseñas, tokens, PDF, firmas, secretos ni contenido del correo.
-- Los errores públicos permanecen genéricos y no filtran datos internos.
-- No se implementaron edición ni eliminación de eventos.
-
-La hoja se creará o completará mediante el mecanismo de encabezados existente cuando este Apps Script sea aprobado y desplegado posteriormente. No se modificó ninguna hoja real durante esta fase.
+Las excepciones de escritura de auditoría ya no se silencian. Una descarga no se inicia sin una solicitud auditada; si su confirmación posterior falla, permanece pendiente y el panel ofrece reintento. Los eventos no almacenan contraseñas, tokens, blobs PDF, firmas ni secretos y no tienen edición/eliminación desde la aplicación.
