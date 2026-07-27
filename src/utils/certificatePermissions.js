@@ -17,9 +17,21 @@ export function isCertificateProtectedAgainstDeletion(item = {}) {
     || Boolean(String(item.FechaCertificado || item.FechaEmisionCertificado || item.IssuedAt || '').trim())
 }
 
+export function certificateLifecycleStatus(item = {}) {
+  const status = String(item.CertificateStatus || item.EstadoCertificado || '').trim().toLowerCase()
+  const aliases = { issued: 'emitido', sent: 'enviado', voided: 'anulado', reissued: 'reemitido' }
+  return aliases[status] || status || 'pendiente'
+}
+
+export function certificatePublicId(item = {}) {
+  return String(item.CertificatePublicId || item.ReissuedCertificateId || item.ID || '').trim()
+}
+
 export function certificateCapabilities(user, item = {}) {
   const admin = canManageCertificates(user)
-  const issued = item.EstadoCertificado === 'emitido'
+  const lifecycleStatus = certificateLifecycleStatus(item)
+  const issued = ['emitido', 'enviado', 'reemitido'].includes(lifecycleStatus)
+  const historical = issued || lifecycleStatus === 'anulado'
   const paymentVerified = item.EstadoPago === 'verificado'
   const requiresAval = item.RequiereAvalExterno === true || String(item.RequiereAvalExterno).toUpperCase() === 'TRUE'
   const avalReady = !requiresAval || item.EstadoAval === 'avalado'
@@ -27,8 +39,10 @@ export function certificateCapabilities(user, item = {}) {
   return {
     canIssue: admin && paymentVerified && avalReady && !issued,
     canDownload: admin && issued,
-    canViewQr: admin && issued,
+    canViewQr: admin && historical,
     canDeliver: admin && issued,
+    canVoid: admin && issued,
+    canReissue: admin && historical,
     canBatchDeliver: admin,
     canViewAudit: admin,
   }

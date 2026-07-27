@@ -15,6 +15,8 @@ function functionSource(name) {
 describe('seguridad de certificados en Apps Script', () => {
   it.each([
     'emitirCertificado',
+    'anularCertificado',
+    'reemitirCertificado',
     'registrarGeneracionCertificado',
     'actualizarEntregaCertificado',
     'enviarCertificadoEmail',
@@ -43,10 +45,30 @@ describe('seguridad de certificados en Apps Script', () => {
     expect(deletion).toContain('No puede eliminarse una inscripción con certificado emitido')
   })
 
+  it('implementa anulación y reemisión sin reutilizar el identificador anterior', () => {
+    const voidSource = functionSource('anularCertificado')
+    expect(voidSource).toContain("confirmacion !== 'ANULAR'")
+    expect(voidSource).toContain("accion: 'CERTIFICATE_VOIDED'")
+    expect(voidSource).toContain("CertificateStatus: 'anulado'")
+
+    const reissueSource = functionSource('reemitirCertificado')
+    expect(reissueSource).toContain("confirmacion !== 'REEMITIR'")
+    expect(reissueSource).toContain("generateId('CRT')")
+    expect(reissueSource).toContain("CertificateStatus: 'reemitido'")
+    expect(reissueSource).toContain("accion: 'CERTIFICATE_REISSUED'")
+  })
+
+  it('mantiene visibles en verificación pública los estados anulado y reemitido', () => {
+    const publicVerification = functionSource('handleVerificarCertificado')
+    expect(publicVerification).toContain("['vigente', 'anulado', 'reemitido']")
+    expect(publicVerification).toContain('certificadoVigenteId')
+  })
+
   it('limita el resumen de vendedor y la verificación pública', () => {
     expect(functionSource('resumenCertificadoParaVendedor')).toContain("resumen.CodigoCertificado = ''")
     const publicVerification = functionSource('handleVerificarCertificado')
     expect(publicVerification).not.toMatch(/Monto|RUC|ClienteTelefono|VerificadoPor|EmitidoPor/)
-    expect(publicVerification).toContain("estado:          'vigente'")
+    expect(publicVerification).toContain('estado:          estado')
+    expect(functionSource('estadoPublicoCertificado')).toContain("return 'anulado'")
   })
 })

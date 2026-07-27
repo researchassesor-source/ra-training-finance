@@ -38,4 +38,26 @@ describe('compatibilidad de metadatos de certificados históricos', () => {
     expect(normalized.FechaEmisionCertificado).toBeUndefined()
     expect(normalized.EstadoCertificado).toBe('pendiente')
   })
+
+  it('mantiene descargable una reemisión vigente y utiliza su identificador público', () => {
+    const normalized = normalizeIssuedCertificate({
+      ID: 'INS-004',
+      ReissuedCertificateId: 'CRT-004-V2',
+      EstadoCertificado: 'reemitido',
+      FechaEmisionCertificado: '2026-07-27T10:00:00.000Z',
+      CodigoCertificado: 'RA-2026-V2',
+    })
+
+    expect(normalized.EstadoCertificado).toBe('reemitido')
+    expect(normalized.CodigoCertificado).toBe('RA-2026-V2')
+  })
+
+  it('no convierte un certificado anulado en descargable', () => {
+    const normalized = normalizeIssuedCertificate({
+      ID: 'INS-005',
+      EstadoCertificado: 'anulado',
+      CodigoCertificado: 'RA-2026-VOID',
+    })
+    expect(normalized.EstadoCertificado).toBe('anulado')
+  })
 })

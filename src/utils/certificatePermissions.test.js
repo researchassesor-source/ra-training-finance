@@ -18,6 +18,8 @@ describe('permisos de certificados', () => {
       canDownload: true,
       canViewQr: true,
       canDeliver: true,
+      canVoid: true,
+      canReissue: true,
       canBatchDeliver: true,
       canViewAudit: true,
     })
@@ -58,5 +60,15 @@ describe('permisos de certificados', () => {
 
   it('conserva la eliminación para una inscripción pendiente sin certificado', () => {
     expect(isCertificateProtectedAgainstDeletion({ EstadoCertificado: 'pendiente' })).toBe(false)
+  })
+
+  it('conserva el QR histórico y bloquea descarga/entrega cuando está anulado', () => {
+    expect(certificateCapabilities({ rol: 'admin' }, { ...issued, EstadoCertificado: 'anulado' })).toMatchObject({
+      canDownload: false,
+      canDeliver: false,
+      canViewQr: true,
+      canVoid: false,
+      canReissue: true,
+    })
   })
 })

@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
 import { api } from '../../services/api'
 import { fmt } from '../../utils/formatters'
 import Spinner from '../UI/Spinner'
-import { CheckCircle2, ExternalLink, XCircle } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, ExternalLink, RefreshCw, XCircle } from 'lucide-react'
 import logo from '../../assets/brand/logo-ra-training.webp'
 import { BRAND } from '../../config/brand'
 
@@ -54,12 +54,24 @@ export default function VerificarCertificado() {
 }
 
 function EstadoValido({ data }) {
+  const anulled = data.estado === 'anulado'
+  const reissued = data.estado === 'reemitido'
+  const heading = anulled ? 'CERTIFICADO ANULADO' : reissued ? 'CERTIFICADO REEMITIDO' : 'Certificado Válido'
+  const detail = anulled
+    ? 'El certificado existió, pero ya no se encuentra vigente.'
+    : reissued
+      ? 'Esta versión fue sustituida y se conserva por trazabilidad histórica.'
+      : 'Emitido y verificado por R.A. Training'
   return (
     <div className="text-center space-y-4">
-      <CheckCircle2 size={48} className="text-emerald-500 mx-auto" />
+      {anulled
+        ? <AlertTriangle size={48} className="text-red-500 mx-auto" />
+        : reissued
+          ? <RefreshCw size={48} className="text-blue-500 mx-auto" />
+          : <CheckCircle2 size={48} className="text-emerald-500 mx-auto" />}
       <div>
-        <h2 className="text-lg font-semibold text-gray-900">Certificado Válido</h2>
-        <p className="text-sm text-gray-500 mt-1">Emitido y verificado por R.A. Training</p>
+        <h2 className={`text-lg font-semibold ${anulled ? 'text-red-700' : reissued ? 'text-blue-700' : 'text-gray-900'}`}>{heading}</h2>
+        <p className="text-sm text-gray-500 mt-1">{detail}</p>
       </div>
       <div className="text-left bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-2 text-sm">
         <Campo label="Código" valor={data.codigo} mono />
@@ -71,6 +83,7 @@ function EstadoValido({ data }) {
         {data.fechaInicio && <Campo label="Fecha de inicio" valor={fmt.date(data.fechaInicio)} />}
         {data.fechaFin && <Campo label="Fecha de fin" valor={fmt.date(data.fechaFin)} />}
         {data.fechaEmision && <Campo label="Fecha de emisión" valor={fmt.date(data.fechaEmision)} />}
+        {data.version && <Campo label="Versión" valor={data.version} />}
         {data.institucionAval && <Campo label="Institución avaladora" valor={data.institucionAval} />}
         {data.estadoAval && <Campo label="Estado del aval" valor={data.estadoAval === 'avalado' ? 'Avalado' : 'Pendiente'} />}
         {data.avalReferencia && <Campo label="Referencia del aval" valor={data.avalReferencia} mono />}
@@ -85,6 +98,11 @@ function EstadoValido({ data }) {
           </div>
         )}
       </div>
+      {reissued && data.certificadoVigenteId && (
+        <Link to={`/verificar/${encodeURIComponent(data.certificadoVigenteId)}`} className="btn-primary w-full justify-center">
+          Consultar certificado vigente
+        </Link>
+      )}
     </div>
   )
 }

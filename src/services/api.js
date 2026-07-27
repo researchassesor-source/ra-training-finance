@@ -208,6 +208,14 @@ export const api = {
     bust('getInscripciones', 'getDashboard')
     return call('emitirCertificado', { id }, getToken())
   },
+  anularCertificado: (id, motivo) => {
+    bust('getInscripciones', 'getDashboard')
+    return call('anularCertificado', { id, motivo, confirmacion: 'ANULAR' }, getToken())
+  },
+  reemitirCertificado: (id, motivo) => {
+    bust('getInscripciones', 'getDashboard')
+    return call('reemitirCertificado', { id, motivo, confirmacion: 'REEMITIR' }, getToken())
+  },
   registrarGeneracionCertificado: (id) =>
     call('registrarGeneracionCertificado', { id }, getToken()),
   actualizarEntregaCertificado: (id, estadoEntrega) => {

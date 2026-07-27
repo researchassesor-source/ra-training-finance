@@ -81,6 +81,8 @@ function processRequest(data) {
     updateInscripcion:  () => updateInscripcion(user, params),
     verificarPagoInscripcion: () => verificarPagoInscripcion(user, params),
     emitirCertificado:  () => emitirCertificado(user, params),
+    anularCertificado:   () => anularCertificado(user, params),
+    reemitirCertificado: () => reemitirCertificado(user, params),
     registrarGeneracionCertificado: () => registrarGeneracionCertificado(user, params),
     actualizarEntregaCertificado: () => actualizarEntregaCertificado(user, params),
     enviarCertificadoEmail: () => enviarCertificadoEmail(user, params),
@@ -142,6 +144,7 @@ const SHEET_HEADERS = {
   FlujosSemanales:  ['ID','Username','NombreUsuario','Semana','FechaInicio','FechaFin','TotalHorasPlan','Estado','Notas','CreadoPor','FechaCreacion'],
   ActividadesFlujo: ['ID','FlujoID','Username','Titulo','Descripcion','DiaSemana','HorasEstimadas','Estado','HorasReales','Notas','Evidencia','CompletadoEn','FechaCreacion'],
   AuditoriaCertificados: ['ID','CertificadoID','InscripcionID','Usuario','Rol','Accion','FechaHora','EstadoAnterior','EstadoNuevo','Canal','Resultado','Motivo','Metadatos'],
+  Certificados: ['ID','InscripcionID','CodigoCertificado','CertificateVersion','TemplateVersion','PdfHash','PdfStorageReference','OriginalCertificateId','ReissuedCertificateId','CertificateStatus','IssuedAt','IssuedBy','VoidedAt','VoidedBy','VoidReason','ReissueReason','CreatedAt'],
 };
 
 function getSheet(name) {
@@ -411,24 +414,30 @@ function handleLogout(token) {
 // aún no fue emitido (mismo mensaje "no válido" para ambos casos).
 function handleVerificarCertificado({ id } = {}) {
   if (!id) return { success: true, valido: false };
-  const row = sheetToObjects(getSheet('Inscripciones')).find(r => r.ID === id);
-  if (!row || row.EstadoCertificado !== 'emitido') return { success: true, valido: false };
+  const resultado = buscarCertificadoPublico(id);
+  if (!resultado) return { success: true, valido: false };
+  const row = resultado.inscripcion;
+  const certificado = resultado.certificado;
+  const estado = estadoPublicoCertificado(certificado);
+  if (['vigente', 'anulado', 'reemitido'].indexOf(estado) === -1) return { success: true, valido: false };
   const duracionDe = mapaDuracionServicios();
   const avalActivo = esVerdadero(row.RequiereAvalExterno) && row.EstadoAval === 'avalado';
   return {
     success: true,
     valido: true,
     data: {
-      codigo:          row.CodigoCertificado || codigoCertificadoEstable(row),
-      identificador:   row.CodigoCertificado || codigoCertificadoEstable(row),
-      estado:          'vigente',
+      codigo:          certificado.CodigoCertificado || row.CodigoCertificado || codigoCertificadoEstable(row),
+      identificador:   certificado.ID || row.ID,
+      estado:          estado,
       nombre:          row.ClienteNombre,
       servicio:        row.ServicioNombre,
       duracion:        duracionDe(row),
       modalidad:       row.Modalidad,
       fechaInicio:     row.FechaInicio,
       fechaFin:        row.FechaFin || '',
-      fechaEmision:    row.FechaEmisionCertificado || '',
+      fechaEmision:    certificado.IssuedAt || row.FechaEmisionCertificado || '',
+      version:         Number(certificado.CertificateVersion) || 1,
+      certificadoVigenteId: estado === 'reemitido' ? (certificado.ReissuedCertificateId || '') : '',
       institucionAval: avalActivo ? (row.InstitucionAval || '') : '',
       estadoAval:      avalActivo ? 'avalado' : '',
       avalReferencia:  avalActivo ? (row.AvalReferencia || '') : '',
@@ -1362,6 +1371,120 @@ function codigoCertificadoEstable(row) {
   return 'RA-' + fecha.getFullYear() + '-' + fragmento;
 }
 
+function estadoNormalizadoCertificado(row) {
+  var estado = String(row.CertificateStatus || row.EstadoCertificado || '').trim().toLowerCase();
+  var mapa = {
+    issued: 'emitido', sent: 'enviado', voided: 'anulado', reissued: 'reemitido',
+    descargado: 'emitido', compartido: 'enviado', enviado_email: 'enviado', enviado_whatsapp: 'enviado',
+  };
+  return mapa[estado] || estado || 'pendiente';
+}
+
+function estadoPublicoCertificado(row) {
+  var estado = estadoNormalizadoCertificado(row);
+  if (estado === 'anulado') return 'anulado';
+  if (estado === 'reemitido') return 'reemitido';
+  if (estado === 'emitido' || estado === 'enviado') return 'vigente';
+  return estado;
+}
+
+function certificadoHistoricoDesdeInscripcion(row) {
+  return {
+    ID: row.ID,
+    InscripcionID: row.ID,
+    CodigoCertificado: row.CodigoCertificado || codigoCertificadoEstable(row),
+    CertificateVersion: Number(row.CertificateVersion) || 1,
+    TemplateVersion: row.TemplateVersion || 'legacy-v1',
+    PdfHash: row.PdfHash || '',
+    PdfStorageReference: row.PdfStorageReference || '',
+    OriginalCertificateId: row.OriginalCertificateId || '',
+    ReissuedCertificateId: row.ReissuedCertificateId || '',
+    CertificateStatus: estadoNormalizadoCertificado(row),
+    IssuedAt: row.IssuedAt || row.FechaEmisionCertificado || row.FechaCreacion || row.FechaInicio || '',
+    IssuedBy: row.IssuedBy || row.EmitidoPor || '',
+    VoidedAt: row.VoidedAt || '',
+    VoidedBy: row.VoidedBy || '',
+    VoidReason: row.VoidReason || '',
+    ReissueReason: row.ReissueReason || '',
+  };
+}
+
+function appendCertificado(registro) {
+  var sheet = getSheet('Certificados');
+  sheet.appendRow(SHEET_HEADERS.Certificados.map(function(header) {
+    return registro[header] === undefined || registro[header] === null ? '' : registro[header];
+  }));
+  return sheetToObjects(sheet).find(function(item) { return item.ID === registro.ID; });
+}
+
+function asegurarRegistroCertificado(row, user) {
+  var sheet = getSheet('Certificados');
+  var existentes = sheetToObjects(sheet);
+  var encontrado = existentes.find(function(item) {
+    return item.ID === row.ID || (row.CodigoCertificado && item.CodigoCertificado === row.CodigoCertificado);
+  });
+  if (encontrado) return encontrado;
+  var historico = certificadoHistoricoDesdeInscripcion(row);
+  historico.CreatedAt = new Date().toISOString();
+  historico.IssuedBy = historico.IssuedBy || (user && user.Username) || '';
+  return appendCertificado(historico);
+}
+
+function buscarCertificadoPublico(identifier) {
+  var certificados = sheetToObjects(getSheet('Certificados'));
+  var certificado = certificados.find(function(item) {
+    return item.ID === identifier || item.CodigoCertificado === identifier;
+  });
+  var inscripciones = sheetToObjects(getSheet('Inscripciones'));
+  if (certificado) {
+    var vinculada = inscripciones.find(function(item) { return item.ID === certificado.InscripcionID; });
+    return vinculada ? { certificado: certificado, inscripcion: vinculada } : null;
+  }
+  var historica = inscripciones.find(function(item) {
+    return item.ID === identifier || item.CodigoCertificado === identifier;
+  });
+  if (!historica || ['emitido', 'enviado', 'anulado', 'reemitido'].indexOf(estadoNormalizadoCertificado(historica)) === -1) return null;
+  return { certificado: certificadoHistoricoDesdeInscripcion(historica), inscripcion: historica };
+}
+
+function resolverCertificadoAdministrativo(identifier, user) {
+  var inscripciones = sheetToObjects(getSheet('Inscripciones'));
+  var certificados = sheetToObjects(getSheet('Certificados'));
+  var inscripcion = inscripciones.find(function(item) {
+    return item.ID === identifier || item.CodigoCertificado === identifier;
+  });
+  var certificado;
+  if (inscripcion) {
+    certificado = certificados.find(function(item) { return item.CodigoCertificado === inscripcion.CodigoCertificado; })
+      || certificados.find(function(item) { return item.ID === (inscripcion.ReissuedCertificateId || inscripcion.ID); });
+    if (!certificado && certificadoProtegidoContraEliminacion(inscripcion)) certificado = asegurarRegistroCertificado(inscripcion, user);
+  } else {
+    certificado = certificados.find(function(item) { return item.ID === identifier || item.CodigoCertificado === identifier; });
+    if (certificado) inscripcion = inscripciones.find(function(item) { return item.ID === certificado.InscripcionID; });
+  }
+  return certificado && inscripcion ? { certificado: certificado, inscripcion: inscripcion } : null;
+}
+
+function certificadoParaCliente(certificado, inscripcion) {
+  return Object.assign({}, inscripcionEnriquecida(inscripcion, mapaDuracionServicios(), mapaUsuariosPorUsername()), {
+    ID: certificado.ID,
+    InscripcionID: inscripcion.ID,
+    CertificatePublicId: certificado.ID,
+    CodigoCertificado: certificado.CodigoCertificado,
+    CertificateVersion: Number(certificado.CertificateVersion) || 1,
+    TemplateVersion: certificado.TemplateVersion || 'legacy-v1',
+    PdfHash: certificado.PdfHash || '',
+    PdfStorageReference: certificado.PdfStorageReference || '',
+    OriginalCertificateId: certificado.OriginalCertificateId || '',
+    ReissuedCertificateId: certificado.ReissuedCertificateId || '',
+    CertificateStatus: estadoNormalizadoCertificado(certificado),
+    EstadoCertificado: estadoNormalizadoCertificado(certificado),
+    FechaEmisionCertificado: certificado.IssuedAt || inscripcion.FechaEmisionCertificado,
+    IssuedAt: certificado.IssuedAt || inscripcion.FechaEmisionCertificado,
+    IssuedBy: certificado.IssuedBy || inscripcion.EmitidoPor,
+  });
+}
+
 function datosFaltantesCertificado(row) {
   const duracion = mapaDuracionServicios()(row);
   const campos = [
@@ -1381,7 +1504,11 @@ function emitirCertificado(user, { id } = {}) {
   const sheet = getSheet('Inscripciones');
   const row = sheetToObjects(sheet).find(function(r) { return r.ID === id; });
   if (!row) return { success: false, error: 'Inscripción no encontrada.' };
-  if (row.EstadoCertificado === 'emitido') {
+  const estadoActual = estadoNormalizadoCertificado(row);
+  if (estadoActual === 'anulado') {
+    return { success: false, error: 'El certificado está anulado. Utilice la reemisión controlada para crear una nueva versión.' };
+  }
+  if (['emitido', 'enviado', 'reemitido'].indexOf(estadoActual) !== -1) {
     const codigoFaltante = !String(row.CodigoCertificado || '').trim();
     const fechaFaltante = !String(row.FechaEmisionCertificado || '').trim();
     if (codigoFaltante || fechaFaltante) {
@@ -1405,9 +1532,11 @@ function emitirCertificado(user, { id } = {}) {
         canal: 'panel',
         resultado: 'ok',
       });
-      return { success: true, alreadyIssued: true, metadataBackfilled: true, data: inscripcionEnriquecida(updatedLegacy, mapaDuracionServicios(), mapaUsuariosPorUsername()) };
+      const certificadoLegacy = asegurarRegistroCertificado(updatedLegacy, user);
+      return { success: true, alreadyIssued: true, metadataBackfilled: true, data: certificadoParaCliente(certificadoLegacy, updatedLegacy) };
     }
-    return { success: true, alreadyIssued: true, data: inscripcionEnriquecida(row, mapaDuracionServicios(), mapaUsuariosPorUsername()) };
+    const certificadoExistente = asegurarRegistroCertificado(row, user);
+    return { success: true, alreadyIssued: true, data: certificadoParaCliente(certificadoExistente, row) };
   }
   if (row.EstadoPago !== 'verificado') return { success: false, error: 'El pago debe estar verificado antes de emitir el certificado.' };
   if (esVerdadero(row.RequiereAvalExterno) && row.EstadoAval !== 'avalado') {
@@ -1436,7 +1565,126 @@ function emitirCertificado(user, { id } = {}) {
     canal: 'panel',
     resultado: 'ok',
   });
-  return { success: true, data: inscripcionEnriquecida(updated, mapaDuracionServicios(), mapaUsuariosPorUsername()) };
+  const certificado = asegurarRegistroCertificado(updated, user);
+  return { success: true, data: certificadoParaCliente(certificado, updated) };
+}
+
+function anularCertificado(user, { id, motivo, confirmacion } = {}) {
+  requireCertificateAdmin(user, 'CERTIFICATE_VOID', { inscripcionId: id, canal: 'api' });
+  const motivoSeguro = String(motivo || '').trim();
+  if (confirmacion !== 'ANULAR') return { success: false, error: 'Confirme explícitamente la anulación del certificado.' };
+  if (motivoSeguro.length < 5) return { success: false, error: 'El motivo de anulación es obligatorio y debe ser suficientemente descriptivo.' };
+  const resolved = resolverCertificadoAdministrativo(id, user);
+  if (!resolved) return { success: false, error: 'Certificado no encontrado.' };
+  const certificado = resolved.certificado;
+  const inscripcion = resolved.inscripcion;
+  const estadoAnterior = estadoNormalizadoCertificado(certificado);
+  if (estadoAnterior === 'anulado') return { success: false, error: 'El certificado ya se encuentra anulado.' };
+  if (estadoAnterior === 'reemitido') return { success: false, error: 'El certificado original ya fue reemitido y conserva su estado histórico.' };
+  const ahora = new Date().toISOString();
+  const certSheet = getSheet('Certificados');
+  updateRow(certSheet, certificado, {
+    CertificateStatus: 'anulado',
+    VoidedAt: ahora,
+    VoidedBy: user.Username,
+    VoidReason: motivoSeguro,
+  });
+  const insSheet = getSheet('Inscripciones');
+  updateRow(insSheet, inscripcion, {
+    EstadoCertificado: 'anulado',
+    CertificateStatus: 'anulado',
+    VoidedAt: ahora,
+    VoidedBy: user.Username,
+    VoidReason: motivoSeguro,
+  });
+  registrarAuditoriaCertificado({
+    certificadoId: certificado.CodigoCertificado,
+    inscripcionId: inscripcion.ID,
+    usuario: user.Username,
+    rol: user.Rol,
+    accion: 'CERTIFICATE_VOIDED',
+    estadoAnterior: estadoAnterior,
+    estadoNuevo: 'anulado',
+    canal: 'panel',
+    resultado: 'ok',
+    motivo: motivoSeguro,
+    metadatos: { certificateId: certificado.ID, version: Number(certificado.CertificateVersion) || 1 },
+  });
+  const updated = sheetToObjects(certSheet).find(function(item) { return item.ID === certificado.ID; });
+  const updatedIns = sheetToObjects(insSheet).find(function(item) { return item.ID === inscripcion.ID; });
+  return { success: true, data: certificadoParaCliente(updated, updatedIns) };
+}
+
+function reemitirCertificado(user, { id, motivo, confirmacion } = {}) {
+  requireCertificateAdmin(user, 'CERTIFICATE_REISSUE', { inscripcionId: id, canal: 'api' });
+  const motivoSeguro = String(motivo || '').trim();
+  if (confirmacion !== 'REEMITIR') return { success: false, error: 'Confirme explícitamente la reemisión del certificado.' };
+  if (motivoSeguro.length < 5) return { success: false, error: 'El motivo de reemisión es obligatorio y debe ser suficientemente descriptivo.' };
+  const resolved = resolverCertificadoAdministrativo(id, user);
+  if (!resolved) return { success: false, error: 'Certificado no encontrado.' };
+  const original = resolved.certificado;
+  const inscripcion = resolved.inscripcion;
+  const estadoAnterior = estadoNormalizadoCertificado(original);
+  if (estadoAnterior === 'reemitido') return { success: false, error: 'Este identificador corresponde a un certificado histórico ya reemitido.' };
+  const ahora = new Date().toISOString();
+  const nuevoId = generateId('CRT');
+  const nuevaVersion = (Number(original.CertificateVersion) || 1) + 1;
+  const nuevoCodigo = codigoCertificadoEstable({ ID: nuevoId, FechaEmisionCertificado: ahora });
+  const nuevo = appendCertificado({
+    ID: nuevoId,
+    InscripcionID: inscripcion.ID,
+    CodigoCertificado: nuevoCodigo,
+    CertificateVersion: nuevaVersion,
+    TemplateVersion: original.TemplateVersion || 'legacy-v1',
+    OriginalCertificateId: original.ID,
+    CertificateStatus: 'emitido',
+    IssuedAt: ahora,
+    IssuedBy: user.Username,
+    ReissueReason: motivoSeguro,
+    CreatedAt: ahora,
+  });
+  const certSheet = getSheet('Certificados');
+  updateRow(certSheet, original, {
+    CertificateStatus: 'reemitido',
+    ReissuedCertificateId: nuevo.ID,
+    ReissueReason: motivoSeguro,
+  });
+  const insSheet = getSheet('Inscripciones');
+  updateRow(insSheet, inscripcion, {
+    EstadoCertificado: 'reemitido',
+    CodigoCertificado: nuevo.CodigoCertificado,
+    FechaEmisionCertificado: nuevo.IssuedAt,
+    EmitidoPor: user.Username,
+    CertificateStatus: 'emitido',
+    CertificateVersion: nuevaVersion,
+    TemplateVersion: nuevo.TemplateVersion,
+    OriginalCertificateId: original.ID,
+    ReissuedCertificateId: nuevo.ID,
+    ReissueReason: motivoSeguro,
+    EstadoEntrega: 'pendiente',
+    FechaEntregaCertificado: '',
+    EntregadoPor: '',
+  });
+  registrarAuditoriaCertificado({
+    certificadoId: nuevo.CodigoCertificado,
+    inscripcionId: inscripcion.ID,
+    usuario: user.Username,
+    rol: user.Rol,
+    accion: 'CERTIFICATE_REISSUED',
+    estadoAnterior: estadoAnterior,
+    estadoNuevo: 'reemitido',
+    canal: 'panel',
+    resultado: 'ok',
+    motivo: motivoSeguro,
+    metadatos: {
+      originalCertificateId: original.ID,
+      newCertificateId: nuevo.ID,
+      version: nuevaVersion,
+      templateVersion: nuevo.TemplateVersion,
+    },
+  });
+  const updatedIns = sheetToObjects(insSheet).find(function(item) { return item.ID === inscripcion.ID; });
+  return { success: true, data: certificadoParaCliente(nuevo, updatedIns) };
 }
 
 function actualizarEntregaCertificado(user, { id, estadoEntrega } = {}) {
@@ -1446,7 +1694,7 @@ function actualizarEntregaCertificado(user, { id, estadoEntrega } = {}) {
   const sheet = getSheet('Inscripciones');
   const row = sheetToObjects(sheet).find(function(r) { return r.ID === id; });
   if (!row) return { success: false, error: 'Inscripción no encontrada.' };
-  if (row.EstadoCertificado !== 'emitido') return { success: false, error: 'El certificado todavía no ha sido emitido.' };
+  if (['emitido', 'enviado', 'reemitido'].indexOf(estadoNormalizadoCertificado(row)) === -1) return { success: false, error: 'El certificado todavía no ha sido emitido o no está vigente.' };
   updateRow(sheet, row, {
     EstadoEntrega: estadoEntrega,
     FechaEntregaCertificado: new Date().toISOString(),
@@ -1470,7 +1718,7 @@ function registrarGeneracionCertificado(user, { id } = {}) {
   requireCertificateAdmin(user, 'CERTIFICATE_GENERATE', { inscripcionId: id, canal: 'api' });
   const row = sheetToObjects(getSheet('Inscripciones')).find(function(r) { return r.ID === id; });
   if (!row) return { success: false, error: 'Inscripción no encontrada.' };
-  if (row.EstadoCertificado !== 'emitido') return { success: false, error: 'El certificado todavía no ha sido emitido.' };
+  if (['emitido', 'enviado', 'reemitido'].indexOf(estadoNormalizadoCertificado(row)) === -1) return { success: false, error: 'El certificado todavía no ha sido emitido o no está vigente.' };
   registrarAuditoriaCertificado({
     certificadoId: row.CodigoCertificado,
     inscripcionId: id,
@@ -1496,7 +1744,7 @@ function enviarCertificadoEmail(user, { id, pdfBase64, mimeType, filename, email
   const sheet = getSheet('Inscripciones');
   const row = sheetToObjects(sheet).find(function(r) { return r.ID === id; });
   if (!row) return { success: false, error: 'Inscripción no encontrada.' };
-  if (row.EstadoCertificado !== 'emitido') return { success: false, error: 'El certificado todavía no ha sido emitido.' };
+  if (['emitido', 'enviado', 'reemitido'].indexOf(estadoNormalizadoCertificado(row)) === -1) return { success: false, error: 'El certificado todavía no ha sido emitido o no está vigente.' };
   const destinatario = String(email || row.ClienteEmail || '').trim();
   if (!emailValido(destinatario)) return { success: false, error: 'La inscripción no tiene un correo electrónico válido.' };
   if (mimeType !== 'application/pdf') return { success: false, error: 'Solo se aceptan certificados en formato PDF.' };

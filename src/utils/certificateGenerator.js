@@ -45,7 +45,8 @@ export function certificateCodeFor(inscripcion) {
 // backend; solo reconstruimos metadatos deterministas para mantener compatible
 // la descarga histórica mientras el backend completa esos campos.
 export function normalizeIssuedCertificate(inscripcion) {
-  if (inscripcion?.EstadoCertificado !== 'emitido') return { ...inscripcion }
+  const status = String(inscripcion?.CertificateStatus || inscripcion?.EstadoCertificado || '').toLowerCase()
+  if (!['emitido', 'enviado', 'reemitido', 'issued', 'sent', 'reissued'].includes(status)) return { ...inscripcion }
 
   const fallbackDate = inscripcion.FechaEmisionCertificado
     || inscripcion.FechaCreacion
@@ -259,11 +260,12 @@ export async function buildCertificatePdf(inscripcion, options = {}) {
   if (missing.length) {
     throw new Error(`Faltan los siguientes datos para generar el certificado: ${missing.join(', ')}.`)
   }
-  if (certificate.EstadoCertificado !== 'emitido' || !String(certificate.CodigoCertificado || '').trim() || !certificate.FechaEmisionCertificado) {
+  const status = String(certificate.CertificateStatus || certificate.EstadoCertificado || '').toLowerCase()
+  if (!['emitido', 'enviado', 'reemitido', 'issued', 'sent', 'reissued'].includes(status) || !String(certificate.CodigoCertificado || '').trim() || !certificate.FechaEmisionCertificado) {
     throw new Error('El certificado oficial debe ser emitido por un administrador antes de generar el PDF.')
   }
 
-  const recordId = String(certificate.ID).trim()
+  const recordId = String(certificate.CertificatePublicId || certificate.ReissuedCertificateId || certificate.ID).trim()
   const certificateCode = certificateCodeFor(certificate)
   const verificationUrl = buildVerificationUrl(recordId)
   const [qrDataUrl, assets] = await Promise.all([
