@@ -8,7 +8,7 @@ Alcance: interfaz de Finance, sin cambios en el sitio institucional ni en datos 
 1. `logo.png` entregado por gerencia: imagen PNG de 272 × 293 px, con transparencia, blanco y coral/naranja. Es la fuente principal para el símbolo usado en la aplicación.
 2. Sitio público `https://ra-training.com/`: usa de forma consistente la denominación visible **R.A Training**, presenta certificados verificables y publica una identidad azul/naranja.
 3. CSS calculado del sitio institucional: contiene variables explícitas como `--navy: #114899`, `--navy-dark: #0D3673`, `--amber: #F1871A`, `--primarybtnbg: #E46113`, `--ink: #114899` y `--nv-text-color: #111827`.
-4. `Mascota.png` entregada por gerencia: imagen de 268 × 378 px, sin canal transparente; conserva un fondo negro de origen.
+4. `Mascota.png` entregada por gerencia: imagen de 268 × 378 px, sin canal transparente y con un fondo negro de origen. El 27 de julio de 2026 se aprobó preparar un derivado recortado para el login.
 5. Repositorio de Finance: antes de esta fase utilizaba una escala índigo genérica (`#4338CA` y variantes) y el texto “Finanzas”.
 6. Certificado y enlace de Canva entregados: confirman el uso de azul marino, naranja y la firma visual “research assessor & training”.
 
@@ -26,7 +26,7 @@ Alcance: interfaz de Finance, sin cambios en el sitio institucional ni en datos 
 ## Limitaciones y pendientes
 
 - El logo adjunto es de resolución limitada y no es un archivo vectorial. Se mantiene el original y se generan derivados rasterizados prudentes; debe reemplazarse por un SVG oficial cuando la institución lo entregue.
-- La mascota tiene fondo negro incorporado. No se eliminó ni se reconstruyó para evitar modificar su identidad sin aprobación.
+- El original de la mascota conserva su fondo negro sin modificaciones. Para el login se utiliza un derivado PNG recortado, con transparencia, aprobado durante la revisión visual.
 - El sitio alterna `R.A Training`, `RA-Training` y `R.A. Training`; la aplicación adopta la puntuación ya utilizada históricamente en Finance.
 - No se modificaron razón social, RUC, nombres legales, datos del aval ni textos históricos.
 
