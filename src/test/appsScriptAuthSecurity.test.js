@@ -7,6 +7,11 @@ describe('secreto de autenticación de Apps Script', () => {
     expect(() => harness.context.hashPassword('fixture-password')).toThrow('no está configurada de forma segura')
   })
 
+  it('conserva compatibilidad con un AUTH_SECRET histórico no vacío aunque tenga menos de 32 caracteres', () => {
+    const harness = createAppsScriptHarness({ authSecret: 'legacy-short-secret' })
+    expect(harness.context.hashPassword('fixture-password')).toMatch(/^[a-f0-9]{64}$/)
+  })
+
   it('no conserva secretos literales ni fallback en el código versionado', () => {
     const harness = createAppsScriptHarness()
     expect(harness.code).not.toMatch(/CONFIG\s*=\s*\{[^}]*SECRET\s*:/s)

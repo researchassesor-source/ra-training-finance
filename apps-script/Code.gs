@@ -231,7 +231,7 @@ function bustSheet() {
 
 function getAuthSecret() {
   const secret = PropertiesService.getScriptProperties().getProperty('AUTH_SECRET');
-  if (!secret || String(secret).length < 32) {
+  if (secret === null || String(secret).length === 0) {
     throw new Error('La autenticaci\u00f3n no est\u00e1 configurada de forma segura. Contacte al administrador.');
   }
   return String(secret);
