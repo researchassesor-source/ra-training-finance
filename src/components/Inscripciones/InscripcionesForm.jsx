@@ -24,7 +24,7 @@ function mapInitial(initial) {
     modalidad:       initial.Modalidad       || initial.modalidad       || 'Virtual',
     fechaInicio:     toDateInput(initial.FechaInicio || initial.fechaInicio),
     fechaFin:        toDateInput(initial.FechaFin || initial.fechaFin),
-    monto:           initial.Monto           || initial.monto           || '',
+    monto:           initial.Monto           ?? initial.monto           ?? '',
     metodoPago:      initial.MetodoPago      || initial.metodoPago      || '',
     razonSocial:     initial.RazonSocial     || initial.razonSocial     || '',
     ruc:             initial.RUC             || initial.ruc             || '',
@@ -63,7 +63,7 @@ export default function InscripcionesForm({ initial, onSave, onCancel }) {
     const s = servicios.find(s => s.ID === id)
     set('servicioId', id)
     set('servicioNombre', s?.Nombre || '')
-    if (s?.Precio) set('monto', s.Precio)
+    if (!initial && s?.Precio) set('monto', s.Precio)
     if (s?.Modalidad) set('modalidad', s.Modalidad)
   }
 
@@ -101,18 +101,19 @@ export default function InscripcionesForm({ initial, onSave, onCancel }) {
     }
     setSaving(true)
     try {
-      if (initial?.ID) {
-        const result = await api.updateInscripcion(initial.ID, form)
-        if (result.warning) {
-          setError(`La inscripción se actualizó, pero no se pudo sincronizar el ingreso: ${result.warning}`)
-          return
+      if (initial && (initial.ID || initial.HistoricalKey)) {
+        const result = await api.updateInscripcion(initial.ID || '', form, initial.HistoricalKey || '')
+        if (result.persistenceVerified !== true) {
+          throw new Error('El servidor no confirmó que la inscripción quedara guardada.')
         }
-        if (isAdmin && form.estadoPago === 'verificado' && initial.EstadoPago !== 'verificado') {
+        if (isAdmin && initial.ID && form.estadoPago === 'verificado' && initial.EstadoPago !== 'verificado') {
           await api.verificarPagoInscripcion(initial.ID, {
             numeroComprobante: form.numeroComprobante,
             fechaPago: form.fechaPago,
           })
         }
+        onSave(result.data, result.warning || '')
+        return
       } else await api.addInscripcion(form)
       onSave()
     } catch (err) { setError(err.message) }
@@ -294,7 +295,7 @@ export default function InscripcionesForm({ initial, onSave, onCancel }) {
       <div className="flex gap-3 pt-2">
         <button type="button" onClick={onCancel} className="btn-secondary flex-1">Cancelar</button>
         <button type="submit" className="btn-primary flex-1" disabled={saving}>
-          {saving ? 'Guardando...' : initial?.ID ? 'Actualizar' : 'Registrar Inscripción'}
+          {saving ? (initial ? 'Actualizando...' : 'Guardando...') : initial ? 'Actualizar' : 'Registrar Inscripción'}
         </button>
       </div>
     </form>

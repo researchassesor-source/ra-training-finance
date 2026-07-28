@@ -108,8 +108,16 @@ export function artifactReferenceFor(certificate) {
 export function isHistoricalCertificateArtifact(certificate = {}) {
   const templateVersion = String(certificate.TemplateVersion || '').trim()
   const reference = String(certificate.PdfStorageReference || '').trim()
-  return /^legacy(?:-|$)/i.test(templateVersion)
+  const status = String(certificate.CertificateStatus || certificate.EstadoCertificado || '').trim().toLowerCase()
+  const issued = ['emitido', 'enviado', 'anulado', 'reemitido', 'issued', 'sent', 'voided', 'reissued'].includes(status)
+  const explicitCriteria = Array.isArray(certificate.HistoricalCriteria) && certificate.HistoricalCriteria.length > 0
+  return certificate.IsHistoricalRecord === true
+    || explicitCriteria
+    || /^legacy(?:-|$)/i.test(templateVersion)
     || reference.endsWith(HISTORICAL_RECOVERY_REFERENCE_SUFFIX)
+    || /^(private-drive|external|drive):/i.test(reference)
+    || Boolean(String(certificate.PdfHash || '').trim() && !reference)
+    || Boolean(issued && (!String(certificate.CertificateVersion || '').trim() || !templateVersion))
 }
 
 export function historicalArtifactReferenceFor(certificate) {

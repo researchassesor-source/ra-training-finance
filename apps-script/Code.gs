@@ -339,9 +339,345 @@ function fechaLimite(value, finDelDia) {
   return isNaN(d.getTime()) ? null : d;
 }
 
+function fechaCalendarioPartes(year, month, day) {
+  const y = Number(year), m = Number(month), d = Number(day);
+  if (!Number.isInteger(y) || !Number.isInteger(m) || !Number.isInteger(d) || y < 1900 || y > 2200) return '';
+  const probe = new Date(Date.UTC(y, m - 1, d));
+  if (probe.getUTCFullYear() !== y || probe.getUTCMonth() !== m - 1 || probe.getUTCDate() !== d) return '';
+  return String(y).padStart(4, '0') + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+}
+
+function esObjetoFecha(value) {
+  return Object.prototype.toString.call(value) === '[object Date]'
+    || Boolean(value && typeof value.getTime === 'function' && typeof value.getFullYear === 'function');
+}
+
 function fechaSolo(value) {
-  if (!value) return '';
-  return String(value).slice(0, 10);
+  if (value === '' || value === null || value === undefined) return '';
+  if (esObjetoFecha(value)) {
+    if (isNaN(value.getTime())) return '';
+    return fechaCalendarioPartes(value.getFullYear(), value.getMonth() + 1, value.getDate());
+  }
+  if (typeof value === 'number' && isFinite(value)) {
+    const milliseconds = Math.round((value - 25569) * 86400000);
+    const serialDate = new Date(milliseconds);
+    return fechaCalendarioPartes(serialDate.getUTCFullYear(), serialDate.getUTCMonth() + 1, serialDate.getUTCDate());
+  }
+  const source = String(value).trim();
+  let match = source.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s].*)?$/);
+  if (match) return fechaCalendarioPartes(match[1], match[2], match[3]);
+  match = source.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (match) return fechaCalendarioPartes(match[3], match[2], match[1]);
+  if (/^\d+(?:\.\d+)?$/.test(source)) return fechaSolo(Number(source));
+  return '';
+}
+
+function nombreEncabezadoNormalizado(value) {
+  return String(value || '').trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+const INSCRIPTION_HEADER_ALIASES = {
+  ID: ['idinscripcion', 'inscripcionid'],
+  ClienteNombre: ['participante', 'nombreparticipante', 'cliente'],
+  ClienteID: ['identificacion', 'cedula', 'ceduladeidentidad', 'documento'],
+  ServicioID: ['cursoid', 'idservicio'],
+  ServicioNombre: ['servicio', 'curso', 'nombrecurso'],
+  FechaInicio: ['iniciocurso', 'fechainiciocurso'],
+  FechaFin: ['fincurso', 'fechafincurso'],
+  FechaCreacion: ['fechaventa', 'fechadeventa'],
+  CodigoCertificado: ['codigocertificado', 'codigodecertificado'],
+};
+
+function resolverEncabezadosInscripciones(headers) {
+  const indices = {};
+  const alternativas = {};
+  const faltantes = [];
+  const ambiguos = [];
+  const duplicados = [];
+  SHEET_HEADERS.Inscripciones.forEach(function(expected) {
+    const exactos = [];
+    headers.forEach(function(header, index) {
+      if (String(header || '') === expected) exactos.push(index);
+    });
+    const aliases = [nombreEncabezadoNormalizado(expected)].concat(INSCRIPTION_HEADER_ALIASES[expected] || []);
+    const equivalentes = [];
+    headers.forEach(function(header, index) {
+      if (aliases.indexOf(nombreEncabezadoNormalizado(header)) !== -1) equivalentes.push(index);
+    });
+    const candidatos = exactos.length === 1 ? exactos : equivalentes;
+    alternativas[expected] = equivalentes.slice();
+    if (candidatos.length === 1) indices[expected] = candidatos[0];
+    else if (candidatos.length === 0) faltantes.push(expected);
+    else ambiguos.push({ campo: expected, columnas: candidatos.map(function(index) { return index + 1; }) });
+    if (equivalentes.length > 1) {
+      duplicados.push({ campo: expected, columnas: equivalentes.map(function(index) { return index + 1; }) });
+    }
+  });
+  return { indices: indices, alternativas: alternativas, faltantes: faltantes, ambiguos: ambiguos, duplicados: duplicados };
+}
+
+function valorInscripcionParaCliente(field, value) {
+  if (['FechaInicio','FechaFin','FechaPago'].indexOf(field) !== -1) {
+    const normalized = fechaSolo(value);
+    return normalized || value;
+  }
+  if (esObjetoFecha(value)) {
+    return value.toISOString();
+  }
+  return value;
+}
+
+function leerFilasInscripcionesFisicas(sheet) {
+  if (!sheet || !sheet.getLastRow() || !sheet.getLastColumn()) {
+    return { headers: [], schema: resolverEncabezadosInscripciones([]), rows: [] };
+  }
+  const dataRange = sheet.getDataRange();
+  const values = dataRange.getValues();
+  const formulas = dataRange.getFormulas();
+  const headers = values[0].map(function(header) { return String(header || ''); });
+  const schema = resolverEncabezadosInscripciones(headers);
+  const recognizedColumns = {};
+  Object.keys(schema.alternativas).forEach(function(field) {
+    schema.alternativas[field].forEach(function(column) { recognizedColumns[column] = true; });
+  });
+  const rows = values.slice(1).map(function(valuesRow, index) {
+    const formulaRow = formulas[index + 1] || [];
+    const item = {
+      _row: index + 2,
+      _raw: {},
+      _formulas: {},
+      _schema: schema,
+      _rowAmbiguousFields: [],
+      _unmappedColumns: [],
+    };
+    Object.keys(schema.indices).forEach(function(field) {
+      const candidates = (schema.alternativas[field] || [schema.indices[field]]).map(function(column) {
+        return { column: column, value: valuesRow[column] };
+      });
+      const nonEmpty = candidates.filter(function(candidate) {
+        return candidate.value !== '' && candidate.value !== null && candidate.value !== undefined;
+      });
+      let raw = valuesRow[schema.indices[field]];
+      if ((raw === '' || raw === null || raw === undefined) && nonEmpty.length === 1) raw = nonEmpty[0].value;
+      const distinct = [];
+      nonEmpty.forEach(function(candidate) {
+        const comparable = valorComparableInscripcion(field, candidate.value);
+        if (distinct.indexOf(comparable) === -1) distinct.push(comparable);
+      });
+      if (distinct.length > 1) item._rowAmbiguousFields.push(field);
+      item._raw[field] = raw;
+      item._formulas[field] = (schema.alternativas[field] || [schema.indices[field]])
+        .map(function(column) { return formulaRow[column] || ''; })
+        .filter(Boolean)[0] || '';
+      item[field] = valorInscripcionParaCliente(field, raw);
+    });
+    valuesRow.forEach(function(value, column) {
+      if (recognizedColumns[column] || value === '' || value === null || value === undefined) return;
+      item._unmappedColumns.push({ columna: column + 1, encabezado: headers[column] || '(sin encabezado)' });
+    });
+    item._physicalHasData = valuesRow.some(function(value) {
+      return value !== '' && value !== null && value !== undefined;
+    });
+    return item;
+  }).filter(function(item) {
+    return item._physicalHasData;
+  });
+  return { headers: headers, schema: schema, rows: rows };
+}
+
+function hashHexSeguro(value) {
+  return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(value || ''))
+    .map(function(byte) { return ('0' + (byte & 0xFF).toString(16)).slice(-2); }).join('');
+}
+
+function claveHistoricaInscripcion(row) {
+  const code = String(row.CodigoCertificado || '').trim().toUpperCase();
+  const identification = String(row.ClienteID || '').trim().toUpperCase();
+  const service = String(row.ServicioNombre || '').trim().toUpperCase().replace(/\s+/g, ' ');
+  const created = String(row.FechaCreacion || '').trim();
+  if (code && identification) return 'HIST-' + hashHexSeguro(['codigo', code, identification].join('|')).slice(0, 32);
+  if (!identification || !service || !created) return '';
+  const stable = ['datos', identification, service, created, String(row.Monto || ''), String(row.CreadoPor || '')].join('|');
+  return 'HIST-' + hashHexSeguro(stable).slice(0, 32);
+}
+
+function criteriosInscripcionHistorica(row, schema) {
+  const criterios = [];
+  const estado = String(row.CertificateStatus || row.EstadoCertificado || '').trim().toLowerCase();
+  const emitido = ['emitido','enviado','anulado','reemitido','issued','sent','voided','reissued'].indexOf(estado) !== -1;
+  const template = String(row.TemplateVersion || '').trim();
+  const reference = String(row.PdfStorageReference || '').trim();
+  if (!String(row.ID || '').trim()) criterios.push('id_ausente');
+  const missingModernColumns = schema ? schema.faltantes.filter(function(field) {
+    return ['CertificateVersion','TemplateVersion','PdfHash','PdfStorageReference'].indexOf(field) !== -1;
+  }) : [];
+  if (missingModernColumns.length && (!String(row.ID || '').trim()
+      || (emitido && (!String(row.CertificateVersion || '').trim() || !template)))) {
+    criterios.push('columnas_esquema_ausentes');
+  }
+  if (/^legacy(?:-|$)/i.test(template)) criterios.push('plantilla_legacy');
+  if (/:historical-recovery$/.test(reference) || (/^(private-drive|external|drive):/i.test(reference) && !template)) {
+    criterios.push('almacenamiento_historico');
+  }
+  if (emitido && !String(row.CertificateVersion || '').trim()) criterios.push('version_ausente');
+  if (emitido && !template) criterios.push('plantilla_ausente');
+  if (String(row.PdfHash || '').trim() && !reference) criterios.push('hash_sin_referencia');
+  if (String(row.CodigoCertificado || '').trim() && emitido
+      && (!String(row.CertificateVersion || '').trim() || !template)) {
+    criterios.push('certificado_emitido_con_esquema_incompleto');
+  }
+  return criterios.filter(function(value, index, all) { return all.indexOf(value) === index; });
+}
+
+function decorarInscripcionHistorica(row, schema, keyCounts) {
+  const key = claveHistoricaInscripcion(row);
+  const criterios = criteriosInscripcionHistorica(row, schema);
+  const fechaInicioRaw = row._raw ? row._raw.FechaInicio : row.FechaInicio;
+  const fechaFinRaw = row._raw ? row._raw.FechaFin : row.FechaFin;
+  const fechaInicioValida = !String(fechaInicioRaw || '').trim() || !!fechaSolo(fechaInicioRaw);
+  const fechaFinValida = !String(fechaFinRaw || '').trim() || !!fechaSolo(fechaFinRaw);
+  const ambiguous = Boolean(key && keyCounts && keyCounts[key] > 1);
+  return Object.assign({}, row, {
+    HistoricalKey: key,
+    HistoricalRowNumber: row._row,
+    IsHistoricalRecord: criterios.length > 0,
+    HistoricalCriteria: criterios,
+    HistoricalAmbiguous: ambiguous,
+    HistoricalRowAmbiguousFields: (row._rowAmbiguousFields || []).slice(),
+    HistoricalFormulaFields: Object.keys(row._formulas || {}).filter(function(field) { return !!row._formulas[field]; }),
+    HistoricalUnmappedColumns: (row._unmappedColumns || []).slice(),
+    HistoricalNormalizationRequired: criterios.length > 0 && (
+      !String(row.ID || '').trim() || !String(row.FechaInicio || '').trim() || !String(row.FechaFin || '').trim()
+      || !fechaInicioValida || !fechaFinValida || Boolean(schema && schema.ambiguos.length)
+      || Boolean(row._rowAmbiguousFields && row._rowAmbiguousFields.length)
+    ),
+  });
+}
+
+function asegurarColumnasInscripcion(sheet, fields) {
+  let headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(function(value) { return String(value || ''); });
+  let schema = resolverEncabezadosInscripciones(headers);
+  const ambiguosSolicitados = schema.ambiguos.filter(function(item) { return fields.indexOf(item.campo) !== -1; });
+  if (ambiguosSolicitados.length) {
+    throw new Error('La hoja contiene encabezados ambiguos para: ' + ambiguosSolicitados.map(function(item) { return item.campo; }).join(', ') + '.');
+  }
+  fields.forEach(function(field) {
+    if (schema.indices[field] !== undefined) return;
+    const column = sheet.getLastColumn() + 1;
+    sheet.getRange(1, column).setValue(field);
+    headers.push(field);
+  });
+  return resolverEncabezadosInscripciones(headers);
+}
+
+function actualizarFilaInscripcionFisica(sheet, rowNumber, fieldMap) {
+  const fields = Object.keys(fieldMap).filter(function(field) { return fieldMap[field] !== undefined; });
+  const schema = asegurarColumnasInscripcion(sheet, fields);
+  fields.forEach(function(field) {
+    const columnIndex = schema.indices[field];
+    if (columnIndex === undefined) throw new Error('No se pudo resolver la columna ' + field + '.');
+    const value = fieldMap[field] === null ? '' : fieldMap[field];
+    const equivalentColumns = (schema.alternativas[field] || [columnIndex]).filter(function(column, index, all) {
+      return all.indexOf(column) === index;
+    });
+    equivalentColumns.forEach(function(column) {
+      sheet.getRange(rowNumber, column + 1).setValue(value);
+    });
+  });
+}
+
+function filaInscripcionPorNumero(sheet, rowNumber) {
+  return filasInscripcionesDecoradas(sheet).rows.find(function(row) { return row._row === rowNumber; }) || null;
+}
+
+function appendInscripcionPorEncabezados(sheet, valuesByField) {
+  const fields = Object.keys(valuesByField);
+  const schema = asegurarColumnasInscripcion(sheet, fields);
+  const width = sheet.getLastColumn();
+  const values = Array(width).fill('');
+  fields.forEach(function(field) {
+    values[schema.indices[field]] = valuesByField[field] === undefined || valuesByField[field] === null
+      ? ''
+      : valuesByField[field];
+  });
+  sheet.appendRow(values);
+}
+
+function registrarRechazoActualizacionHistorica(user, id, historicalKey, motivo) {
+  registrarAuditoriaCertificado({
+    inscripcionId: id || '',
+    usuario: user && user.Username,
+    rol: user && user.Rol,
+    accion: 'HISTORICAL_ENROLLMENT_UPDATE_REJECTED',
+    canal: 'api',
+    resultado: 'rechazado',
+    motivo: motivo,
+    metadatos: { historicalKey: historicalKey || '' },
+  });
+}
+
+function resolverFilaInscripcionParaActualizar(sheet, user, id, historicalKey) {
+  const snapshot = filasInscripcionesDecoradas(sheet);
+  const normalizedId = String(id || '').trim();
+  if (normalizedId) {
+    const matches = snapshot.rows.filter(function(row) { return String(row.ID || '').trim() === normalizedId; });
+    if (matches.length !== 1) {
+      const reason = matches.length ? 'El ID de inscripción está duplicado.' : 'Inscripción no encontrada por ID.';
+      registrarRechazoActualizacionHistorica(user, normalizedId, '', reason);
+      return { error: reason };
+    }
+    if (matches[0].HistoricalRowAmbiguousFields.length) {
+      const reason = 'La fila contiene valores contradictorios en columnas equivalentes: '
+        + matches[0].HistoricalRowAmbiguousFields.join(', ') + '.';
+      registrarRechazoActualizacionHistorica(user, normalizedId, '', reason);
+      return { error: reason };
+    }
+    return { row: matches[0], snapshot: snapshot, usedHistoricalKey: false };
+  }
+  const key = String(historicalKey || '').trim();
+  if (!key) return { error: 'La inscripción no tiene un identificador estable. Ejecute primero el diagnóstico histórico.' };
+  if (!isAdmin(user)) return { error: 'Solo un administrador puede corregir una inscripción histórica sin ID.' };
+  const matches = snapshot.rows.filter(function(row) { return row.HistoricalKey === key; });
+  if (matches.length !== 1) {
+    const reason = matches.length ? 'La clave histórica es ambigua; no se modificó ninguna fila.' : 'No existe una coincidencia para la clave histórica.';
+    registrarRechazoActualizacionHistorica(user, '', key, reason);
+    return { error: reason };
+  }
+  if (!matches[0].IsHistoricalRecord) return { error: 'La clave alternativa solo puede utilizarse con registros históricos confirmados.' };
+  if (matches[0].HistoricalRowAmbiguousFields.length) {
+    const reason = 'La fila histórica contiene valores contradictorios en columnas equivalentes.';
+    registrarRechazoActualizacionHistorica(user, '', key, reason);
+    return { error: reason };
+  }
+  return { row: matches[0], snapshot: snapshot, usedHistoricalKey: true };
+}
+
+function filasInscripcionesDecoradas(sheet) {
+  const snapshot = leerFilasInscripcionesFisicas(sheet);
+  const keyCounts = {};
+  snapshot.rows.forEach(function(row) {
+    const key = claveHistoricaInscripcion(row);
+    if (key) keyCounts[key] = (keyCounts[key] || 0) + 1;
+  });
+  return {
+    headers: snapshot.headers,
+    schema: snapshot.schema,
+    rows: snapshot.rows.map(function(row) { return decorarInscripcionHistorica(row, snapshot.schema, keyCounts); }),
+    keyCounts: keyCounts,
+  };
+}
+
+function inscripcionSinMetadatosInternos(row) {
+  const result = Object.assign({}, row);
+  delete result._raw;
+  delete result._formulas;
+  delete result._schema;
+  delete result._row;
+  delete result._rowAmbiguousFields;
+  delete result._unmappedColumns;
+  delete result._physicalHasData;
+  return result;
 }
 
 function tipoIngresoPorModalidad(modalidad) {
@@ -1126,6 +1462,8 @@ function validarDatosInscripcion(inscripcion) {
   if (String(inscripcion.monto === undefined ? '' : inscripcion.monto).trim() === '' || !isFinite(monto) || monto < 0) return 'Ingrese un monto válido.';
   if (!String(inscripcion.metodoPago || '').trim()) return 'Seleccione el método de pago.';
   if (inscripcion.clienteEmail && !emailValido(inscripcion.clienteEmail)) return 'Ingrese un correo electrónico válido.';
+  if (inscripcion.fechaInicio && !fechaSolo(inscripcion.fechaInicio)) return 'La fecha de inicio no tiene un formato válido.';
+  if (inscripcion.fechaFin && !fechaSolo(inscripcion.fechaFin)) return 'La fecha de fin no tiene un formato válido.';
   if (inscripcion.fechaInicio && inscripcion.fechaFin && fechaSolo(inscripcion.fechaFin) < fechaSolo(inscripcion.fechaInicio)) {
     return 'La fecha de finalización no puede ser anterior a la fecha de inicio.';
   }
@@ -1168,7 +1506,8 @@ function sincronizarIngresoInscripcion(inscripcion) {
 
 function getInscripciones(user, { filtros = {} } = {}) {
   if (!isVendedor(user)) throw new Error('Acceso denegado.');
-  let data = sheetToObjects(getSheet('Inscripciones'));
+  const existingSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Inscripciones');
+  let data = existingSheet ? filasInscripcionesDecoradas(existingSheet).rows : [];
   if (!isAdmin(user)) data = data.filter(i => i.CreadoPor === user.Username);
   if (filtros.vendedor && isAdmin(user)) data = data.filter(i => i.CreadoPor === filtros.vendedor);
   if (filtros.estadoPago)        data = data.filter(i => i.EstadoPago === filtros.estadoPago);
@@ -1186,7 +1525,7 @@ function getInscripciones(user, { filtros = {} } = {}) {
   const duracionDe = mapaDuracionServicios();
   const usuarios = mapaUsuariosPorUsername();
   data = data.map(function(i) {
-    var enriched = inscripcionEnriquecida(i, duracionDe, usuarios);
+    var enriched = inscripcionEnriquecida(inscripcionSinMetadatosInternos(i), duracionDe, usuarios);
     return isAdmin(user) ? enriched : resumenCertificadoParaVendedor(enriched);
   });
   return { success: true, data };
@@ -1206,34 +1545,47 @@ function addInscripcion(user, { inscripcion }) {
   const numeroComprobante = String(inscripcion.numeroComprobante || '').trim();
   const fechaPago = fechaSolo(inscripcion.fechaPago);
 
-  sheet.appendRow([
-    id,
-    inscripcion.clienteNombre, inscripcion.clienteID || '', inscripcion.clienteEmail || '',
-    inscripcion.clienteTelefono || '', inscripcion.servicioId || '', inscripcion.servicioNombre,
-    inscripcion.modalidad || 'N/A', inscripcion.fechaInicio || '',
-    Number(inscripcion.monto) || 0, inscripcion.metodoPago || '',
-    inscripcion.razonSocial || '', inscripcion.ruc || '', inscripcion.direccionFactura || '',
-    estadoPago, 'pendiente', '', inscripcion.notas || '', user.Username, now,
-    '',                                    // FechaEmisionCertificado
-    requiereAval,                          // RequiereAvalExterno
-    requiereAval ? 'pendiente' : '',       // EstadoAval
-    '',                                    // AvalReferencia
-    '',                                    // FechaAval
-    0,                                     // ValorAval
-    inscripcion.fechaFin || '',            // FechaFin
-    numeroComprobante,                     // NumeroComprobante
-    fechaPago,                             // FechaPago
-    estadoPago === 'verificado' ? now : '',// FechaVerificacionPago
-    estadoPago === 'verificado' ? user.Username : '', // VerificadoPor
-    requiereAval ? String(inscripcion.institucionAval || '').trim() : '', // InstitucionAval
-    '',                                    // CodigoCertificado
-    '',                                    // EmitidoPor
-    'pendiente',                           // EstadoEntrega
-    '',                                    // FechaEntregaCertificado
-    '',                                    // EntregadoPor
-    '',                                    // AvalEnlaceExterno
-    '',                                    // AvalCodigoExterno
-  ]);
+  appendInscripcionPorEncabezados(sheet, {
+    ID: id,
+    ClienteNombre: inscripcion.clienteNombre,
+    ClienteID: inscripcion.clienteID || '',
+    ClienteEmail: inscripcion.clienteEmail || '',
+    ClienteTelefono: inscripcion.clienteTelefono || '',
+    ServicioID: inscripcion.servicioId || '',
+    ServicioNombre: inscripcion.servicioNombre,
+    Modalidad: inscripcion.modalidad || 'N/A',
+    FechaInicio: fechaSolo(inscripcion.fechaInicio),
+    FechaFin: fechaSolo(inscripcion.fechaFin),
+    Monto: Number(inscripcion.monto) || 0,
+    MetodoPago: inscripcion.metodoPago || '',
+    RazonSocial: inscripcion.razonSocial || '',
+    RUC: inscripcion.ruc || '',
+    DireccionFactura: inscripcion.direccionFactura || '',
+    EstadoPago: estadoPago,
+    EstadoCertificado: 'pendiente',
+    IngresoID: '',
+    Notas: inscripcion.notas || '',
+    CreadoPor: user.Username,
+    FechaCreacion: now,
+    FechaEmisionCertificado: '',
+    RequiereAvalExterno: requiereAval,
+    EstadoAval: requiereAval ? 'pendiente' : '',
+    AvalReferencia: '',
+    FechaAval: '',
+    ValorAval: 0,
+    NumeroComprobante: numeroComprobante,
+    FechaPago: fechaPago,
+    FechaVerificacionPago: estadoPago === 'verificado' ? now : '',
+    VerificadoPor: estadoPago === 'verificado' ? user.Username : '',
+    InstitucionAval: requiereAval ? String(inscripcion.institucionAval || '').trim() : '',
+    CodigoCertificado: '',
+    EmitidoPor: '',
+    EstadoEntrega: 'pendiente',
+    FechaEntregaCertificado: '',
+    EntregadoPor: '',
+    AvalEnlaceExterno: '',
+    AvalCodigoExterno: '',
+  });
 
   // Auto-crear ingreso vinculado — columnas deben coincidir exactamente con SHEET_HEADERS.Ingresos
   const ingresoId = generateId('ING');
@@ -1289,73 +1641,200 @@ function addInscripcion(user, { inscripcion }) {
   return { success: true, id, ingresoId };
 }
 
-function updateInscripcion(user, { id, inscripcion }) {
+function tienePropiedad(object, key) {
+  return Object.prototype.hasOwnProperty.call(object || {}, key);
+}
+
+function valorComparableInscripcion(field, value) {
+  if (['FechaInicio','FechaFin','FechaPago'].indexOf(field) !== -1) return fechaSolo(value);
+  if (field === 'Monto' || field === 'ValorAval') return Number(value) || 0;
+  if (field === 'RequiereAvalExterno') return esVerdadero(value);
+  return String(value === null || value === undefined ? '' : value);
+}
+
+function camposPersistidosCoinciden(row, expectedFields) {
+  return Object.keys(expectedFields).every(function(field) {
+    return valorComparableInscripcion(field, row[field]) === valorComparableInscripcion(field, expectedFields[field]);
+  });
+}
+
+function campoInscripcionCambioReal(row, field, expectedValue) {
+  if (['FechaInicio','FechaFin','FechaPago'].indexOf(field) !== -1) {
+    const raw = row._raw && tienePropiedad(row._raw, field) ? row._raw[field] : row[field];
+    const expected = fechaSolo(expectedValue);
+    return !(typeof raw === 'string' && raw === expected);
+  }
+  return valorComparableInscripcion(field, row[field]) !== valorComparableInscripcion(field, expectedValue);
+}
+
+function updateInscripcion(user, params) {
+  return conBloqueoCertificados(function() {
+    return updateInscripcionBajoBloqueo(user, params || {});
+  });
+}
+
+function updateInscripcionBajoBloqueo(user, { id, historicalKey, inscripcion } = {}) {
   if (!isVendedor(user)) throw new Error('Acceso denegado.');
-  const sheet = getSheet('Inscripciones');
-  const row   = sheetToObjects(sheet).find(r => r.ID === id);
-  if (!row) return { success: false, error: 'Inscripción no encontrada.' };
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Inscripciones');
+  if (!sheet) return { success: false, error: 'No existe la hoja Inscripciones.' };
+  const resolution = resolverFilaInscripcionParaActualizar(sheet, user, id, historicalKey);
+  if (resolution.error) return { success: false, error: resolution.error };
+  const row = resolution.row;
+  if (row.IsHistoricalRecord && !isAdmin(user)) {
+    return { success: false, error: 'Solo un administrador puede corregir inscripciones históricas.' };
+  }
   if (!isAdmin(user) && row.CreadoPor !== user.Username) return { success: false, error: 'No autorizado.' };
-  const validationError = validarDatosInscripcion(inscripcion);
+  inscripcion = inscripcion || {};
+
+  const fechaInicioNueva = tienePropiedad(inscripcion, 'fechaInicio')
+    ? (String(inscripcion.fechaInicio || '').trim() ? fechaSolo(inscripcion.fechaInicio) : '')
+    : fechaSolo(row.FechaInicio);
+  const fechaFinNueva = tienePropiedad(inscripcion, 'fechaFin')
+    ? (String(inscripcion.fechaFin || '').trim() ? fechaSolo(inscripcion.fechaFin) : '')
+    : fechaSolo(row.FechaFin);
+  if (tienePropiedad(inscripcion, 'fechaInicio') && String(inscripcion.fechaInicio || '').trim() && !fechaInicioNueva) {
+    return { success: false, error: 'La fecha de inicio no tiene un formato válido.' };
+  }
+  if (tienePropiedad(inscripcion, 'fechaFin') && String(inscripcion.fechaFin || '').trim() && !fechaFinNueva) {
+    return { success: false, error: 'La fecha de fin no tiene un formato válido.' };
+  }
+  const estadoCertificado = estadoNormalizadoCertificado(row);
+  if (['emitido','enviado'].indexOf(estadoCertificado) !== -1
+      && ((!fechaInicioNueva && tienePropiedad(inscripcion, 'fechaInicio'))
+        || (!fechaFinNueva && tienePropiedad(inscripcion, 'fechaFin')))) {
+    return { success: false, error: 'No se pueden limpiar las fechas obligatorias de un certificado emitido.' };
+  }
+
+  const merged = {
+    clienteNombre: tienePropiedad(inscripcion, 'clienteNombre') ? inscripcion.clienteNombre : row.ClienteNombre,
+    clienteID: tienePropiedad(inscripcion, 'clienteID') ? inscripcion.clienteID : row.ClienteID,
+    clienteEmail: tienePropiedad(inscripcion, 'clienteEmail') ? inscripcion.clienteEmail : row.ClienteEmail,
+    clienteTelefono: tienePropiedad(inscripcion, 'clienteTelefono') ? inscripcion.clienteTelefono : row.ClienteTelefono,
+    servicioId: tienePropiedad(inscripcion, 'servicioId') ? inscripcion.servicioId : row.ServicioID,
+    servicioNombre: tienePropiedad(inscripcion, 'servicioNombre') ? inscripcion.servicioNombre : row.ServicioNombre,
+    modalidad: tienePropiedad(inscripcion, 'modalidad') ? inscripcion.modalidad : row.Modalidad,
+    fechaInicio: fechaInicioNueva,
+    fechaFin: fechaFinNueva,
+    monto: tienePropiedad(inscripcion, 'monto') ? inscripcion.monto : row.Monto,
+    metodoPago: tienePropiedad(inscripcion, 'metodoPago') ? inscripcion.metodoPago : row.MetodoPago,
+    numeroComprobante: tienePropiedad(inscripcion, 'numeroComprobante') ? inscripcion.numeroComprobante : row.NumeroComprobante,
+    fechaPago: tienePropiedad(inscripcion, 'fechaPago') ? inscripcion.fechaPago : row.FechaPago,
+    requiereAvalExterno: tienePropiedad(inscripcion, 'requiereAvalExterno')
+      ? inscripcion.requiereAvalExterno : esVerdadero(row.RequiereAvalExterno),
+    institucionAval: tienePropiedad(inscripcion, 'institucionAval') ? inscripcion.institucionAval : row.InstitucionAval,
+  };
+  const validationError = validarDatosInscripcion(merged);
   if (validationError) return { success: false, error: validationError };
 
-  const requiereAval = inscripcion.requiereAvalExterno !== undefined
+  const requiereAval = tienePropiedad(inscripcion, 'requiereAvalExterno')
     ? !!inscripcion.requiereAvalExterno
     : esVerdadero(row.RequiereAvalExterno);
-  const institucionAval = requiereAval ? String(inscripcion.institucionAval || row.InstitucionAval || '').trim() : '';
+  const institucionAval = requiereAval
+    ? String(tienePropiedad(inscripcion, 'institucionAval') ? inscripcion.institucionAval : (row.InstitucionAval || '')).trim()
+    : '';
   const cambiaConfiguracionAval = requiereAval !== esVerdadero(row.RequiereAvalExterno)
     || (requiereAval && !mismaInstitucionAval(institucionAval, row.InstitucionAval));
-  if (row.EstadoCertificado === 'emitido' && cambiaConfiguracionAval) {
+  if (['emitido','enviado'].indexOf(estadoCertificado) !== -1 && cambiaConfiguracionAval) {
     return { success: false, error: 'No puede cambiar el tipo o la institución de aval de un certificado ya emitido.' };
   }
   let estadoPago = row.EstadoPago;
   if (isAdmin(user) && inscripcion.estadoPago && inscripcion.estadoPago !== 'verificado') estadoPago = inscripcion.estadoPago;
   if (row.EstadoPago === 'verificado') estadoPago = 'verificado';
-  const numeroComprobanteNuevo = inscripcion.numeroComprobante !== undefined
+  const numeroComprobanteNuevo = tienePropiedad(inscripcion, 'numeroComprobante')
     ? String(inscripcion.numeroComprobante).trim()
     : String(row.NumeroComprobante || '').trim();
-  const fechaPagoNueva = inscripcion.fechaPago !== undefined ? fechaSolo(inscripcion.fechaPago) : fechaSolo(row.FechaPago);
+  const fechaPagoNueva = tienePropiedad(inscripcion, 'fechaPago')
+    ? (String(inscripcion.fechaPago || '').trim() ? fechaSolo(inscripcion.fechaPago) : '')
+    : fechaSolo(row.FechaPago);
+  if (tienePropiedad(inscripcion, 'fechaPago') && String(inscripcion.fechaPago || '').trim() && !fechaPagoNueva) {
+    return { success: false, error: 'La fecha de pago no tiene un formato válido.' };
+  }
   const pagoReportado = (numeroComprobanteNuevo && numeroComprobanteNuevo !== String(row.NumeroComprobante || '').trim())
     || (fechaPagoNueva && fechaPagoNueva !== fechaSolo(row.FechaPago))
     || (estadoPago === 'pagado' && row.EstadoPago !== 'pagado');
 
-  updateRow(sheet, row, {
-    ClienteNombre: inscripcion.clienteNombre, ClienteID: inscripcion.clienteID,
-    ClienteEmail: inscripcion.clienteEmail, ClienteTelefono: inscripcion.clienteTelefono,
-    ServicioID: inscripcion.servicioId, ServicioNombre: inscripcion.servicioNombre, Modalidad: inscripcion.modalidad,
-    FechaInicio: inscripcion.fechaInicio, FechaFin: inscripcion.fechaFin,
-    Monto: Number(inscripcion.monto) || 0,
-    MetodoPago: inscripcion.metodoPago, RazonSocial: inscripcion.razonSocial,
-    RUC: inscripcion.ruc, DireccionFactura: inscripcion.direccionFactura,
-    EstadoPago: estadoPago,
-    Notas: inscripcion.notas !== undefined ? inscripcion.notas : row.Notas,
-    NumeroComprobante: numeroComprobanteNuevo,
-    FechaPago: fechaPagoNueva,
-    RequiereAvalExterno: requiereAval,
-    InstitucionAval: institucionAval,
-    EstadoAval: requiereAval ? (cambiaConfiguracionAval ? 'pendiente' : (row.EstadoAval || 'pendiente')) : '',
-    AvalReferencia: cambiaConfiguracionAval ? '' : row.AvalReferencia,
-    FechaAval: cambiaConfiguracionAval ? '' : row.FechaAval,
-    ValorAval: cambiaConfiguracionAval ? 0 : row.ValorAval,
-    AvalEnlaceExterno: cambiaConfiguracionAval ? '' : row.AvalEnlaceExterno,
-    AvalCodigoExterno: cambiaConfiguracionAval ? '' : row.AvalCodigoExterno,
+  const fieldMap = {};
+  const mappings = {
+    clienteNombre: 'ClienteNombre', clienteID: 'ClienteID', clienteEmail: 'ClienteEmail',
+    clienteTelefono: 'ClienteTelefono', servicioId: 'ServicioID', servicioNombre: 'ServicioNombre',
+    modalidad: 'Modalidad', metodoPago: 'MetodoPago', razonSocial: 'RazonSocial', ruc: 'RUC',
+    direccionFactura: 'DireccionFactura', notas: 'Notas',
+  };
+  Object.keys(mappings).forEach(function(inputField) {
+    if (tienePropiedad(inscripcion, inputField)) fieldMap[mappings[inputField]] = inscripcion[inputField];
   });
-  const updated = sheetToObjects(sheet).find(function(r) { return r.ID === id; });
-  const sync = sincronizarIngresoInscripcion(updated);
-  registrarAuditoriaCertificado({
-    certificadoId: updated.CodigoCertificado,
-    inscripcionId: id,
-    usuario: user.Username,
-    rol: user.Rol,
-    accion: 'ENROLLMENT_UPDATED',
-    estadoAnterior: row.EstadoCertificado || 'pendiente',
-    estadoNuevo: updated.EstadoCertificado || 'pendiente',
-    canal: 'panel',
-    resultado: 'ok',
+  if (tienePropiedad(inscripcion, 'fechaInicio')) fieldMap.FechaInicio = fechaInicioNueva;
+  if (tienePropiedad(inscripcion, 'fechaFin')) fieldMap.FechaFin = fechaFinNueva;
+  if (tienePropiedad(inscripcion, 'monto')) fieldMap.Monto = Number(inscripcion.monto);
+  if (tienePropiedad(inscripcion, 'estadoPago')) fieldMap.EstadoPago = estadoPago;
+  if (tienePropiedad(inscripcion, 'numeroComprobante')) fieldMap.NumeroComprobante = numeroComprobanteNuevo;
+  if (tienePropiedad(inscripcion, 'fechaPago')) fieldMap.FechaPago = fechaPagoNueva;
+  if (tienePropiedad(inscripcion, 'requiereAvalExterno') || tienePropiedad(inscripcion, 'institucionAval')) {
+    fieldMap.RequiereAvalExterno = requiereAval;
+    fieldMap.InstitucionAval = institucionAval;
+    fieldMap.EstadoAval = requiereAval ? (cambiaConfiguracionAval ? 'pendiente' : (row.EstadoAval || 'pendiente')) : '';
+    fieldMap.AvalReferencia = cambiaConfiguracionAval ? '' : row.AvalReferencia;
+    fieldMap.FechaAval = cambiaConfiguracionAval ? '' : row.FechaAval;
+    fieldMap.ValorAval = cambiaConfiguracionAval ? 0 : row.ValorAval;
+    fieldMap.AvalEnlaceExterno = cambiaConfiguracionAval ? '' : row.AvalEnlaceExterno;
+    fieldMap.AvalCodigoExterno = cambiaConfiguracionAval ? '' : row.AvalCodigoExterno;
+  }
+  const changedFields = Object.keys(fieldMap).filter(function(field) {
+    return campoInscripcionCambioReal(row, field, fieldMap[field]);
   });
+  const formulaFields = changedFields.filter(function(field) {
+    return Boolean(row._formulas && row._formulas[field]);
+  });
+  if (formulaFields.length) {
+    const reason = 'No se modificó la fila porque contiene fórmulas en: ' + formulaFields.join(', ') + '.';
+    registrarRechazoActualizacionHistorica(user, row.ID || '', historicalKey || '', reason);
+    return { success: false, error: reason };
+  }
+  const fieldsToWrite = {};
+  const previousFields = {};
+  changedFields.forEach(function(field) {
+    fieldsToWrite[field] = fieldMap[field];
+    previousFields[field] = row._raw && tienePropiedad(row._raw, field) ? row._raw[field] : row[field];
+  });
+
+  if (changedFields.length) actualizarFilaInscripcionFisica(sheet, row._row, fieldsToWrite);
+  let updated = filaInscripcionPorNumero(sheet, row._row);
+  if (!updated || !camposPersistidosCoinciden(updated, fieldsToWrite)) {
+    if (changedFields.length) actualizarFilaInscripcionFisica(sheet, row._row, previousFields);
+    return { success: false, error: 'La actualización no pudo verificarse en Google Sheets. No se confirmó ningún cambio.' };
+  }
+  try {
+    if (changedFields.length) {
+      registrarAuditoriaCertificado({
+        certificadoId: updated.CodigoCertificado,
+        inscripcionId: updated.ID || '',
+        usuario: user.Username,
+        rol: user.Rol,
+        accion: 'ENROLLMENT_UPDATED',
+        estadoAnterior: row.EstadoCertificado || 'pendiente',
+        estadoNuevo: updated.EstadoCertificado || 'pendiente',
+        canal: 'panel',
+        resultado: 'ok',
+        metadatos: {
+          fields: changedFields,
+          historicalKey: resolution.usedHistoricalKey ? historicalKey : '',
+          physicalRow: row._row,
+          persistenceVerified: true,
+        },
+      });
+    }
+  } catch (error) {
+    if (changedFields.length) actualizarFilaInscripcionFisica(sheet, row._row, previousFields);
+    throw error;
+  }
+
+  const incomeFields = ['ClienteNombre','ClienteTelefono','ServicioNombre','Modalidad','Monto','MetodoPago','NumeroComprobante','FechaPago','EstadoPago'];
+  const shouldSyncIncome = changedFields.some(function(field) { return incomeFields.indexOf(field) !== -1; });
+  const sync = shouldSyncIncome ? sincronizarIngresoInscripcion(updated) : { sincronizado: true, motivo: '' };
   if (pagoReportado) {
     registrarAuditoriaCertificado({
       certificadoId: updated.CodigoCertificado,
-      inscripcionId: id,
+      inscripcionId: updated.ID || '',
       usuario: user.Username,
       rol: user.Rol,
       accion: 'PAYMENT_REPORTED',
@@ -1373,7 +1852,9 @@ function updateInscripcion(user, { id, inscripcion }) {
   const usuarios = mapaUsuariosPorUsername();
   return {
     success: true,
-    data: inscripcionEnriquecida(updated, duracionDe, usuarios),
+    persistenceVerified: true,
+    changedFields: changedFields,
+    data: inscripcionEnriquecida(inscripcionSinMetadatosInternos(updated), duracionDe, usuarios),
     warning: sync.sincronizado ? '' : sync.motivo,
   };
 }
@@ -1550,41 +2031,93 @@ function asegurarRegistroCertificado(row, user) {
 
 function buscarCertificadoPublico(identifier) {
   var certificados = sheetToObjects(getSheet('Certificados'));
-  var certificado = certificados.find(function(item) {
+  var certificateMatches = certificados.filter(function(item) {
     return item.ID === identifier || item.CodigoCertificado === identifier;
   });
-  var inscripciones = sheetToObjects(getSheet('Inscripciones'));
+  if (certificateMatches.length > 1) return null;
+  var certificado = certificateMatches[0];
+  var insSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Inscripciones');
+  var inscripciones = insSheet ? filasInscripcionesDecoradas(insSheet).rows : [];
   if (certificado) {
-    var vinculada = inscripciones.find(function(item) { return item.ID === certificado.InscripcionID; });
+    var linkedMatches = inscripciones.filter(function(item) {
+      return (certificado.InscripcionID && item.ID === certificado.InscripcionID)
+        || (!certificado.InscripcionID && item.CodigoCertificado === certificado.CodigoCertificado);
+    });
+    var vinculada = linkedMatches.length === 1 ? linkedMatches[0] : null;
     return vinculada ? { certificado: certificado, inscripcion: vinculada } : null;
   }
-  var historica = inscripciones.find(function(item) {
+  var historicalMatches = inscripciones.filter(function(item) {
     return item.ID === identifier || item.CodigoCertificado === identifier;
   });
+  var historica = historicalMatches.length === 1 ? historicalMatches[0] : null;
   if (!historica || ['emitido', 'enviado', 'anulado', 'reemitido'].indexOf(estadoNormalizadoCertificado(historica)) === -1) return null;
   return { certificado: certificadoHistoricoDesdeInscripcion(historica), inscripcion: historica };
 }
 
 function resolverCertificadoAdministrativo(identifier, user) {
-  var inscripciones = sheetToObjects(getSheet('Inscripciones'));
+  var insSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Inscripciones');
+  var inscripciones = insSheet ? filasInscripcionesDecoradas(insSheet).rows : [];
   var certificados = sheetToObjects(getSheet('Certificados'));
-  var inscripcion = inscripciones.find(function(item) {
+  var enrollmentMatches = inscripciones.filter(function(item) {
     return item.ID === identifier || item.CodigoCertificado === identifier;
   });
+  if (enrollmentMatches.length > 1) return null;
+  var inscripcion = enrollmentMatches[0];
   var certificado;
   if (inscripcion) {
-    certificado = certificados.find(function(item) { return item.CodigoCertificado === inscripcion.CodigoCertificado; })
-      || certificados.find(function(item) { return item.ID === (inscripcion.ReissuedCertificateId || inscripcion.ID); });
-    if (!certificado && certificadoProtegidoContraEliminacion(inscripcion)) certificado = asegurarRegistroCertificado(inscripcion, user);
+    var linkedCertificates = certificados.filter(function(item) {
+      return (inscripcion.CodigoCertificado && item.CodigoCertificado === inscripcion.CodigoCertificado)
+        || (inscripcion.ID && item.ID === (inscripcion.ReissuedCertificateId || inscripcion.ID));
+    });
+    if (linkedCertificates.length > 1) return null;
+    certificado = linkedCertificates[0];
+    if (!certificado && certificadoProtegidoContraEliminacion(inscripcion)) {
+      certificado = inscripcion.ID
+        ? asegurarRegistroCertificado(inscripcion, user)
+        : certificadoHistoricoDesdeInscripcion(inscripcion);
+    }
   } else {
-    certificado = certificados.find(function(item) { return item.ID === identifier || item.CodigoCertificado === identifier; });
-    if (certificado) inscripcion = inscripciones.find(function(item) { return item.ID === certificado.InscripcionID; });
+    var certificateMatches = certificados.filter(function(item) { return item.ID === identifier || item.CodigoCertificado === identifier; });
+    if (certificateMatches.length !== 1) return null;
+    certificado = certificateMatches[0];
+    var linkedEnrollments = inscripciones.filter(function(item) {
+      return (certificado.InscripcionID && item.ID === certificado.InscripcionID)
+        || (!certificado.InscripcionID && item.CodigoCertificado === certificado.CodigoCertificado);
+    });
+    if (linkedEnrollments.length !== 1) return null;
+    inscripcion = linkedEnrollments[0];
   }
   return certificado && inscripcion ? { certificado: certificado, inscripcion: inscripcion } : null;
 }
 
+function criteriosCertificadoLegacy(certificado, inscripcion) {
+  const criterios = [];
+  const template = String(certificado.TemplateVersion || '').trim();
+  const reference = String(certificado.PdfStorageReference || '').trim();
+  const estado = estadoNormalizadoCertificado(certificado);
+  const emitido = ['emitido','enviado','anulado','reemitido'].indexOf(estado) !== -1;
+  if (inscripcion && inscripcion.IsHistoricalRecord && Array.isArray(inscripcion.HistoricalCriteria)) {
+    Array.prototype.push.apply(criterios, inscripcion.HistoricalCriteria.filter(function(criterio) {
+      return criterio !== 'columnas_esquema_ausentes';
+    }));
+  }
+  if (/^legacy(?:-|$)/i.test(template)) criterios.push('plantilla_legacy');
+  if (/:historical-recovery$/.test(reference) || /^(private-drive|external|drive):/i.test(reference)) {
+    criterios.push('almacenamiento_historico');
+  }
+  if (emitido && !String(certificado.CertificateVersion || '').trim()) criterios.push('version_ausente');
+  if (emitido && !template) criterios.push('plantilla_ausente');
+  if (String(certificado.PdfHash || '').trim() && !reference) criterios.push('hash_sin_referencia');
+  if (inscripcion && String(inscripcion.PdfHash || '').trim() && !String(inscripcion.PdfStorageReference || '').trim()) {
+    criterios.push('inscripcion_con_hash_sin_referencia');
+  }
+  return criterios.filter(function(value, index, all) { return all.indexOf(value) === index; });
+}
+
 function certificadoParaCliente(certificado, inscripcion) {
-  return Object.assign({}, inscripcionEnriquecida(inscripcion, mapaDuracionServicios(), mapaUsuariosPorUsername()), {
+  const legacyCriteria = criteriosCertificadoLegacy(certificado, inscripcion);
+  const missingRequired = datosFaltantesCertificado(inscripcion);
+  return Object.assign({}, inscripcionEnriquecida(inscripcionSinMetadatosInternos(inscripcion), mapaDuracionServicios(), mapaUsuariosPorUsername()), {
     ID: certificado.ID,
     InscripcionID: inscripcion.ID,
     CertificatePublicId: certificado.ID,
@@ -1600,6 +2133,9 @@ function certificadoParaCliente(certificado, inscripcion) {
     FechaEmisionCertificado: certificado.IssuedAt || inscripcion.FechaEmisionCertificado,
     IssuedAt: certificado.IssuedAt || inscripcion.FechaEmisionCertificado,
     IssuedBy: certificado.IssuedBy || inscripcion.EmitidoPor,
+    IsHistoricalRecord: legacyCriteria.length > 0,
+    HistoricalCriteria: legacyCriteria,
+    HistoricalNormalizationRequired: Boolean(inscripcion.HistoricalNormalizationRequired || missingRequired.length),
   });
 }
 
@@ -1861,13 +2397,25 @@ function getCertificadoParaDescarga(user, { id } = {}) {
   if (['emitido', 'enviado'].indexOf(estado) === -1) {
     return { success: false, error: 'El certificado no est\u00e1 vigente para descarga.' };
   }
+  const missing = datosFaltantesCertificado(resolved.inscripcion);
+  if (!String(resolved.inscripcion.ID || '').trim()) {
+    return { success: false, error: 'El registro histórico requiere normalización porque no tiene un ID estable. Ejecute primero el diagnóstico.' };
+  }
+  if (missing.length) {
+    const fechaFinMissing = missing.indexOf('fecha de fin') !== -1;
+    const prefix = criteriosCertificadoLegacy(resolved.certificado, resolved.inscripcion).length
+      ? 'El registro histórico requiere normalización: '
+      : 'Faltan datos obligatorios del certificado: ';
+    return {
+      success: false,
+      error: prefix + (fechaFinMissing ? 'falta FechaFin. ' : '') + 'Complete: ' + missing.join(', ') + '.',
+    };
+  }
   return { success: true, data: certificadoParaCliente(resolved.certificado, resolved.inscripcion) };
 }
 
-function esCertificadoHistoricoParaRebase(certificado) {
-  const templateVersion = String(certificado.TemplateVersion || '').trim();
-  const storageReference = String(certificado.PdfStorageReference || '').trim();
-  return /^legacy(?:-|$)/i.test(templateVersion) || /:historical-recovery$/.test(storageReference);
+function esCertificadoHistoricoParaRebase(certificado, inscripcion) {
+  return criteriosCertificadoLegacy(certificado, inscripcion).length > 0;
 }
 
 function tieneRebaseHistoricoRegistrado(certificado, inscripcion) {
@@ -1922,7 +2470,7 @@ function registrarArtefactoCertificadoBajoBloqueo(user, {
     && /^[a-f0-9]{64}$/.test(previousHash)
     && previousHash === currentHash
     && rebaseReason.length >= 30
-    && esCertificadoHistoricoParaRebase(certificado)
+    && esCertificadoHistoricoParaRebase(certificado, inscripcion)
     && !rebaseAlreadyRegistered;
   if (hashMismatch && !historicalHashRebaseAuthorized) {
     return {
@@ -2864,6 +3412,333 @@ function migrarInscripcionesCertificadosV2() {
   };
   Logger.log(JSON.stringify(resumen));
   return resumen;
+}
+
+function objetosHojaSoloLectura(name) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(name);
+  if (!sheet || !sheet.getLastRow() || !sheet.getLastColumn()) return [];
+  const values = sheet.getDataRange().getValues();
+  const headers = values[0].map(function(value) { return String(value || '').trim(); });
+  return values.slice(1).map(function(row, index) {
+    const item = { _row: index + 2 };
+    headers.forEach(function(header, column) { if (header) item[header] = row[column]; });
+    return item;
+  }).filter(function(item) {
+    return headers.some(function(header) {
+      const value = item[header];
+      return value !== '' && value !== null && value !== undefined;
+    });
+  });
+}
+
+function duplicadosNoVacios(values) {
+  const counts = {};
+  values.map(function(value) { return String(value || '').trim(); }).filter(Boolean).forEach(function(value) {
+    counts[value] = (counts[value] || 0) + 1;
+  });
+  return Object.keys(counts).filter(function(value) { return counts[value] > 1; }).sort();
+}
+
+function conteoValores(values) {
+  const result = {};
+  values.forEach(function(value) {
+    const key = String(value || '').trim() || '(vacío)';
+    result[key] = (result[key] || 0) + 1;
+  });
+  return result;
+}
+
+function verificarIntegridadInscripcionesHistoricas() {
+  const insSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Inscripciones');
+  const inscripciones = insSheet ? leerFilasInscripcionesFisicas(insSheet).rows : [];
+  const ingresos = objetosHojaSoloLectura('Ingresos');
+  const pagos = objetosHojaSoloLectura('Pagos');
+  const certificados = objetosHojaSoloLectura('Certificados');
+  const ids = inscripciones.map(function(row) { return row.ID; });
+  const codes = inscripciones.map(function(row) { return row.CodigoCertificado; })
+    .concat(certificados.map(function(row) { return row.CodigoCertificado; }));
+  return {
+    soloLectura: true,
+    filas: {
+      inscripciones: inscripciones.length,
+      ingresos: ingresos.length,
+      pagos: pagos.length,
+      certificados: certificados.length,
+    },
+    idsInscripcionDuplicados: duplicadosNoVacios(ids),
+    idsInscripcionVacios: ids.filter(function(value) { return !String(value || '').trim(); }).length,
+    codigosCertificadoDuplicados: duplicadosNoVacios(codes),
+    codigosCertificadoUnicos: Array.from(new Set(codes.map(function(value) { return String(value || '').trim(); }).filter(Boolean))).sort(),
+    referenciasPdf: Array.from(new Set(inscripciones.concat(certificados).map(function(row) {
+      return String(row.PdfStorageReference || '').trim();
+    }).filter(Boolean))).sort(),
+    totalMontosInscripciones: inscripciones.reduce(function(total, row) { return total + (Number(row.Monto) || 0); }, 0),
+    totalMontosIngresos: ingresos.reduce(function(total, row) { return total + (Number(row.Monto) || 0); }, 0),
+    totalMontosPagos: pagos.reduce(function(total, row) { return total + (Number(row.Monto) || 0); }, 0),
+    estadosPago: conteoValores(inscripciones.map(function(row) { return row.EstadoPago; })),
+  };
+}
+
+function riesgoEstructuralInscripcion(row) {
+  const reasons = [];
+  const modalidad = String(row.Modalidad || '').trim().toLowerCase();
+  if (modalidad && ['virtual','presencial','híbrida','hibrida','n/a'].indexOf(modalidad) === -1) reasons.push('modalidad_fuera_de_catalogo');
+  if (String(row.Monto || '').trim() && !isFinite(Number(row.Monto))) reasons.push('monto_no_numerico');
+  if (String(row._raw && row._raw.FechaInicio || '').trim() && !fechaSolo(row._raw.FechaInicio)) reasons.push('fecha_inicio_invalida');
+  if (String(row._raw && row._raw.FechaFin || '').trim() && !fechaSolo(row._raw.FechaFin)) reasons.push('fecha_fin_invalida');
+  if ((row.HistoricalFormulaFields || []).some(function(field) { return ['FechaInicio','FechaFin'].indexOf(field) !== -1; })) {
+    reasons.push('fecha_con_formula');
+  }
+  if ((row.HistoricalUnmappedColumns || []).length) reasons.push('datos_en_columnas_no_reconocidas');
+  const payment = String(row.EstadoPago || '').trim().toLowerCase();
+  if (payment && ['pendiente','pagado','verificado','cancelado'].indexOf(payment) === -1) reasons.push('estado_pago_invalido');
+  return reasons;
+}
+
+function diagnosticarInscripcionesHistoricas() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Inscripciones');
+  if (!sheet) {
+    return { soloLectura: true, fechaDiagnostico: new Date().toISOString(), error: 'No existe la hoja Inscripciones.', filas: [] };
+  }
+  const snapshot = filasInscripcionesDecoradas(sheet);
+  const idCounts = {};
+  snapshot.rows.forEach(function(row) {
+    const id = String(row.ID || '').trim();
+    if (id) idCounts[id] = (idCounts[id] || 0) + 1;
+  });
+  const services = objetosHojaSoloLectura('Servicios');
+  const durationById = {}, durationByName = {};
+  services.forEach(function(service) {
+    if (service.ID) durationById[String(service.ID)] = service.Duracion || '';
+    if (service.Nombre) durationByName[String(service.Nombre).trim().toLowerCase()] = service.Duracion || '';
+  });
+  const rows = snapshot.rows.map(function(source) {
+    const row = decorarInscripcionHistorica(source, snapshot.schema, snapshot.keyCounts);
+    const id = String(row.ID || '').trim();
+    const duplicateId = Boolean(id && idCounts[id] > 1);
+    const riskReasons = riesgoEstructuralInscripcion(row);
+    const duration = durationById[String(row.ServicioID || '')]
+      || durationByName[String(row.ServicioNombre || '').trim().toLowerCase()] || '';
+    const required = [
+      ['participante', row.ClienteNombre], ['identificación', row.ClienteID], ['curso', row.ServicioNombre],
+      ['duración', duration], ['FechaInicio', row.FechaInicio], ['FechaFin', row.FechaFin], ['modalidad', row.Modalidad],
+    ].filter(function(item) { return !String(item[1] || '').trim(); }).map(function(item) { return item[0]; });
+    const safeLocator = Boolean(id && !duplicateId) || Boolean(row.HistoricalKey && !row.HistoricalAmbiguous);
+    const critical = duplicateId || row.HistoricalAmbiguous || snapshot.schema.ambiguos.length > 0
+      || row.HistoricalRowAmbiguousFields.length > 0 || riskReasons.length > 0;
+    return {
+      numeroFila: row._row,
+      ID: id,
+      idFalta: !id,
+      idDuplicado: duplicateId,
+      participante: row.ClienteNombre || '',
+      identificacion: row.ClienteID || '',
+      servicioCurso: row.ServicioNombre || '',
+      FechaVenta: row.FechaCreacion || '',
+      FechaInicio: row.FechaInicio || '',
+      FechaFin: row.FechaFin || '',
+      modalidad: row.Modalidad || '',
+      codigoCertificado: row.CodigoCertificado || '',
+      estadoCertificado: estadoNormalizadoCertificado(row),
+      version: row.CertificateVersion || '',
+      hash: row.PdfHash || '',
+      referenciaPdf: row.PdfStorageReference || '',
+      columnasFaltantes: snapshot.schema.faltantes.slice(),
+      columnasAmbiguas: snapshot.schema.ambiguos.slice(),
+      columnasNoReconocidasConDatos: row.HistoricalUnmappedColumns.slice(),
+      camposConFormula: row.HistoricalFormulaFields.slice(),
+      camposObligatoriosFaltantes: required,
+      esHistorico: row.IsHistoricalRecord,
+      criterioHistorico: row.HistoricalCriteria.slice(),
+      actualizablePorID: Boolean(id && !duplicateId),
+      necesitaClaveHistoricaAlternativa: !id,
+      claveHistoricaDisponible: Boolean(row.HistoricalKey),
+      ambigua: row.HistoricalAmbiguous || duplicateId,
+      candidatoNormalizacion: row.IsHistoricalRecord && safeLocator && !critical,
+      riesgoRevisionManual: critical || (!id && !row.HistoricalKey),
+      motivosRiesgo: riskReasons.concat(row.HistoricalAmbiguous ? ['clave_historica_ambigua'] : [])
+        .concat(duplicateId ? ['id_duplicado'] : [])
+        .concat(snapshot.schema.ambiguos.length ? ['encabezados_ambiguos'] : [])
+        .concat(row.HistoricalRowAmbiguousFields.length ? ['valores_duplicados_contradictorios'] : []),
+    };
+  });
+  return {
+    soloLectura: true,
+    fechaDiagnostico: new Date().toISOString(),
+    columnasFaltantes: snapshot.schema.faltantes.slice(),
+    columnasAmbiguas: snapshot.schema.ambiguos.slice(),
+    encabezadosDuplicadosOAlias: snapshot.schema.duplicados.slice(),
+    resumen: {
+      filas: rows.length,
+      historicas: rows.filter(function(row) { return row.esHistorico; }).length,
+      modernas: rows.filter(function(row) { return !row.esHistorico; }).length,
+      candidatas: rows.filter(function(row) { return row.candidatoNormalizacion; }).length,
+      revisionManual: rows.filter(function(row) { return row.riesgoRevisionManual; }).length,
+    },
+    integridad: verificarIntegridadInscripcionesHistoricas(),
+    filas: rows,
+  };
+}
+
+function administradorMigracionHistorica(administrador) {
+  const candidates = [];
+  const explicit = String(administrador || '').trim();
+  if (explicit) candidates.push(explicit);
+  try {
+    const email = Session.getActiveUser().getEmail();
+    if (email) candidates.push(String(email).trim());
+  } catch (error) {}
+  const configured = String(PropertiesService.getScriptProperties()
+    .getProperty('HISTORICAL_INSCRIPTIONS_MIGRATION_ADMIN') || '').trim();
+  if (configured) candidates.push(configured);
+  const admins = objetosHojaSoloLectura('Usuarios').filter(function(user) {
+    return String(user.Rol || '').trim().toLowerCase() === 'admin' && esVerdadero(user.Activo);
+  });
+  for (let i = 0; i < candidates.length; i += 1) {
+    const candidate = candidates[i].toLowerCase();
+    const match = admins.find(function(user) {
+      return [user.ID, user.Username, user.Email].some(function(value) {
+        return String(value || '').trim().toLowerCase() === candidate;
+      });
+    });
+    if (match) return String(match.Username || match.Email || match.ID).trim();
+  }
+  return '';
+}
+
+function integridadComercialIgual(before, after) {
+  return before.filas.inscripciones === after.filas.inscripciones
+    && before.filas.ingresos === after.filas.ingresos
+    && before.filas.pagos === after.filas.pagos
+    && before.filas.certificados === after.filas.certificados
+    && before.totalMontosInscripciones === after.totalMontosInscripciones
+    && before.totalMontosIngresos === after.totalMontosIngresos
+    && before.totalMontosPagos === after.totalMontosPagos
+    && JSON.stringify(before.estadosPago) === JSON.stringify(after.estadosPago)
+    && JSON.stringify(before.codigosCertificadoUnicos) === JSON.stringify(after.codigosCertificadoUnicos)
+    && JSON.stringify(before.codigosCertificadoDuplicados) === JSON.stringify(after.codigosCertificadoDuplicados)
+    && JSON.stringify(before.referenciasPdf) === JSON.stringify(after.referenciasPdf);
+}
+
+function migrarInscripcionesHistoricasAplicar(confirmacion, administrador) {
+  const configured = PropertiesService.getScriptProperties().getProperty('HISTORICAL_INSCRIPTIONS_MIGRATION_CONFIRMATION');
+  if (confirmacion !== 'MIGRATE_HISTORICAL_INSCRIPTIONS_ONCE'
+      && configured !== 'MIGRATE_HISTORICAL_INSCRIPTIONS_ONCE') {
+    throw new Error('Migración bloqueada: falta la confirmación explícita MIGRATE_HISTORICAL_INSCRIPTIONS_ONCE.');
+  }
+  const admin = administradorMigracionHistorica(administrador);
+  if (!admin) throw new Error('Migración bloqueada: no se pudo identificar al administrador ejecutor.');
+  return conBloqueoCertificados(function() {
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Inscripciones');
+    if (!sheet) throw new Error('No existe la hoja Inscripciones.');
+    const diagnosisBefore = diagnosticarInscripcionesHistoricas();
+    const integrityBefore = verificarIntegridadInscripcionesHistoricas();
+    const diagnosisByRow = {};
+    diagnosisBefore.filas.forEach(function(row) { diagnosisByRow[row.numeroFila] = row; });
+    const requiredHeaders = ['ID','FechaInicio','FechaFin','Modalidad','CertificateVersion','TemplateVersion','PdfHash','PdfStorageReference'];
+    const headersBefore = resolverEncabezadosInscripciones(sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0]);
+    asegurarColumnasInscripcion(sheet, requiredHeaders);
+    const addedHeaders = requiredHeaders.filter(function(header) { return headersBefore.indices[header] === undefined; });
+    const snapshot = filasInscripcionesDecoradas(sheet);
+    const idsUsed = {};
+    snapshot.rows.forEach(function(row) { if (row.ID) idsUsed[String(row.ID)] = true; });
+    const modified = [], omitted = [], errors = [];
+
+    snapshot.rows.forEach(function(row) {
+      const initial = diagnosisByRow[row._row];
+      if (!initial || !initial.esHistorico) {
+        omitted.push({ fila: row._row, motivo: 'registro_moderno' });
+        return;
+      }
+      if (!initial.candidatoNormalizacion || initial.ambigua || initial.riesgoRevisionManual) {
+        omitted.push({ fila: row._row, motivo: 'revision_manual_requerida', detalles: initial.motivosRiesgo });
+        return;
+      }
+      const changes = {}, previous = {};
+      if (!String(row.ID || '').trim()) {
+        if (String(row.CodigoCertificado || '').trim() || String(row.IngresoID || '').trim()) {
+          omitted.push({ fila: row._row, motivo: 'id_ausente_con_relacion_existente' });
+          return;
+        }
+        if (!row.HistoricalKey || row.HistoricalAmbiguous) {
+          omitted.push({ fila: row._row, motivo: 'clave_historica_no_segura' });
+          return;
+        }
+        const generatedId = 'INS_HIST_' + String(row.HistoricalKey).replace(/^HIST-/, '').slice(0, 20).toUpperCase();
+        if (idsUsed[generatedId]) {
+          omitted.push({ fila: row._row, motivo: 'colision_id_deterministico' });
+          return;
+        }
+        changes.ID = generatedId;
+        previous.ID = row._raw.ID || '';
+      }
+      ['FechaInicio','FechaFin'].forEach(function(field) {
+        const raw = row._raw[field];
+        if (raw === '' || raw === null || raw === undefined) return;
+        const normalized = fechaSolo(raw);
+        if (!normalized) return;
+        if (!(typeof raw === 'string' && raw === normalized)) {
+          changes[field] = normalized;
+          previous[field] = raw;
+        }
+      });
+      if (!Object.keys(changes).length) {
+        omitted.push({ fila: row._row, motivo: 'sin_cambios_necesarios' });
+        return;
+      }
+      try {
+        actualizarFilaInscripcionFisica(sheet, row._row, changes);
+        const persisted = filaInscripcionPorNumero(sheet, row._row);
+        if (!persisted || !camposPersistidosCoinciden(persisted, changes)) {
+          actualizarFilaInscripcionFisica(sheet, row._row, previous);
+          throw new Error('La persistencia no pudo verificarse.');
+        }
+        try {
+          registrarAuditoriaCertificado({
+            certificadoId: persisted.CodigoCertificado || '',
+            inscripcionId: persisted.ID || '',
+            usuario: admin,
+            rol: 'admin',
+            accion: 'HISTORICAL_ENROLLMENT_NORMALIZED',
+            estadoAnterior: persisted.EstadoCertificado || '',
+            estadoNuevo: persisted.EstadoCertificado || '',
+            canal: 'apps_script',
+            resultado: 'ok',
+            motivo: 'Normalización controlada de estructura histórica.',
+            metadatos: { fila: row._row, campos: Object.keys(changes), valoresAnteriores: previous, valoresNuevos: changes },
+          });
+        } catch (auditError) {
+          actualizarFilaInscripcionFisica(sheet, row._row, previous);
+          throw auditError;
+        }
+        if (changes.ID) idsUsed[changes.ID] = true;
+        modified.push({ fila: row._row, ID: persisted.ID || changes.ID || '', valoresAnteriores: previous, valoresNuevos: changes });
+      } catch (error) {
+        errors.push({ fila: row._row, error: String(error.message || error) });
+      }
+    });
+
+    const integrityAfter = verificarIntegridadInscripcionesHistoricas();
+    if (!integridadComercialIgual(integrityBefore, integrityAfter)) {
+      throw new Error('La migración alteró una invariantes comercial y fue bloqueada. Restaure el respaldo y revise el reporte.');
+    }
+    return {
+      aplicada: true,
+      idempotente: true,
+      confirmacion: 'MIGRATE_HISTORICAL_INSCRIPTIONS_ONCE',
+      administrador: admin,
+      fecha: new Date().toISOString(),
+      filasRevisadas: snapshot.rows.length,
+      columnasAgregadas: addedHeaders,
+      filasModificadas: modified,
+      filasOmitidas: omitted,
+      errores: errors,
+      advertencias: diagnosisBefore.resumen.revisionManual
+        ? ['Existen filas que requieren revisión manual y fueron omitidas.'] : [],
+      integridadAntes: integrityBefore,
+      integridadDespues: integrityAfter,
+    };
+  });
 }
 
 // ─────────────────────────────────────────────

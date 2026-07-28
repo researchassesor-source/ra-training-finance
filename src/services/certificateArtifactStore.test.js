@@ -8,6 +8,7 @@ import {
   sha256Hex,
   HISTORICAL_HASH_REBASE_AUDIT_ACTION,
   HISTORICAL_RECOVERY_AUDIT_ACTION,
+  isHistoricalCertificateArtifact,
 } from './certificateArtifactStore'
 
 beforeAll(async () => {
@@ -218,5 +219,23 @@ describe('repositorio inmutable de PDFs de certificados', () => {
     }, { allowHistoricalRecovery: true })).rejects.toMatchObject({
       code: CERTIFICATE_ARTIFACT_ERROR_CODES.HASH_MISMATCH,
     })
+  })
+
+  it('reconoce legacy por múltiples criterios de esquema incompleto', () => {
+    expect(isHistoricalCertificateArtifact({ IsHistoricalRecord: true })).toBe(true)
+    expect(isHistoricalCertificateArtifact({
+      EstadoCertificado: 'emitido', CodigoCertificado: 'RA-2024-1', PdfHash: 'a'.repeat(64), PdfStorageReference: '',
+    })).toBe(true)
+    expect(isHistoricalCertificateArtifact({
+      EstadoCertificado: 'emitido', CodigoCertificado: 'RA-2024-2', CertificateVersion: '', TemplateVersion: '',
+    })).toBe(true)
+    expect(isHistoricalCertificateArtifact({ PdfStorageReference: 'private-drive:legacy:1' })).toBe(true)
+  })
+
+  it('no clasifica como legacy un certificado moderno nuevo que aún no registra artefacto', () => {
+    expect(isHistoricalCertificateArtifact({
+      EstadoCertificado: 'emitido', CodigoCertificado: 'RA-2026-MODERN',
+      CertificateVersion: 1, TemplateVersion: 'ra-canva-2026-v1', PdfHash: '', PdfStorageReference: '',
+    })).toBe(false)
   })
 })

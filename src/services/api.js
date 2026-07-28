@@ -208,9 +208,9 @@ export const api = {
     bust('getInscripciones', 'getDashboard')
     return call('addInscripcion', { inscripcion }, getToken())
   },
-  updateInscripcion: (id, inscripcion) => {
+  updateInscripcion: (id, inscripcion, historicalKey = '') => {
     bust('getInscripciones', 'getIngresos', 'getDashboard')
-    return call('updateInscripcion', { id, inscripcion }, getToken())
+    return call('updateInscripcion', { id, historicalKey, inscripcion }, getToken())
   },
   verificarPagoInscripcion: (id, correcciones = {}) => {
     bust('getInscripciones', 'getIngresos', 'getDashboard')
