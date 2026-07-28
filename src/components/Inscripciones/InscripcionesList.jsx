@@ -120,7 +120,8 @@ export default function InscripcionesList() {
   }, [data])
 
   const selectableCertificates = useMemo(() => canManage ? data.filter(item => (
-    certificateCapabilities(user, item).canDeliver && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(item.ClienteEmail || '').trim())
+    item.ID && certificateCapabilities(user, item).canDeliver
+      && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(item.ClienteEmail || '').trim())
   )) : [], [canManage, data])
   const selectedCertificates = useMemo(() => canManage ? data.filter(item => selectedIds.has(item.ID)) : [], [canManage, data, selectedIds])
   const allSelectableSelected = selectableCertificates.length > 0
@@ -554,7 +555,7 @@ export default function InscripcionesList() {
                   const canVerifyPayment = ['pendiente', 'pagado', 'pendiente_verificacion'].includes(item.EstadoPago)
                   const rowBusy = isBusy(item, 'certificate')
                   return (
-                    <tr key={item.ID} className="border-b border-gray-50 align-middle hover:bg-gray-50 transition-colors">
+                    <tr key={item.ID || item.HistoricalKey || item.HistoricalRowNumber} className="border-b border-gray-50 align-middle hover:bg-gray-50 transition-colors">
                       {isAdmin && (
                         <td className="px-1 py-2.5 text-center" title={canSelect ? 'Seleccionar para envío por correo' : 'Solo disponible para certificados emitidos con correo válido'}>
                           <input type="checkbox" className="w-4 h-4 accent-brand-600" checked={selectedIds.has(item.ID)}
@@ -638,7 +639,18 @@ export default function InscripcionesList() {
       )}
 
       <Modal open={modal === 'new' || modal === 'edit'} onClose={() => setModal(null)} title={modal === 'edit' ? 'Editar Inscripción' : 'Nueva Inscripción'} size="lg">
-        <InscripcionesForm initial={modal === 'edit' ? selected : null} onSave={() => { setModal(null); load() }} onCancel={() => setModal(null)} />
+        <InscripcionesForm initial={modal === 'edit' ? selected : null} onSave={(updated, warning) => {
+          if (updated) {
+            setData(current => current.map(item => (
+              (item.ID && item.ID === updated.ID)
+                || (!item.ID && item.HistoricalRowNumber === updated.HistoricalRowNumber)
+                ? updated : item
+            )))
+          }
+          setModal(null)
+          load()
+          if (warning) setError(`La inscripción quedó actualizada, pero no se pudo sincronizar el ingreso: ${warning}`)
+        }} onCancel={() => setModal(null)} />
       </Modal>
       <Modal open={modal === 'sales'} onClose={() => setModal(null)} title="Reporte de ventas por vendedor" size="xl"><VentasVendedorModal vendedores={vendedores} /></Modal>
       <Modal open={modal === 'delivery'} onClose={() => setModal(null)} title="Entregar certificado" size="lg">

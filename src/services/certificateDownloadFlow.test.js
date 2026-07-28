@@ -137,9 +137,12 @@ describe('vista previa y descarga auditada de certificados', () => {
       },
     })
 
-    const result = await downloadCertificateWithAudit({ id: 'DEMO', ...fixture })
+    fixture.certificate.IsHistoricalRecord = true
+    const preview = { showStage: vi.fn(), showError: vi.fn(), available: false, blocked: false }
+    const result = await downloadCertificateWithAudit({ id: 'DEMO', ...fixture, preview })
 
     expect(fixture.repository.prepare).toHaveBeenCalledWith(fixture.certificate, { allowHistoricalRecovery: true })
+    expect(preview.showStage).toHaveBeenCalledWith('Recuperando el PDF histórico y verificando su integridad SHA-256…')
     expect(fixture.api.registrarArtefactoCertificado).toHaveBeenCalledWith('DEMO', expect.objectContaining({
       historicalRecovery: true,
       auditAction: 'CERTIFICATE_HISTORICAL_ARTIFACT_RECOVERED',

@@ -5,7 +5,25 @@
 // silenciosamente y el navegador bloquea el submit sin mostrar ningún error.
 export function toDateInput(val) {
   if (!val) return ''
-  return String(val).slice(0, 10)
+  if (val instanceof Date && !Number.isNaN(val.getTime())) {
+    const year = val.getFullYear()
+    const month = String(val.getMonth() + 1).padStart(2, '0')
+    const day = String(val.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
+  }
+  const source = String(val).trim()
+  const normalizedDate = (year, month, day) => {
+    const candidate = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)))
+    if (candidate.getUTCFullYear() !== Number(year)
+      || candidate.getUTCMonth() !== Number(month) - 1
+      || candidate.getUTCDate() !== Number(day)) return ''
+    return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+  }
+  let match = source.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s].*)?$/)
+  if (match) return normalizedDate(match[1], match[2], match[3])
+  match = source.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+  if (match) return normalizedDate(match[3], match[2], match[1])
+  return ''
 }
 
 export const fmt = {

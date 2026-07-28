@@ -211,7 +211,17 @@ export async function downloadCertificateWithAudit({
     certificate = current?.data
     if (!certificate) throw new Error('El servidor no devolvió los datos del certificado solicitado.')
 
-    preview?.showStage('Obteniendo el PDF y verificando su integridad SHA-256…')
+    const historicalCriteria = Array.isArray(certificate.HistoricalCriteria)
+      ? certificate.HistoricalCriteria
+      : []
+    const isHistorical = certificate.IsHistoricalRecord === true || historicalCriteria.length > 0
+    if (certificate.HistoricalNormalizationRequired) {
+      preview?.showStage('Validando la normalización del registro histórico antes de recuperar el PDF…')
+    } else if (isHistorical) {
+      preview?.showStage('Recuperando el PDF histórico y verificando su integridad SHA-256…')
+    } else {
+      preview?.showStage('Obteniendo el PDF y verificando su integridad SHA-256…')
+    }
     const prepared = await step(
       repository.prepare(certificate, { allowHistoricalRecovery: true }),
       preparationTimeoutMs,
