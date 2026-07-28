@@ -1,11 +1,14 @@
-import { HISTORICAL_RECOVERY_AUDIT_ACTION } from '../utils/certificateAudit'
+import {
+  HISTORICAL_HASH_REBASE_AUDIT_ACTION,
+  HISTORICAL_RECOVERY_AUDIT_ACTION,
+} from '../utils/certificateAudit'
 
 const DB_NAME = 'ra-training-certificate-artifacts'
 const STORE_NAME = 'pdf-artifacts'
 const DB_VERSION = 1
 const HISTORICAL_RECOVERY_REFERENCE_SUFFIX = ':historical-recovery'
 
-export { HISTORICAL_RECOVERY_AUDIT_ACTION }
+export { HISTORICAL_HASH_REBASE_AUDIT_ACTION, HISTORICAL_RECOVERY_AUDIT_ACTION }
 
 export const CERTIFICATE_ARTIFACT_ERROR_CODES = Object.freeze({
   INVALID_BINARY: 'CERTIFICATE_INVALID_BINARY',
@@ -293,7 +296,14 @@ export class CertificatePdfRepository {
         CERTIFICATE_ARTIFACT_ERROR_CODES.STORAGE_TIMEOUT,
         'La verificación SHA-256 del certificado no respondió a tiempo.',
       )
-      if (actualHash !== String(existing.hash || '').trim().toLowerCase() || (expectedHash && actualHash !== expectedHash)) {
+      const localHashMismatch = actualHash !== String(existing.hash || '').trim().toLowerCase()
+      const officialHashMismatch = Boolean(expectedHash && actualHash !== expectedHash)
+      const pendingHistoricalHashRebase = Boolean(
+        historicalRecoveryAllowed
+        && existing.historicalHashRebaseRequired
+        && String(existing.previousPdfHash || '').trim().toLowerCase() === expectedHash,
+      )
+      if (localHashMismatch || (officialHashMismatch && !pendingHistoricalHashRebase)) {
         throw new CertificateArtifactError(
           CERTIFICATE_ARTIFACT_ERROR_CODES.HASH_MISMATCH,
           'La verificación SHA-256 del certificado falló. No se permitirá la descarga.',
@@ -303,7 +313,9 @@ export class CertificatePdfRepository {
         ...existing,
         reused: true,
         historicalArtifact: Boolean(existing.historicalArtifact || historicalArtifact),
-        historicalRecovered: false,
+        historicalRecovered: pendingHistoricalHashRebase,
+        historicalHashRebaseRequired: pendingHistoricalHashRebase,
+        previousPdfHash: pendingHistoricalHashRebase ? existing.previousPdfHash : '',
       }
     }
     if (expectedHash && !historicalRecoveryAllowed) {
@@ -330,7 +342,10 @@ export class CertificatePdfRepository {
       CERTIFICATE_ARTIFACT_ERROR_CODES.STORAGE_TIMEOUT,
       'El cálculo SHA-256 del certificado no respondió a tiempo.',
     )
-    if (expectedHash && hash !== expectedHash) {
+    const historicalHashRebaseRequired = Boolean(
+      historicalRecoveryAllowed && expectedHash && hash !== expectedHash,
+    )
+    if (expectedHash && hash !== expectedHash && !historicalHashRebaseRequired) {
       throw new CertificateArtifactError(
         CERTIFICATE_ARTIFACT_ERROR_CODES.HASH_MISMATCH,
         'El PDF histórico regenerado no coincide con la huella oficial registrada. No se permitirá la descarga.',
@@ -346,7 +361,11 @@ export class CertificatePdfRepository {
       createdAt: new Date().toISOString(),
       historicalArtifact: historicalRecoveryAllowed,
       historicalRecovered: historicalRecoveryAllowed,
-      auditAction: historicalRecoveryAllowed ? HISTORICAL_RECOVERY_AUDIT_ACTION : '',
+      historicalHashRebaseRequired,
+      previousPdfHash: historicalHashRebaseRequired ? expectedHash : '',
+      auditAction: historicalHashRebaseRequired
+        ? HISTORICAL_HASH_REBASE_AUDIT_ACTION
+        : historicalRecoveryAllowed ? HISTORICAL_RECOVERY_AUDIT_ACTION : '',
     }
     await withCertificateTimeout(
       this.store.save(record),

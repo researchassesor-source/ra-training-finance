@@ -6,6 +6,7 @@ import {
   CertificatePdfRepository,
   MemoryCertificateArtifactStore,
   sha256Hex,
+  HISTORICAL_HASH_REBASE_AUDIT_ACTION,
   HISTORICAL_RECOVERY_AUDIT_ACTION,
 } from './certificateArtifactStore'
 
@@ -167,6 +168,55 @@ describe('repositorio inmutable de PDFs de certificados', () => {
     await expect(repository.prepare(certificate, { allowHistoricalRecovery: true })).resolves.toMatchObject({
       hash,
       historicalRecovered: true,
+    })
+  })
+
+  it('prepara el rebase controlado cuando un histórico sin artefacto genera una huella distinta', async () => {
+    const previousPdfHash = 'a'.repeat(64)
+    const repository = new CertificatePdfRepository({
+      store: new MemoryCertificateArtifactStore(),
+      buildPdf: async () => ({
+        blob: new Blob(['pdf-historico-recuperado'], { type: 'application/pdf' }),
+        filename: 'historico.pdf',
+        templateVersion: 'ra-canva-2026-v1',
+      }),
+    })
+
+    const recovered = await repository.prepare({
+      ID: 'LEGACY-HASH-REBASE',
+      CertificatePublicId: 'LEGACY-HASH-REBASE',
+      CertificateVersion: 1,
+      TemplateVersion: 'legacy-v1',
+      PdfHash: previousPdfHash,
+    }, { allowHistoricalRecovery: true })
+
+    expect(recovered).toMatchObject({
+      historicalRecovered: true,
+      historicalHashRebaseRequired: true,
+      previousPdfHash,
+      auditAction: HISTORICAL_HASH_REBASE_AUDIT_ACTION,
+    })
+    expect(recovered.hash).not.toBe(previousPdfHash)
+  })
+
+  it('mantiene bloqueado un certificado moderno con huella distinta aunque se solicite recuperación', async () => {
+    const blob = new Blob(['pdf-moderno-alterado'], { type: 'application/pdf' })
+    const store = new MemoryCertificateArtifactStore()
+    await store.save({
+      reference: 'test-memory:MODERN-HASH:v1',
+      hash: await sha256Hex(blob),
+      blob,
+    })
+    const repository = new CertificatePdfRepository({ store, buildPdf: vi.fn() })
+
+    await expect(repository.prepare({
+      ID: 'MODERN-HASH',
+      CertificateVersion: 1,
+      TemplateVersion: 'ra-canva-2026-v1',
+      PdfHash: 'f'.repeat(64),
+      PdfStorageReference: 'test-memory:MODERN-HASH:v1',
+    }, { allowHistoricalRecovery: true })).rejects.toMatchObject({
+      code: CERTIFICATE_ARTIFACT_ERROR_CODES.HASH_MISMATCH,
     })
   })
 })

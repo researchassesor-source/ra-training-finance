@@ -1864,12 +1864,35 @@ function getCertificadoParaDescarga(user, { id } = {}) {
   return { success: true, data: certificadoParaCliente(resolved.certificado, resolved.inscripcion) };
 }
 
-function registrarArtefactoCertificado(user, {
+function esCertificadoHistoricoParaRebase(certificado) {
+  const templateVersion = String(certificado.TemplateVersion || '').trim();
+  const storageReference = String(certificado.PdfStorageReference || '').trim();
+  return /^legacy(?:-|$)/i.test(templateVersion) || /:historical-recovery$/.test(storageReference);
+}
+
+function tieneRebaseHistoricoRegistrado(certificado, inscripcion) {
+  return sheetToObjects(getSheet('AuditoriaCertificados')).some(function(evento) {
+    return evento.Accion === 'CERTIFICATE_HISTORICAL_HASH_REBASED'
+      && (evento.CertificadoID === certificado.CodigoCertificado || evento.InscripcionID === inscripcion.ID);
+  });
+}
+
+function registrarArtefactoCertificado(user, options) {
+  return conBloqueoCertificados(function() {
+    return registrarArtefactoCertificadoBajoBloqueo(user, options || {});
+  });
+}
+
+function registrarArtefactoCertificadoBajoBloqueo(user, {
   id, pdfHash, pdfStorageReference, templateVersion, certificateVersion,
+  historicalHashRebase, previousPdfHash, originalArtifactUnavailable,
+  historicalHashRebaseConfirmation, historicalHashRebaseReason,
 } = {}) {
   requireCertificateAdmin(user, 'CERTIFICATE_ARTIFACT_REGISTER', { inscripcionId: id, canal: 'api' });
   const hash = String(pdfHash || '').trim().toLowerCase();
   const storageReference = String(pdfStorageReference || '').trim();
+  const previousHash = String(previousPdfHash || '').trim().toLowerCase();
+  const rebaseReason = String(historicalHashRebaseReason || '').trim();
   if (!/^[a-f0-9]{64}$/.test(hash)) return { success: false, error: 'El hash SHA-256 del PDF no es v\u00e1lido.' };
   if (!/^(browser-indexeddb|private-drive|test-memory):[a-zA-Z0-9._:-]+$/.test(storageReference)) {
     return { success: false, error: 'La referencia privada del PDF no es v\u00e1lida.' };
@@ -1885,49 +1908,105 @@ function registrarArtefactoCertificado(user, {
   if (estado !== 'emitido' && estado !== 'enviado') {
     return { success: false, error: 'Solo un certificado vigente puede registrar un artefacto PDF.' };
   }
-  if (certificado.PdfHash && String(certificado.PdfHash).toLowerCase() !== hash) {
-    return { success: false, error: 'El artefacto PDF ya fue fijado y no puede sobrescribirse.' };
-  }
-  if (certificado.PdfStorageReference && String(certificado.PdfStorageReference) !== storageReference) {
-    return { success: false, error: 'La referencia del PDF ya fue fijada y no puede sobrescribirse.' };
-  }
   const expectedVersion = Number(certificado.CertificateVersion) || 1;
   if (Number(certificateVersion || expectedVersion) !== expectedVersion) {
     return { success: false, error: 'La versi\u00f3n del PDF no corresponde al certificado vigente.' };
   }
-  const resolvedTemplate = String(templateVersion || certificado.TemplateVersion || CERTIFICATE_TEMPLATE_VERSION).trim();
-  if (certificado.PdfHash && certificado.TemplateVersion && certificado.TemplateVersion !== resolvedTemplate) {
+  const currentHash = String(certificado.PdfHash || '').trim().toLowerCase();
+  const hashMismatch = Boolean(currentHash && currentHash !== hash);
+  const rebaseAlreadyRegistered = hashMismatch && tieneRebaseHistoricoRegistrado(certificado, inscripcion);
+  const historicalHashRebaseAuthorized = hashMismatch
+    && historicalHashRebase === true
+    && originalArtifactUnavailable === true
+    && historicalHashRebaseConfirmation === 'REBASE_HISTORICAL_HASH_ONCE'
+    && /^[a-f0-9]{64}$/.test(previousHash)
+    && previousHash === currentHash
+    && rebaseReason.length >= 30
+    && esCertificadoHistoricoParaRebase(certificado)
+    && !rebaseAlreadyRegistered;
+  if (hashMismatch && !historicalHashRebaseAuthorized) {
+    return {
+      success: false,
+      error: rebaseAlreadyRegistered
+        ? 'La huella de este certificado hist\u00f3rico ya fue recuperada una vez y no puede sustituirse nuevamente.'
+        : 'El artefacto PDF ya fue fijado y no puede sobrescribirse.',
+    };
+  }
+  if (certificado.PdfStorageReference
+      && String(certificado.PdfStorageReference) !== storageReference
+      && !historicalHashRebaseAuthorized) {
+    return { success: false, error: 'La referencia del PDF ya fue fijada y no puede sobrescribirse.' };
+  }
+  const requestedTemplate = String(templateVersion || certificado.TemplateVersion || CERTIFICATE_TEMPLATE_VERSION).trim();
+  const resolvedTemplate = historicalHashRebaseAuthorized && certificado.TemplateVersion
+    ? String(certificado.TemplateVersion).trim()
+    : requestedTemplate;
+  if (certificado.PdfHash && certificado.TemplateVersion
+      && certificado.TemplateVersion !== resolvedTemplate
+      && !historicalHashRebaseAuthorized) {
     return { success: false, error: 'La versi\u00f3n de plantilla no corresponde al certificado emitido.' };
   }
-  updateRow(getSheet('Certificados'), certificado, {
+  const previousCertificateArtifact = {
+    PdfHash: certificado.PdfHash || '',
+    PdfStorageReference: certificado.PdfStorageReference || '',
+    TemplateVersion: certificado.TemplateVersion || '',
+  };
+  const previousEnrollmentArtifact = {
+    PdfHash: inscripcion.PdfHash || '',
+    PdfStorageReference: inscripcion.PdfStorageReference || '',
+    CertificateVersion: inscripcion.CertificateVersion || '',
+    TemplateVersion: inscripcion.TemplateVersion || '',
+  };
+  const certificateArtifactUpdate = {
     PdfHash: hash,
     PdfStorageReference: storageReference,
-    TemplateVersion: resolvedTemplate,
-  });
-  updateRow(getSheet('Inscripciones'), inscripcion, {
+  };
+  const enrollmentArtifactUpdate = {
     PdfHash: hash,
     PdfStorageReference: storageReference,
-    CertificateVersion: expectedVersion,
-    TemplateVersion: resolvedTemplate,
-  });
-  registrarAuditoriaCertificado({
-    certificadoId: certificado.CodigoCertificado,
-    inscripcionId: inscripcion.ID,
-    usuario: user.Username,
-    rol: user.Rol,
-    accion: certificado.PdfHash ? 'CERTIFICATE_ARTIFACT_CONFIRMED' : 'CERTIFICATE_ARTIFACT_REGISTERED',
-    estadoAnterior: estado,
-    estadoNuevo: estado,
-    canal: 'panel',
-    resultado: 'ok',
-    metadatos: {
-      certificateId: certificado.ID,
-      certificateVersion: expectedVersion,
-      templateVersion: resolvedTemplate,
-      pdfHash: hash,
-      pdfStorageReference: storageReference,
-    },
-  });
+  };
+  if (!historicalHashRebaseAuthorized) {
+    certificateArtifactUpdate.TemplateVersion = resolvedTemplate;
+    enrollmentArtifactUpdate.CertificateVersion = expectedVersion;
+    enrollmentArtifactUpdate.TemplateVersion = resolvedTemplate;
+  }
+  updateRow(getSheet('Certificados'), certificado, certificateArtifactUpdate);
+  updateRow(getSheet('Inscripciones'), inscripcion, enrollmentArtifactUpdate);
+  try {
+    registrarAuditoriaCertificado({
+      certificadoId: certificado.CodigoCertificado,
+      inscripcionId: inscripcion.ID,
+      usuario: user.Username,
+      rol: user.Rol,
+      accion: historicalHashRebaseAuthorized
+        ? 'CERTIFICATE_HISTORICAL_HASH_REBASED'
+        : certificado.PdfHash ? 'CERTIFICATE_ARTIFACT_CONFIRMED' : 'CERTIFICATE_ARTIFACT_REGISTERED',
+      estadoAnterior: estado,
+      estadoNuevo: estado,
+      canal: 'panel',
+      resultado: 'ok',
+      motivo: historicalHashRebaseAuthorized ? rebaseReason : '',
+      metadatos: {
+        certificateId: certificado.ID,
+        certificateVersion: expectedVersion,
+        templateVersion: resolvedTemplate,
+        requestedTemplateVersion: requestedTemplate,
+        pdfHash: hash,
+        previousPdfHash: historicalHashRebaseAuthorized ? currentHash : '',
+        recoveredPdfHash: historicalHashRebaseAuthorized ? hash : '',
+        pdfStorageReference: storageReference,
+        administrator: historicalHashRebaseAuthorized ? user.Username : '',
+        recoveredAt: historicalHashRebaseAuthorized ? new Date().toISOString() : '',
+        originalArtifactUnavailable: historicalHashRebaseAuthorized,
+      },
+    });
+  } catch (error) {
+    if (historicalHashRebaseAuthorized) {
+      updateRow(getSheet('Certificados'), certificado, previousCertificateArtifact);
+      updateRow(getSheet('Inscripciones'), inscripcion, previousEnrollmentArtifact);
+    }
+    throw error;
+  }
   return {
     success: true,
     data: {
@@ -1936,6 +2015,7 @@ function registrarArtefactoCertificado(user, {
       TemplateVersion: resolvedTemplate,
       PdfHash: hash,
       PdfStorageReference: storageReference,
+      historicalHashRebased: historicalHashRebaseAuthorized,
     },
   };
 }
