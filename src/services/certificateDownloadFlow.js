@@ -4,7 +4,10 @@ import {
 } from './certificateArtifactStore'
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 15_000
+const DEFAULT_READ_REQUEST_TIMEOUT_MS = 25_000
 const DEFAULT_PREPARATION_TIMEOUT_MS = 45_000
+const HISTORICAL_HASH_REBASE_CONFIRMATION = 'REBASE_HISTORICAL_HASH_ONCE'
+const HISTORICAL_HASH_REBASE_REASON = 'Recuperacion controlada: el artefacto PDF original del certificado historico no esta disponible.'
 
 function publicErrorMessage(error) {
   const fallback = 'No se pudo preparar el certificado. Inténtelo nuevamente o contacte al administrador.'
@@ -163,6 +166,26 @@ async function step(promise, timeoutMs, message) {
   )
 }
 
+async function readCertificateWithSingleRetry({ api, id, preview, timeoutMs }) {
+  const read = () => step(
+    api.getCertificadoParaDescarga(id),
+    timeoutMs,
+    'El servidor no respondió a tiempo al consultar el certificado.',
+  )
+  try {
+    return await read()
+  } catch (error) {
+    if (error?.code !== 'CERTIFICATE_DOWNLOAD_TIMEOUT') throw error
+    preview?.showStage('El servidor está tardando más de lo esperado. Reintentando consulta…')
+    try {
+      return await read()
+    } catch (retryError) {
+      if (retryError?.code !== 'CERTIFICATE_DOWNLOAD_TIMEOUT') throw retryError
+      throw new Error('No se pudo consultar el certificado después de dos intentos. El servidor continúa tardando más de lo esperado; inténtelo nuevamente.')
+    }
+  }
+}
+
 export async function downloadCertificateWithAudit({
   id,
   api,
@@ -170,6 +193,7 @@ export async function downloadCertificateWithAudit({
   preview,
   saveFile,
   requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
+  readRequestTimeoutMs = DEFAULT_READ_REQUEST_TIMEOUT_MS,
   preparationTimeoutMs = DEFAULT_PREPARATION_TIMEOUT_MS,
 }) {
   let certificate = null
@@ -178,11 +202,12 @@ export async function downloadCertificateWithAudit({
 
   try {
     preview?.showStage('Consultando la versión oficial del certificado…')
-    const current = await step(
-      api.getCertificadoParaDescarga(id),
-      requestTimeoutMs,
-      'El servidor no respondió a tiempo al consultar el certificado.',
-    )
+    const current = await readCertificateWithSingleRetry({
+      api,
+      id,
+      preview,
+      timeoutMs: readRequestTimeoutMs,
+    })
     certificate = current?.data
     if (!certificate) throw new Error('El servidor no devolvió los datos del certificado solicitado.')
 
@@ -201,6 +226,15 @@ export async function downloadCertificateWithAudit({
       certificateVersion: prepared.certificateVersion,
       historicalRecovery: prepared.historicalRecovered,
       auditAction: prepared.auditAction,
+      historicalHashRebase: prepared.historicalHashRebaseRequired,
+      previousPdfHash: prepared.previousPdfHash,
+      originalArtifactUnavailable: prepared.historicalHashRebaseRequired,
+      historicalHashRebaseConfirmation: prepared.historicalHashRebaseRequired
+        ? HISTORICAL_HASH_REBASE_CONFIRMATION
+        : '',
+      historicalHashRebaseReason: prepared.historicalHashRebaseRequired
+        ? HISTORICAL_HASH_REBASE_REASON
+        : '',
     }), requestTimeoutMs, 'El servidor no respondió a tiempo al registrar el PDF oficial.')
 
     preview?.showStage('Registrando la solicitud en la auditoría…')

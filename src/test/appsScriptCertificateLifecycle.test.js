@@ -25,6 +25,57 @@ function seededHarness() {
   return harness
 }
 
+function historicalHashHarness() {
+  const harness = createAppsScriptHarness()
+  const future = '2099-01-01T00:00:00.000Z'
+  harness.seed('Sesiones', [
+    { Token: 'admin-token', Username: 'admin.test', UserID: 'USR-A', Rol: 'admin', Nombre: 'Admin Test', Expira: future },
+    { Token: 'seller-token', Username: 'seller.test', UserID: 'USR-V', Rol: 'vendedor', Nombre: 'Seller Test', Expira: future },
+    { Token: 'aval-token', Username: 'aval.test', UserID: 'USR-I', Rol: 'aval', Nombre: 'Aval Test', Expira: future },
+  ])
+  harness.seed('Usuarios', [
+    { ID: 'USR-A', Nombre: 'Admin Test', Username: 'admin.test', Rol: 'admin', Activo: true },
+    { ID: 'USR-V', Nombre: 'Seller Test', Username: 'seller.test', Rol: 'vendedor', Activo: true },
+    { ID: 'USR-I', Nombre: 'Aval Test', Username: 'aval.test', Rol: 'aval', Activo: true },
+  ])
+  harness.seed('Servicios', [{ ID: 'SRV-1', Nombre: 'Curso Test', Duracion: '40', Activo: true }])
+  harness.seed('AuditoriaCertificados', [])
+  harness.seed('Certificados', [
+    {
+      ID: 'CERT-HIST', InscripcionID: 'INS-HIST', CodigoCertificado: 'RA-2024-HIST001',
+      CertificateVersion: 1, TemplateVersion: 'ra-canva-2026-v1', PdfHash: 'a'.repeat(64),
+      PdfStorageReference: 'browser-indexeddb:CERT-HIST:v1:historical-recovery', CertificateStatus: 'emitido',
+      IssuedAt: '2024-01-13T10:00:00.000Z', IssuedBy: 'admin.test',
+    },
+    {
+      ID: 'CERT-MODERN', InscripcionID: 'INS-MODERN', CodigoCertificado: 'RA-2026-MODERN001',
+      CertificateVersion: 1, TemplateVersion: 'ra-canva-2026-v1', PdfHash: 'c'.repeat(64),
+      PdfStorageReference: 'browser-indexeddb:CERT-MODERN:v1', CertificateStatus: 'emitido',
+      IssuedAt: '2026-07-10T10:00:00.000Z', IssuedBy: 'admin.test',
+    },
+  ])
+  harness.seed('Inscripciones', [
+    {
+      ID: 'INS-HIST', ClienteNombre: 'Persona Histórica', ClienteID: '0100000001', ServicioID: 'SRV-1',
+      ServicioNombre: 'Curso Histórico', Modalidad: 'Virtual', FechaInicio: '2024-01-10', FechaFin: '2024-01-12',
+      EstadoPago: 'verificado', EstadoCertificado: 'emitido', CodigoCertificado: 'RA-2024-HIST001',
+      FechaEmisionCertificado: '2024-01-13T10:00:00.000Z', CertificateVersion: 1,
+      TemplateVersion: 'legacy-inscription-v1', PdfHash: 'a'.repeat(64),
+      PdfStorageReference: 'browser-indexeddb:CERT-HIST:v1:historical-recovery',
+    },
+    {
+      ID: 'INS-MODERN', ClienteNombre: 'Persona Moderna', ClienteID: '0100000002', ServicioID: 'SRV-1',
+      ServicioNombre: 'Curso Moderno', Modalidad: 'Presencial', FechaInicio: '2026-07-08', FechaFin: '2026-07-09',
+      EstadoPago: 'verificado', EstadoCertificado: 'emitido', CodigoCertificado: 'RA-2026-MODERN001',
+      FechaEmisionCertificado: '2026-07-10T10:00:00.000Z', CertificateVersion: 1,
+      TemplateVersion: 'ra-canva-2026-v1', PdfHash: 'c'.repeat(64),
+      PdfStorageReference: 'browser-indexeddb:CERT-MODERN:v1',
+    },
+  ])
+  harness.seed('Ingresos', [])
+  return harness
+}
+
 describe('ciclo de vida de certificados en Apps Script', () => {
   it('anula lógicamente, conserva el QR histórico y rechaza eliminación', () => {
     const harness = seededHarness()
@@ -174,5 +225,84 @@ describe('ciclo de vida de certificados en Apps Script', () => {
     })
     expect(updated.success).toBe(true)
     expect(harness.objects('AuditoriaCertificados').map(item => item.Accion)).toContain('PAYMENT_REPORTED')
+  })
+
+  it('recupera una sola vez la huella legacy con trazabilidad y conserva todos los datos oficiales', () => {
+    const harness = historicalHashHarness()
+    const { processRequest } = harness.context
+    const before = harness.objects('Inscripciones').find(item => item.ID === 'INS-HIST')
+    const request = {
+      action: 'registrarArtefactoCertificado', token: 'admin-token', id: 'INS-HIST',
+      pdfHash: 'b'.repeat(64), pdfStorageReference: before.PdfStorageReference,
+      templateVersion: 'ra-canva-2026-v1', certificateVersion: before.CertificateVersion,
+      historicalHashRebase: true, previousPdfHash: before.PdfHash, originalArtifactUnavailable: true,
+      historicalHashRebaseConfirmation: 'REBASE_HISTORICAL_HASH_ONCE',
+      historicalHashRebaseReason: 'Recuperación controlada porque el artefacto PDF histórico original ya no está disponible.',
+    }
+
+    const recovered = processRequest(request)
+    const after = harness.objects('Inscripciones').find(item => item.ID === 'INS-HIST')
+    const artifactEvents = harness.objects('AuditoriaCertificados')
+      .filter(item => item.Accion === 'CERTIFICATE_HISTORICAL_HASH_REBASED')
+
+    expect(recovered).toMatchObject({ success: true, data: { historicalHashRebased: true, PdfHash: 'b'.repeat(64) } })
+    expect(after).toMatchObject({
+      ID: before.ID,
+      ClienteNombre: before.ClienteNombre,
+      ClienteID: before.ClienteID,
+      ServicioNombre: before.ServicioNombre,
+      Modalidad: before.Modalidad,
+      FechaInicio: before.FechaInicio,
+      FechaFin: before.FechaFin,
+      EstadoCertificado: before.EstadoCertificado,
+      CodigoCertificado: before.CodigoCertificado,
+      CertificateVersion: before.CertificateVersion,
+      TemplateVersion: before.TemplateVersion,
+      PdfHash: 'b'.repeat(64),
+    })
+    expect(artifactEvents).toHaveLength(1)
+    expect(JSON.parse(artifactEvents[0].Metadatos)).toMatchObject({
+      previousPdfHash: 'a'.repeat(64),
+      recoveredPdfHash: 'b'.repeat(64),
+      pdfStorageReference: before.PdfStorageReference,
+      administrator: 'admin.test',
+      originalArtifactUnavailable: true,
+    })
+
+    const repeated = processRequest({ ...request, pdfHash: 'd'.repeat(64), previousPdfHash: 'b'.repeat(64) })
+    expect(repeated.success).toBe(false)
+    expect(repeated.error).toContain('ya fue recuperada una vez')
+    expect(harness.objects('AuditoriaCertificados')
+      .filter(item => item.Accion === 'CERTIFICATE_HISTORICAL_HASH_REBASED')).toHaveLength(1)
+  })
+
+  it('mantiene bloqueados el rebase moderno y los intentos de vendedor o aval', () => {
+    const harness = historicalHashHarness()
+    const { processRequest } = harness.context
+    const base = {
+      action: 'registrarArtefactoCertificado', id: 'INS-HIST', pdfHash: 'b'.repeat(64),
+      pdfStorageReference: 'browser-indexeddb:CERT-HIST:v1:historical-recovery',
+      templateVersion: 'ra-canva-2026-v1', certificateVersion: 1,
+      historicalHashRebase: true, previousPdfHash: 'a'.repeat(64), originalArtifactUnavailable: true,
+      historicalHashRebaseConfirmation: 'REBASE_HISTORICAL_HASH_ONCE',
+      historicalHashRebaseReason: 'Recuperación controlada porque el artefacto PDF histórico original ya no está disponible.',
+    }
+
+    expect(processRequest({ ...base, token: 'seller-token' }).success).toBe(false)
+    expect(processRequest({ ...base, token: 'aval-token' }).success).toBe(false)
+    expect(harness.objects('Certificados').find(item => item.ID === 'CERT-HIST').PdfHash).toBe('a'.repeat(64))
+
+    const modern = processRequest({
+      ...base,
+      token: 'admin-token',
+      id: 'INS-MODERN',
+      pdfHash: 'd'.repeat(64),
+      previousPdfHash: 'c'.repeat(64),
+      pdfStorageReference: 'browser-indexeddb:CERT-MODERN:v1',
+    })
+    expect(modern.success).toBe(false)
+    expect(harness.objects('Certificados').find(item => item.ID === 'CERT-MODERN').PdfHash).toBe('c'.repeat(64))
+    expect(harness.objects('AuditoriaCertificados')
+      .filter(item => item.Accion === 'CERTIFICATE_HISTORICAL_HASH_REBASED')).toHaveLength(0)
   })
 })

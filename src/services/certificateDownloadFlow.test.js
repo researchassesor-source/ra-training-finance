@@ -147,4 +147,85 @@ describe('vista previa y descarga auditada de certificados', () => {
     expect(fixture.saveFile).toHaveBeenCalledOnce()
     expect(result.historicalRecoveryWarning).toContain('plantilla vigente')
   })
+
+  it('reintenta una sola vez la consulta lenta y no duplica ninguna escritura de auditoría', async () => {
+    const fixture = flowFixture()
+    fixture.api.getCertificadoParaDescarga = vi.fn()
+      .mockImplementationOnce(() => new Promise(() => {}))
+      .mockResolvedValueOnce({ data: fixture.certificate })
+    const preview = { showStage: vi.fn(), showError: vi.fn(), available: false, blocked: false }
+
+    await expect(downloadCertificateWithAudit({
+      id: 'DEMO',
+      ...fixture,
+      preview,
+      readRequestTimeoutMs: 5,
+    })).resolves.toMatchObject({ certificate: fixture.certificate })
+
+    expect(fixture.api.getCertificadoParaDescarga).toHaveBeenCalledTimes(2)
+    expect(preview.showStage).toHaveBeenCalledWith('El servidor está tardando más de lo esperado. Reintentando consulta…')
+    expect(fixture.api.registrarArtefactoCertificado).toHaveBeenCalledOnce()
+    expect(fixture.api.solicitarDescargaCertificado).toHaveBeenCalledOnce()
+    expect(fixture.api.confirmarDescargaCertificado).toHaveBeenCalledOnce()
+  })
+
+  it('termina con un error claro después de dos timeouts de lectura', async () => {
+    const fixture = flowFixture()
+    fixture.api.getCertificadoParaDescarga = vi.fn(() => new Promise(() => {}))
+    const preview = { showStage: vi.fn(), showError: vi.fn(), available: false, blocked: false }
+
+    await expect(downloadCertificateWithAudit({
+      id: 'DEMO',
+      ...fixture,
+      preview,
+      readRequestTimeoutMs: 5,
+    })).rejects.toThrow('después de dos intentos')
+
+    expect(fixture.api.getCertificadoParaDescarga).toHaveBeenCalledTimes(2)
+    expect(fixture.api.registrarArtefactoCertificado).not.toHaveBeenCalled()
+    expect(fixture.api.solicitarDescargaCertificado).not.toHaveBeenCalled()
+    expect(fixture.api.confirmarDescargaCertificado).not.toHaveBeenCalled()
+    expect(preview.showError).toHaveBeenCalledOnce()
+  })
+
+  it('no reintenta escrituras aunque el registro del artefacto agote su tiempo', async () => {
+    const fixture = flowFixture({
+      api: { registrarArtefactoCertificado: vi.fn(() => new Promise(() => {})) },
+    })
+
+    await expect(downloadCertificateWithAudit({
+      id: 'DEMO',
+      ...fixture,
+      requestTimeoutMs: 5,
+    })).rejects.toThrow('registrar el PDF oficial')
+
+    expect(fixture.api.registrarArtefactoCertificado).toHaveBeenCalledOnce()
+    expect(fixture.api.solicitarDescargaCertificado).not.toHaveBeenCalled()
+    expect(fixture.api.confirmarDescargaCertificado).not.toHaveBeenCalled()
+  })
+
+  it('envía al backend la autorización explícita para rebasar una huella legacy', async () => {
+    const fixture = flowFixture({
+      repository: {
+        prepare: vi.fn(async () => ({
+          ...preparedFixture(),
+          reference: 'browser-indexeddb:DEMO:v1:historical-recovery',
+          historicalRecovered: true,
+          historicalHashRebaseRequired: true,
+          previousPdfHash: 'b'.repeat(64),
+          auditAction: 'CERTIFICATE_HISTORICAL_HASH_REBASED',
+        })),
+      },
+    })
+
+    await downloadCertificateWithAudit({ id: 'DEMO', ...fixture })
+
+    expect(fixture.api.registrarArtefactoCertificado).toHaveBeenCalledWith('DEMO', expect.objectContaining({
+      historicalHashRebase: true,
+      previousPdfHash: 'b'.repeat(64),
+      originalArtifactUnavailable: true,
+      historicalHashRebaseConfirmation: 'REBASE_HISTORICAL_HASH_ONCE',
+      historicalHashRebaseReason: expect.stringContaining('artefacto PDF original'),
+    }))
+  })
 })
