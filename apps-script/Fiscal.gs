@@ -16,6 +16,16 @@ const FISCAL_CATALOG_VERSION = 1;
 const FISCAL_MIGRATION_PARAM_CONFIRMATION = 'APLICAR_MODULO_FISCAL';
 const FISCAL_MIGRATION_PROPERTY_VALUE = 'APPLY_SRI_MIGRATION_ONCE';
 
+// IMPORTANTE: el 0% de IVA es la tarifa declarada por Jefatura para cursos/capacitación,
+// pero NO está tributariamente confirmado todavía que la actividad económica registrada
+// de Research Assessor Training S.A.S. califique exactamente para ese tratamiento. Por
+// eso el catálogo nace en ValidacionTributaria='pendiente' y crearBorradorFactura
+// bloquea cualquier borrador en environment='production' hasta que un admin lo confirme
+// explícitamente vía confirmarValidacionTributariaFiscal. En 'test' sí se puede usar
+// (sin efecto tributario real) para no bloquear el desarrollo y las pruebas SRI.
+const FISCAL_VALIDACION_PENDIENTE = 'pendiente';
+const FISCAL_VALIDACION_CONFIRMADA = 'confirmado';
+
 const FISCAL_CATALOG_INICIAL = [
   { CodigoInterno: 'CAPACITACION', Descripcion: 'Curso o capacitación', TaxRateBasisPoints: 0 },
   { CodigoInterno: 'CAPACITACION_CERTIFICADO', Descripcion: 'Curso o capacitación con certificado incluido', TaxRateBasisPoints: 0 },
@@ -122,16 +132,20 @@ function migrarModuloFiscal(user, params) {
   let catalogoSembrado = false;
   FISCAL_CATALOG_INICIAL.forEach(function (item) {
     if (codigosExistentes.indexOf(item.CodigoInterno) !== -1) return;
-    getSheet('ConfiguracionFiscal').appendRow([
-      generateId('FCFG'),
-      item.CodigoInterno,
-      item.Descripcion,
-      item.TaxRateBasisPoints,
-      true,
-      FISCAL_CATALOG_VERSION,
-      user.Username,
-      new Date().toISOString(),
-    ]);
+    getSheet('ConfiguracionFiscal').appendRow(SHEET_HEADERS.ConfiguracionFiscal.map(function (header) {
+      const map = {
+        ID: generateId('FCFG'),
+        CodigoInterno: item.CodigoInterno,
+        Descripcion: item.Descripcion,
+        TaxRateBasisPoints: item.TaxRateBasisPoints,
+        Activo: true,
+        Version: FISCAL_CATALOG_VERSION,
+        ActualizadoPor: user.Username,
+        ActualizadoEn: new Date().toISOString(),
+        ValidacionTributaria: FISCAL_VALIDACION_PENDIENTE,
+      };
+      return map[header] !== undefined ? map[header] : '';
+    }));
     catalogoSembrado = true;
   });
 
@@ -210,12 +224,19 @@ function verificarConflictoSerieFiscal(user, params) {
 // BORRADOR DE FACTURA
 // ─────────────────────────────────────────────
 
-function validarItemFiscal_(item) {
+function validarItemFiscal_(item, environment) {
   if (!item || typeof item !== 'object') throw new Error('Ítem de factura inválido.');
   const catalogo = catalogoFiscalPorCodigo_(item.codigo);
   if (!catalogo) throw new Error('El código de ítem "' + item.codigo + '" no existe en el catálogo fiscal activo.');
   if (Number(catalogo.TaxRateBasisPoints) !== Number(item.taxRateBasisPoints)) {
     throw new Error('La tarifa de impuesto del ítem "' + item.codigo + '" no coincide con el catálogo aprobado.');
+  }
+  if (environment === 'production' && catalogo.ValidacionTributaria !== FISCAL_VALIDACION_CONFIRMADA) {
+    throw new Error(
+      'El concepto "' + item.codigo + '" todavía no tiene su tratamiento tributario confirmado ' +
+      '(ValidacionTributaria=' + (catalogo.ValidacionTributaria || FISCAL_VALIDACION_PENDIENTE) + '). ' +
+      'No se puede facturar en producción hasta que un administrador lo confirme con confirmarValidacionTributariaFiscal.'
+    );
   }
   ['baseCents', 'totalCents', 'precioUnitarioCents'].forEach(function (campo) {
     var valor = item[campo];
@@ -224,6 +245,50 @@ function validarItemFiscal_(item) {
     }
   });
   return catalogo;
+}
+
+/**
+ * Marca un código del catálogo como tributariamente confirmado (o lo revierte a
+ * pendiente). Requiere admin y un motivo — deja rastro de quién y por qué autorizó
+ * que ese concepto se facture en Producción. No decide la tarifa por sí misma: solo
+ * registra que Jefatura/Contabilidad ya validó el tratamiento fuera del sistema.
+ */
+function confirmarValidacionTributariaFiscal(user, params) {
+  const p = params || {};
+  requireFiscalAdmin(user, 'TAX_VALIDATION_CONFIRM');
+  if (!p.codigoInterno) throw new Error('codigoInterno es obligatorio.');
+  if (!p.motivo || String(p.motivo).trim().length < 5) {
+    throw new Error('motivo es obligatorio (mínimo 5 caracteres) para confirmar o revertir una validación tributaria.');
+  }
+  const nuevoEstado = p.confirmado === false ? FISCAL_VALIDACION_PENDIENTE : FISCAL_VALIDACION_CONFIRMADA;
+
+  return conBloqueoFiscal(function () {
+    const sheet = getSheet('ConfiguracionFiscal');
+    const fila = sheetToObjects(sheet).find(function (item) { return item.CodigoInterno === p.codigoInterno; });
+    if (!fila) throw new Error('Código de catálogo no encontrado: ' + p.codigoInterno);
+
+    const estadoAnterior = fila.ValidacionTributaria || FISCAL_VALIDACION_PENDIENTE;
+    updateRow(sheet, fila, {
+      ValidacionTributaria: nuevoEstado,
+      ValidadoPor: user.Username,
+      ValidadoEn: new Date().toISOString(),
+      MotivoValidacion: String(p.motivo).slice(0, 500),
+    });
+
+    registrarAuditoriaFiscal({
+      usuario: user.Username,
+      rol: user.Rol,
+      accion: 'TAX_VALIDATION_CONFIRM',
+      estadoAnterior: estadoAnterior,
+      estadoNuevo: nuevoEstado,
+      canal: 'api',
+      resultado: 'ok',
+      motivo: p.motivo,
+      metadatos: { codigoInterno: p.codigoInterno },
+    });
+
+    return { success: true, data: { codigoInterno: p.codigoInterno, validacionTributaria: nuevoEstado } };
+  });
 }
 
 function crearBorradorFactura(user, params) {
@@ -243,7 +308,7 @@ function crearBorradorFactura(user, params) {
       return { success: true, data: previa, idempotent: true };
     }
 
-    p.items.forEach(validarItemFiscal_);
+    p.items.forEach(function (item) { validarItemFiscal_(item, p.environment); });
 
     const subtotalWithoutTax = p.items.reduce(function (acc, item) { return acc + item.baseCents; }, 0);
     const taxTotal = Number.isInteger(p.taxTotal) ? p.taxTotal : 0;

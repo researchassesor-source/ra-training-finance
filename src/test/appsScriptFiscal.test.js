@@ -111,6 +111,67 @@ describe('catálogo fiscal', () => {
     expect(result.success).toBe(true)
     expect(result.data).toHaveLength(2)
   })
+
+  it('el catálogo sembrado nace con ValidacionTributaria=pendiente (IVA 0% no confirmado aún)', () => {
+    const harness = seededHarness()
+    migrar(harness)
+    const result = harness.context.processRequest({ action: 'getConfiguracionFiscal', token: 'admin-token' })
+    expect(result.data.every(item => item.ValidacionTributaria === 'pendiente')).toBe(true)
+  })
+})
+
+describe('validación tributaria del catálogo (gate de producción)', () => {
+  it('bloquea un borrador en environment=production mientras el código esté pendiente', () => {
+    const harness = seededHarness()
+    migrar(harness)
+    const result = harness.context.processRequest(draftParams({ environment: 'production', idempotencyKey: 'idem-prod-1' }))
+    expect(result.success).toBe(false)
+    expect(result.error).toMatch(/tributario/i)
+  })
+
+  it('permite el mismo borrador en environment=test aunque esté pendiente (sin efecto tributario real)', () => {
+    const harness = seededHarness()
+    migrar(harness)
+    const result = harness.context.processRequest(draftParams({ environment: 'test', idempotencyKey: 'idem-test-1' }))
+    expect(result.success).toBe(true)
+  })
+
+  it('confirmarValidacionTributariaFiscal exige admin y un motivo de al menos 5 caracteres', () => {
+    const harness = seededHarness()
+    migrar(harness)
+    const sinMotivo = harness.context.processRequest({ action: 'confirmarValidacionTributariaFiscal', token: 'admin-token', codigoInterno: 'CAPACITACION', motivo: 'ok' })
+    expect(sinMotivo.success).toBe(false)
+    const noAdmin = harness.context.processRequest({ action: 'confirmarValidacionTributariaFiscal', token: 'seller-token', codigoInterno: 'CAPACITACION', motivo: 'Confirmado por contador externo' })
+    expect(noAdmin.success).toBe(false)
+  })
+
+  it('una vez confirmado el código, el borrador de producción se acepta', () => {
+    const harness = seededHarness()
+    migrar(harness)
+    const confirm = harness.context.processRequest({
+      action: 'confirmarValidacionTributariaFiscal', token: 'admin-token',
+      codigoInterno: 'CAPACITACION', motivo: 'Confirmado por contador externo tras revisión de RUC y actividad económica.',
+    })
+    expect(confirm.success).toBe(true)
+    expect(confirm.data.validacionTributaria).toBe('confirmado')
+    expect(harness.objects('AuditoriaFiscal').some(item => item.Accion === 'TAX_VALIDATION_CONFIRM' && item.EstadoNuevo === 'confirmado')).toBe(true)
+
+    const result = harness.context.processRequest(draftParams({ environment: 'production', idempotencyKey: 'idem-prod-2' }))
+    expect(result.success).toBe(true)
+  })
+
+  it('se puede revertir una confirmación a pendiente (confirmado: false), y vuelve a bloquear producción', () => {
+    const harness = seededHarness()
+    migrar(harness)
+    harness.context.processRequest({ action: 'confirmarValidacionTributariaFiscal', token: 'admin-token', codigoInterno: 'CAPACITACION', motivo: 'Confirmación inicial de prueba.' })
+    const revert = harness.context.processRequest({
+      action: 'confirmarValidacionTributariaFiscal', token: 'admin-token',
+      codigoInterno: 'CAPACITACION', motivo: 'Se detectó que la actividad no calificaba, se revierte.', confirmado: false,
+    })
+    expect(revert.data.validacionTributaria).toBe('pendiente')
+    const result = harness.context.processRequest(draftParams({ environment: 'production', idempotencyKey: 'idem-prod-3' }))
+    expect(result.success).toBe(false)
+  })
 })
 
 describe('borrador de factura', () => {

@@ -114,6 +114,7 @@ function processRequest(data) {
     // Módulo fiscal SRI — ver apps-script/Fiscal.gs
     migrarModuloFiscal:          () => migrarModuloFiscal(user, params),
     getConfiguracionFiscal:      () => obtenerConfiguracionFiscalActiva(user, params),
+    confirmarValidacionTributariaFiscal: () => confirmarValidacionTributariaFiscal(user, params),
     verificarConflictoSerieFiscal: () => verificarConflictoSerieFiscal(user, params),
     crearBorradorFactura:        () => crearBorradorFactura(user, params),
     reservarSecuencialFiscal:    () => reservarSecuencialFiscal(user, params),
@@ -164,7 +165,7 @@ const SHEET_HEADERS = {
   FacturaItems: ['ID','FacturaID','Codigo','Descripcion','Cantidad','PrecioUnitarioCents','DescuentoCents','TaxRateBasisPoints','SriTaxCode','BaseCents','TotalCents','CatalogVersion','ConfirmedBy','CreatedAt'],
   SecuenciaFiscal: ['ID','Environment','Establishment','EmissionPoint','DocumentType','LastSequential','UpdatedAt'],
   AuditoriaFiscal: ['ID','FacturaID','Usuario','Rol','Accion','FechaHora','EstadoAnterior','EstadoNuevo','Canal','Resultado','Motivo','Metadatos'],
-  ConfiguracionFiscal: ['ID','CodigoInterno','Descripcion','TaxRateBasisPoints','Activo','Version','ActualizadoPor','ActualizadoEn'],
+  ConfiguracionFiscal: ['ID','CodigoInterno','Descripcion','TaxRateBasisPoints','Activo','Version','ActualizadoPor','ActualizadoEn','ValidacionTributaria','ValidadoPor','ValidadoEn','MotivoValidacion'],
 };
 
 const CERTIFICATE_TEMPLATE_VERSION = 'ra-canva-2026-v1';
