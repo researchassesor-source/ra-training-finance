@@ -7,3 +7,12 @@ dist/
 .env.*
 !.env.example
 output/
+
+# Secretos de firma electrónica — nunca deben versionarse (ver docs/fiscal/architecture.md).
+# Defensa en profundidad: el flujo normal nunca coloca estos archivos dentro del repo,
+# pero se bloquean explícitamente por si acaso.
+*.p12
+*.pfx
+*.pem
+*.key
+.ra-training-secrets/
