@@ -3,7 +3,15 @@ import fs from 'node:fs'
 import path from 'node:path'
 import vm from 'node:vm'
 
-const code = fs.readFileSync(path.join(process.cwd(), 'apps-script/Code.gs'), 'utf8')
+// Apps Script ejecuta todos los archivos .gs del proyecto en un único ámbito global
+// compartido (no son módulos ES separados). Concatenar aquí simula eso fielmente para
+// las pruebas. Fiscal.gs es opcional: solo se incluye si ya existe en el checkout.
+const GAS_FILES = ['Code.gs', 'Fiscal.gs']
+const code = GAS_FILES
+  .map(name => path.join(process.cwd(), 'apps-script', name))
+  .filter(filePath => fs.existsSync(filePath))
+  .map(filePath => fs.readFileSync(filePath, 'utf8'))
+  .join('\n\n')
 
 function sourceHeaders(name) {
   const match = code.match(new RegExp(`(?:^|\\n)\\s*${name}:\\s*\\[(.*?)\\]`, 's'))
@@ -89,6 +97,7 @@ export function createAppsScriptHarness({ authSecret = 'test-only-secret-with-at
       getScriptProperties: () => ({
         getProperty: key => properties.get(key) || null,
         setProperty: (key, value) => properties.set(key, value),
+        deleteProperty: key => properties.delete(key),
       }),
     },
     ContentService: { MimeType: { JSON: 'JSON' }, createTextOutput: value => ({ setMimeType: () => value }) },

@@ -111,6 +111,15 @@ function processRequest(data) {
     updateActividadFlujo: () => updateActividadFlujo(user, params),
     deleteActividadFlujo: () => deleteRecord(user, 'ActividadesFlujo', params, false),
     deleteTimbrada:       () => deleteTimbrada(user, params),
+    // Módulo fiscal SRI — ver apps-script/Fiscal.gs
+    migrarModuloFiscal:          () => migrarModuloFiscal(user, params),
+    getConfiguracionFiscal:      () => obtenerConfiguracionFiscalActiva(user, params),
+    verificarConflictoSerieFiscal: () => verificarConflictoSerieFiscal(user, params),
+    crearBorradorFactura:        () => crearBorradorFactura(user, params),
+    reservarSecuencialFiscal:    () => reservarSecuencialFiscal(user, params),
+    transicionEstadoFactura:     () => transicionEstadoFactura(user, params),
+    getFacturasFiscales:         () => getFacturasFiscales(user, params),
+    getAuditoriaFiscal:          () => getAuditoriaFiscal(user, params),
   };
 
   if (!handlers[action]) return { success: false, error: 'Acción no reconocida.' };
@@ -150,6 +159,12 @@ const SHEET_HEADERS = {
   AuditoriaCertificados: ['ID','CertificadoID','InscripcionID','Usuario','Rol','Accion','FechaHora','EstadoAnterior','EstadoNuevo','Canal','Resultado','Motivo','Metadatos'],
   Certificados: ['ID','InscripcionID','CodigoCertificado','CertificateVersion','TemplateVersion','PdfHash','PdfStorageReference','OriginalCertificateId','ReissuedCertificateId','CertificateStatus','IssuedAt','IssuedBy','VoidedAt','VoidedBy','VoidReason','ReissueReason','CreatedAt'],
   DescargasCertificados: ['ID','CertificadoID','InscripcionID','Usuario','Rol','Estado','FechaSolicitud','FechaConfirmacion','Motivo','PdfHash','PdfStorageReference','Canal'],
+  // Módulo fiscal SRI (feature/sri-integration-production-ready) — ver docs/fiscal/DATA_MODEL.md
+  FacturasFiscales: ['ID','Environment','Status','InscripcionID','IdempotencyKey','DocumentType','IssueDate','Timezone','IssuerRuc','Establishment','EmissionPoint','Sequential','DocumentNumber','AccessKey','NumericCode','BuyerIdentificationType','BuyerIdentification','BuyerName','BuyerEmail','BuyerAddress','SubtotalWithoutTax','Subtotal0','SubtotalTaxed','DiscountCents','TaxTotal','GrandTotal','Currency','PaymentMethodInternal','SriPaymentCode','XmlVersion','SoftwareProviderMode','SoftwareProviderRuc','XmlGeneratedReference','XmlSignedReference','XmlAuthorizedReference','RideReference','Sha256Generated','Sha256Signed','Sha256Authorized','Sha256Ride','SriReceptionStatus','SriAuthorizationStatus','AuthorizationNumber','AuthorizationDate','LastSriMessage','RetryCount','CreatedBy','CreatedAt','UpdatedAt','AuthorizedAt','DeliveredAt'],
+  FacturaItems: ['ID','FacturaID','Codigo','Descripcion','Cantidad','PrecioUnitarioCents','DescuentoCents','TaxRateBasisPoints','SriTaxCode','BaseCents','TotalCents','CatalogVersion','ConfirmedBy','CreatedAt'],
+  SecuenciaFiscal: ['ID','Environment','Establishment','EmissionPoint','DocumentType','LastSequential','UpdatedAt'],
+  AuditoriaFiscal: ['ID','FacturaID','Usuario','Rol','Accion','FechaHora','EstadoAnterior','EstadoNuevo','Canal','Resultado','Motivo','Metadatos'],
+  ConfiguracionFiscal: ['ID','CodigoInterno','Descripcion','TaxRateBasisPoints','Activo','Version','ActualizadoPor','ActualizadoEn'],
 };
 
 const CERTIFICATE_TEMPLATE_VERSION = 'ra-canva-2026-v1';

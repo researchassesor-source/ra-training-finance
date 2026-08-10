@@ -12,12 +12,13 @@ Se recibieron dos documentos de referencia:
 - `Ficha_Maestra_Final_SRI_RA_Training_Finance_2026.docx` (v2.0, 04/08/2026, más reciente) — dice
   Ficha Técnica SRI **versión 2.33**, julio 2026, y añade el dato concreto **XML de factura 2.1.0**.
 
-Los dos documentos no coinciden en el número de versión de la ficha técnica. Regla del propio
-prompt maestro (sección 8): no implementar desde memoria, reabrir la fuente oficial y comparar.
-**Antes de escribir el generador de XML/XSD (Fase 3) hay que reabrir
-https://www.sri.gob.ec/facturacion-electronica, descargar la ficha vigente y el XSD, calcular su
-SHA-256 y registrar versión/fecha/hash en `docs/fiscal/sri-sources.md`.** No se asume 2.33 ni 2.34
-hasta esa verificación en vivo.
+Los dos documentos no coinciden en el número de versión de la ficha técnica. **Resuelto por el
+usuario (10/08/2026): la fuente oficial vigente en sri.gob.ec muestra actualmente la Ficha
+Técnica de Comprobantes Electrónicos Esquema Offline versión 2.34 (julio 2026) — se usa 2.34
+como fuente de verdad, no 2.33.** Aun así, antes de escribir el generador de XML/XSD (Fase 3) hay
+que reabrir https://www.sri.gob.ec/facturacion-electronica, descargar la ficha 2.34 vigente y el
+XSD oficial, calcular su SHA-256 y registrar versión/fecha/hash en `docs/fiscal/sri-sources.md`
+— instrucción explícita del usuario, no solo regla del prompt maestro (sección 8).
 
 Otras dos diferencias resueltas con criterio (documento v2.0 es el más nuevo y más específico):
 
