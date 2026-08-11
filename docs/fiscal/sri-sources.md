@@ -51,22 +51,49 @@ decimales). 2.1.0 es además estrictamente superset de 2.0.0 (agrega el bloque o
 del usuario ("Versión XML objetivo: Factura 2.1.0"), pero aquí queda verificado contra el
 archivo XSD real, no solo citado de un documento de referencia.
 
-## 3. Pendiente para fases posteriores (no bloquea Fase 3)
+## 3. Endpoints SOAP — verificados en vivo para Fase 5 (12/08/2026)
 
-- **Endpoints SOAP de recepción/autorización** (Pruebas y Producción): la ficha técnica
-  descargada es un PDF de 142 páginas mayormente compuesto de imágenes (no es texto
-  plano extraíble de forma confiable). Los endpoints usados como referencia hasta ahora
-  vienen de los documentos internos del usuario (Prompt Maestro §8 / Ficha Maestra §5).
-  **Antes de construir el cliente SOAP (Fase 5) hay que re-verificar esas URLs
-  directamente contra la ficha 2.34 o la documentación de servicios web del SRI**, no
-  asumir que no cambiaron desde el documento interno.
+Corrección respecto a lo anotado en Fase 3: `pdftotext -layout` sí extrae texto útil de
+la ficha (el "mayormente imágenes" era una primera impresión equivocada basada en el
+tamaño del archivo) — la sección 7 completa (Recepción) y 7.5/Tabla 6 (Autorización)
+tienen texto plano perfectamente legible en
+`docs/fiscal/sri-official/ficha_extracted.txt`.
+
+Además, se verificaron los dos WSDL reales de Pruebas obteniéndolos en vivo:
+
+| Servicio | URL WSDL (Pruebas) | Namespace | Operación | Parámetro |
+|---|---|---|---|---|
+| Recepción | `https://celcer.sri.gob.ec/comprobantes-electronicos-ws/RecepcionComprobantesOffline?wsdl` | `http://ec.gob.sri.ws.recepcion` | `validarComprobante` | `xml: xs:base64Binary` |
+| Autorización | `https://celcer.sri.gob.ec/comprobantes-electronicos-ws/AutorizacionComprobantesOffline?wsdl` | `http://ec.gob.sri.ws.autorizacion` | `autorizacionComprobante` | `claveAccesoComprobante: xs:string` |
+
+Ambos WSDL en vivo coinciden exactamente (namespace, nombre de operación, tipo de
+parámetro, binding `document`/`literal`, SOAP 1.1) con lo documentado en la ficha 2.34.
+Implementado en `lib/fiscal/sri/`.
+
+**Hallazgo durante la implementación** (no solo teoría — lo confirmó un test real): el
+esquema de respuesta del SRI reutiliza la etiqueta `<mensaje>` tanto para el contenedor
+de un mensaje como para el campo de texto interno de ese mismo contenedor
+(`<mensaje><identificador>35</identificador><mensaje>DOCUMENTO INVÁLIDO</mensaje>...`).
+Una búsqueda recursiva de descendientes (`getElementsByTagName`) confunde ambos niveles
+y duplica resultados. `lib/fiscal/sri/soapEnvelope.js` usa `directChildren` (solo hijos
+directos) precisamente por esto — ver `recepcion.test.js`/`autorizacion.test.js`, caso
+"múltiples mensajes".
+
+**Advertencia pendiente de confirmar contra una respuesta real de Pruebas** (no
+inventada): el literal exacto que usa `<estado>` para "en procesamiento" (sigla PPR)
+no aparece como ejemplo XML en la ficha, solo en prosa. `lib/fiscal/sri/estados.js`
+acepta varios alias razonables pero esto debe confirmarse la primera vez que un
+comprobante real quede pendiente en Pruebas.
+
+## 4. Pendiente para fases posteriores
+
 - **Anexo 26 (RUC del proveedor de software)**: mencionado en el Prompt Maestro §8;
   requiere determinar si R.A. Training Finance es "software propio" o "de un tercero" y
   la fecha de vigencia de la resolución aplicable. No verificado todavía contra la fuente
   oficial — pendiente antes de Producción (ya bloqueado por diseño:
   `SRI_SOFTWARE_PROVIDER_MODE` sin definir bloquea la primera factura productiva).
 
-## 4. Validación de XML contra XSD
+## 5. Validación de XML contra XSD
 
 `lib/fiscal/facturaXml.test.js` valida el XML generado con `xmllint --noout --schema`
 (libxml2, motor de referencia) contra la copia oficial conservada en este repo. Es una
