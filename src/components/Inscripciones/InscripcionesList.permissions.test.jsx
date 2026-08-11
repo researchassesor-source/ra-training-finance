@@ -14,6 +14,7 @@ const apiMock = vi.hoisted(() => ({
   getInscripciones: vi.fn(async () => ({ data: state.rows })),
   getServicios: vi.fn(async () => ({ data: [] })),
   getUsuarios: vi.fn(async () => ({ data: [] })),
+  getInstitucionesAval: vi.fn(async () => ({ data: [] })),
   getConfigPagos: vi.fn(async () => ({ data: [] })),
   emitirCertificado: vi.fn(async () => ({ data: state.rows[0] })),
   getCertificadoParaDescarga: vi.fn(async () => ({ data: state.rows[0] })),
@@ -113,6 +114,7 @@ describe('acciones visibles en inscripciones', () => {
     state.order = []
     state.qrValid = true
     state.qrEnvironment = 'development'
+    window.history.replaceState({}, '', '/inscripciones')
     Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => 'blob:certificate-preview') })
     Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() })
     vi.spyOn(window, 'open').mockReturnValue({
@@ -236,5 +238,26 @@ describe('acciones visibles en inscripciones', () => {
     const issue = screen.getByRole('button', { name: 'VITE_PUBLIC_APP_URL es obligatoria para emitir certificados en Preview y Production.' })
     expect(issue).toBeDisabled()
     expect(apiMock.emitirCertificado).not.toHaveBeenCalled()
+  })
+
+  it('muestra el origen CRM y abre la inscripción solicitada por query param', async () => {
+    state.user = { rol: 'admin', username: 'admin.demo', nombre: 'Admin Demo' }
+    state.rows = [{
+      ...emittedRow,
+      ID: 'INS-CRM-001',
+      Origen: 'CRM',
+      CRMEnrollmentID: 'ENR-CRM-001',
+      EstadoPago: 'pendiente',
+      EstadoCertificado: 'pendiente',
+      CertificateStatus: 'pendiente',
+      CodigoCertificado: '',
+    }]
+    window.history.replaceState({}, '', '/inscripciones?open=INS-CRM-001')
+
+    render(<InscripcionesList />)
+
+    expect(await screen.findByText('CRM')).toBeInTheDocument()
+    expect(screen.getByText('Pendiente de completar')).toBeInTheDocument()
+    expect(await screen.findByText('Editar Inscripción')).toBeInTheDocument()
   })
 })

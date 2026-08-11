@@ -140,7 +140,7 @@ const SHEET_HEADERS = {
   Proyecciones:     ['ID','Evento','Tipo','FechaEstimada','MontoProyectado','MontoReal','Estado','Notas','CreadoPor','FechaCreacion'],
   Categorias:       ['ID','Nombre','Tipo','Activo'],
   Servicios:        ['ID','Nombre','Tipo','Modalidad','Precio','Duracion','Descripcion','Activo','FechaCreacion','FechaEvento','FechaFinEvento','LugarEvento'],
-  Inscripciones:    ['ID','ClienteNombre','ClienteID','ClienteEmail','ClienteTelefono','ServicioID','ServicioNombre','Modalidad','FechaInicio','Monto','MetodoPago','RazonSocial','RUC','DireccionFactura','EstadoPago','EstadoCertificado','IngresoID','Notas','CreadoPor','FechaCreacion','FechaEmisionCertificado','RequiereAvalExterno','EstadoAval','AvalReferencia','FechaAval','ValorAval','FechaFin','NumeroComprobante','FechaPago','FechaVerificacionPago','VerificadoPor','InstitucionAval','CodigoCertificado','EmitidoPor','EstadoEntrega','FechaEntregaCertificado','EntregadoPor','AvalEnlaceExterno','AvalCodigoExterno','AvalTextoConfirmado','CertificateVersion','TemplateVersion','PdfHash','PdfStorageReference','OriginalCertificateId','ReissuedCertificateId','CertificateStatus','IssuedAt','IssuedBy','VoidedAt','VoidedBy','VoidReason','ReissueReason'],
+  Inscripciones:    ['ID','ClienteNombre','ClienteID','ClienteEmail','ClienteTelefono','ServicioID','ServicioNombre','Modalidad','FechaInicio','Monto','MetodoPago','RazonSocial','RUC','DireccionFactura','EstadoPago','EstadoCertificado','IngresoID','Notas','CreadoPor','FechaCreacion','FechaEmisionCertificado','RequiereAvalExterno','EstadoAval','AvalReferencia','FechaAval','ValorAval','FechaFin','NumeroComprobante','FechaPago','FechaVerificacionPago','VerificadoPor','InstitucionAval','CodigoCertificado','EmitidoPor','EstadoEntrega','FechaEntregaCertificado','EntregadoPor','AvalEnlaceExterno','AvalCodigoExterno','AvalTextoConfirmado','CertificateVersion','TemplateVersion','PdfHash','PdfStorageReference','OriginalCertificateId','ReissuedCertificateId','CertificateStatus','IssuedAt','IssuedBy','VoidedAt','VoidedBy','VoidReason','ReissueReason','CRMEnrollmentID','CRMContactID','CRMCourseID','Origen'],
   Sesiones:         ['Token','Username','UserID','Rol','Nombre','Expira'],
   ConfigPagos:      ['ID','Nombre','Tipo','Detalles','Instrucciones','Activo','FechaCreacion'],
   Convenios:        ['ID','Organizacion','Representante','Cargo','Objeto','ObligacionesRA','ObligacionesAliado','Vigencia','FechaInicio','FechaFin','Estado','Notas','CreadoPor','FechaCreacion'],
@@ -1531,7 +1531,199 @@ function getInscripciones(user, { filtros = {} } = {}) {
   return { success: true, data };
 }
 
-function addInscripcion(user, { inscripcion }) {
+function esSolicitudImportacionCrm(params) {
+  const inscripcion = params && params.inscripcion;
+  return Boolean(inscripcion && (
+    tienePropiedad(params, 'idempotencyKey')
+    || tienePropiedad(inscripcion, 'crmEnrollmentId')
+  ));
+}
+
+function valorCrmPreferido(preferido, fallback) {
+  if (preferido !== undefined && preferido !== null && String(preferido).trim() !== '') return preferido;
+  return fallback;
+}
+
+function normalizarNombreServicioCrm(value) {
+  return String(value || '').trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function resolverServicioImportacionCrm(nombreSolicitado) {
+  const normalized = normalizarNombreServicioCrm(nombreSolicitado);
+  if (!normalized) return null;
+  const matches = sheetToObjects(getSheet('Servicios')).filter(function(servicio) {
+    return esVerdadero(servicio.Activo) && normalizarNombreServicioCrm(servicio.Nombre) === normalized;
+  });
+  return matches.length === 1 ? matches[0] : null;
+}
+
+function eliminarFilaCreadaPorId(sheet, id) {
+  const row = sheetToObjects(sheet).find(function(item) { return String(item.ID || '') === String(id || ''); });
+  if (row) sheet.deleteRow(row._row);
+}
+
+function importCrmEnrollment(user, { idempotencyKey, inscripcion } = {}) {
+  if (!isVendedor(user)) throw new Error('Acceso denegado.');
+  inscripcion = inscripcion || {};
+  const crmEnrollmentId = String(inscripcion.crmEnrollmentId || '').trim();
+  const requestedKey = String(idempotencyKey || '').trim();
+  if (!crmEnrollmentId) return { success: false, error: 'El identificador de inscripción CRM es obligatorio.' };
+  if (!requestedKey || requestedKey !== crmEnrollmentId) {
+    return { success: false, error: 'El identificador idempotente de CRM no coincide.' };
+  }
+
+  return conBloqueoCertificados(function() {
+    const sheet = getSheet('Inscripciones');
+    asegurarColumnasInscripcion(sheet, ['CRMEnrollmentID','CRMContactID','CRMCourseID','Origen']);
+    const existing = filasInscripcionesDecoradas(sheet).rows.filter(function(row) {
+      return String(row.CRMEnrollmentID || '').trim() === crmEnrollmentId;
+    });
+    if (existing.length > 1) {
+      return { success: false, error: 'El identificador CRM tiene múltiples registros en Finance.' };
+    }
+    if (existing.length === 1) {
+      const existingId = String(existing[0].ID || '').trim();
+      return existingId
+        ? { success: true, id: existingId }
+        : { success: false, error: 'La inscripción CRM existente no tiene un ID válido.' };
+    }
+
+    const participant = inscripcion.participant && typeof inscripcion.participant === 'object'
+      ? inscripcion.participant : {};
+    const participantName = String(valorCrmPreferido(
+      participant.fullName,
+      [participant.firstName, participant.lastName].filter(Boolean).join(' ') || inscripcion.clienteNombre,
+    ) || '').trim();
+    if (!participantName) return { success: false, error: 'El participante de CRM es obligatorio.' };
+    const participantEmail = String(valorCrmPreferido(participant.email, inscripcion.clienteEmail) || '').trim();
+    if (participantEmail && !emailValido(participantEmail)) {
+      return { success: false, error: 'El correo del participante no es válido.' };
+    }
+    const participantPhone = String(valorCrmPreferido(participant.phone, inscripcion.clienteTelefono) || '').trim();
+    const identification = participant.identification === null
+      ? ''
+      : String(valorCrmPreferido(participant.identification, inscripcion.clienteID) || '').trim();
+    const requestedCourse = valorCrmPreferido(inscripcion.courseTitle, inscripcion.servicioNombre);
+    const service = resolverServicioImportacionCrm(requestedCourse);
+    if (!service) return { success: false, error: 'Servicio de Finance no configurado para este curso.' };
+
+    const amountValue = valorCrmPreferido(inscripcion.amount, inscripcion.monto);
+    const amount = Number(amountValue);
+    if (String(amountValue === undefined || amountValue === null ? '' : amountValue).trim() === ''
+        || !isFinite(amount) || amount < 0) {
+      return { success: false, error: 'El monto enviado por CRM no es válido.' };
+    }
+    const modality = String(valorCrmPreferido(
+      inscripcion.modality,
+      valorCrmPreferido(inscripcion.modalidad, service.Modalidad),
+    ) || '').trim();
+    if (!modality) return { success: false, error: 'La modalidad enviada por CRM es obligatoria.' };
+    const startRaw = valorCrmPreferido(inscripcion.startDate, inscripcion.fechaInicio);
+    const endRaw = valorCrmPreferido(inscripcion.endDate, inscripcion.fechaFin);
+    const startDate = startRaw ? fechaSolo(startRaw) : '';
+    const endDate = endRaw ? fechaSolo(endRaw) : '';
+    if (startRaw && !startDate) return { success: false, error: 'La fecha de inicio enviada por CRM no es válida.' };
+    if (endRaw && !endDate) return { success: false, error: 'La fecha de fin enviada por CRM no es válida.' };
+    if (startDate && endDate && endDate < startDate) {
+      return { success: false, error: 'La fecha de fin enviada por CRM no puede ser anterior a la fecha de inicio.' };
+    }
+
+    const id = generateId('INS');
+    const ingresoId = generateId('ING');
+    const now = new Date().toISOString();
+    const values = {
+      ID: id,
+      ClienteNombre: participantName,
+      ClienteID: identification,
+      ClienteEmail: participantEmail,
+      ClienteTelefono: participantPhone,
+      ServicioID: service.ID,
+      ServicioNombre: service.Nombre,
+      Modalidad: modality,
+      FechaInicio: startDate,
+      FechaFin: endDate,
+      Monto: amount,
+      MetodoPago: '',
+      RazonSocial: '',
+      RUC: '',
+      DireccionFactura: '',
+      EstadoPago: 'pendiente',
+      EstadoCertificado: 'pendiente',
+      IngresoID: ingresoId,
+      Notas: String(inscripcion.notas || '').trim(),
+      CreadoPor: user.Username,
+      FechaCreacion: now,
+      FechaEmisionCertificado: '',
+      RequiereAvalExterno: false,
+      EstadoAval: '',
+      AvalReferencia: '',
+      FechaAval: '',
+      ValorAval: 0,
+      NumeroComprobante: '',
+      FechaPago: '',
+      FechaVerificacionPago: '',
+      VerificadoPor: '',
+      InstitucionAval: '',
+      CodigoCertificado: '',
+      EmitidoPor: '',
+      EstadoEntrega: 'pendiente',
+      FechaEntregaCertificado: '',
+      EntregadoPor: '',
+      AvalEnlaceExterno: '',
+      AvalCodigoExterno: '',
+      CRMEnrollmentID: crmEnrollmentId,
+      CRMContactID: String(inscripcion.crmContactId || '').trim(),
+      CRMCourseID: String(inscripcion.crmCourseId || '').trim(),
+      Origen: 'CRM',
+    };
+
+    const incomeSheet = getSheet('Ingresos');
+    let enrollmentCreated = false;
+    let incomeCreated = false;
+    try {
+      appendInscripcionPorEncabezados(sheet, values);
+      enrollmentCreated = true;
+      incomeSheet.appendRow([
+        ingresoId,
+        now.slice(0, 10),
+        tipoIngresoPorModalidad(modality),
+        modality,
+        'Inscripción: ' + participantName + ' — ' + service.Nombre,
+        participantName,
+        '',
+        amount,
+        '',
+        'pendiente_verificacion',
+        '',
+        user.Username,
+        now,
+        participantPhone,
+        '',
+      ]);
+      incomeCreated = true;
+      registrarAuditoriaCertificado({
+        inscripcionId: id,
+        usuario: user.Username,
+        rol: user.Rol,
+        accion: 'INSCRIPTION_CREATED',
+        estadoNuevo: 'INSCRIPTION_CREATED',
+        canal: 'crm',
+        resultado: 'ok',
+        metadatos: { crmEnrollmentId: crmEnrollmentId, origen: 'CRM' },
+      });
+    } catch (error) {
+      if (incomeCreated) eliminarFilaCreadaPorId(incomeSheet, ingresoId);
+      if (enrollmentCreated) eliminarFilaCreadaPorId(sheet, id);
+      throw new Error('No se pudo completar la importación desde CRM.');
+    }
+    return { success: true, id: id };
+  });
+}
+
+function addInscripcion(user, params) {
+  if (esSolicitudImportacionCrm(params)) return importCrmEnrollment(user, params);
+  const inscripcion = params && params.inscripcion;
   if (!isVendedor(user)) throw new Error('Acceso denegado.');
   const validationError = validarDatosInscripcion(inscripcion);
   if (validationError) return { success: false, error: validationError };

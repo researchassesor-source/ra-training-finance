@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { saveAs } from 'file-saver'
 import {
   Award, Ban, CheckCircle, Download, FileText, History, MailCheck, MessageCircle,
@@ -47,6 +47,11 @@ export default function InscripcionesList() {
   const canManage = canManageCertificates(user)
   const qrConfiguration = useMemo(() => certificatePublicUrlStatus(), [])
   const qrConfigurationNotice = useMemo(() => certificatePublicConfigurationNotice(qrConfiguration), [qrConfiguration])
+  const requestedOpenId = useMemo(() => {
+    if (typeof window === 'undefined') return ''
+    return String(new URLSearchParams(window.location.search).get('open') || '').trim()
+  }, [])
+  const requestedOpenHandled = useRef(false)
   const [data, setData] = useState([])
   const [servicios, setServicios] = useState([])
   const [vendedores, setVendedores] = useState([])
@@ -91,6 +96,18 @@ export default function InscripcionesList() {
   }, [filtros])
 
   useEffect(() => { load() }, [load])
+
+  useEffect(() => {
+    if (!requestedOpenId || requestedOpenHandled.current || loading) return
+    requestedOpenHandled.current = true
+    const requested = data.find(item => String(item.ID || '') === requestedOpenId)
+    if (!requested) {
+      setError('No se encontró la inscripción solicitada o no tiene permiso para verla.')
+      return
+    }
+    setSelected(requested)
+    setModal('edit')
+  }, [data, loading, requestedOpenId])
 
   useEffect(() => {
     api.getServicios()
@@ -568,6 +585,7 @@ export default function InscripcionesList() {
                       </td>
                       <td className="px-2 py-2.5 min-w-0">
                         <p className="font-medium leading-tight text-gray-900 break-words" title={item.ClienteNombre}>{item.ClienteNombre}</p>
+                        {item.Origen === 'CRM' && <div className="mt-1 flex flex-wrap gap-1"><span className="badge-blue px-1.5 text-[10px] leading-tight">CRM</span>{item.EstadoPago === 'pendiente' && <span className="badge-yellow px-1.5 text-[10px] leading-tight">Pendiente de completar</span>}</div>}
                         <p className="mt-1 truncate text-[10px] text-gray-400" title={item.ClienteEmail || 'Sin email'}>{item.ClienteEmail || 'Sin email'}</p>
                         {item.ClienteID && <p className="truncate text-[10px] text-gray-400" title={`ID: ${item.ClienteID}`}>ID: {item.ClienteID}</p>}
                       </td>
