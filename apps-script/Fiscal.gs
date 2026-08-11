@@ -29,6 +29,14 @@ const FISCAL_VALIDACION_CONFIRMADA = 'confirmado';
 const FISCAL_CATALOG_INICIAL = [
   { CodigoInterno: 'CAPACITACION', Descripcion: 'Curso o capacitación', TaxRateBasisPoints: 0 },
   { CodigoInterno: 'CAPACITACION_CERTIFICADO', Descripcion: 'Curso o capacitación con certificado incluido', TaxRateBasisPoints: 0 },
+  // Ítem exclusivo para la prueba técnica de certificación SRI (Fase 6, endurecimiento).
+  // TestOnly=true: validarItemFiscal_ lo bloquea de forma absoluta en
+  // environment='production', sin excepción de admin — a diferencia del gate de
+  // ValidacionTributaria (que un admin puede confirmar), este nunca se habilita
+  // para producción porque no representa un concepto de negocio real. Usarlo no
+  // confirma ni modifica el tratamiento tributario de CAPACITACION/
+  // CAPACITACION_CERTIFICADO, que sigue pendiente de validación por separado.
+  { CodigoInterno: 'PRUEBA_TECNICA_SRI', Descripcion: 'Prueba técnica de certificación — Ambiente de Pruebas SRI', TaxRateBasisPoints: 0, TestOnly: true },
 ];
 
 // Estados tomados de la Ficha Maestra v2.0, sección 5, con dos ajustes hechos en
@@ -63,6 +71,13 @@ const FISCAL_TRANSICIONES_VALIDAS = {
   // reanudar tras un reinicio del proceso sin haber llegado a enviar todavía —
   // seguro porque, mientras siga en SIGNED, nunca se llamó al SRI (ver SUBMITTING).
   SIGNED: ['SUBMITTING', 'SIGNED'],
+  // SIN auto-bucle en SUBMITTING a propósito: SIGNED->SUBMITTING es el CLAIM
+  // (mutex) que impide un envío duplicado al SRI. Si se permitiera SUBMITTING->
+  // SUBMITTING, un segundo llamador "reclamaría" con éxito un claim que ya tiene
+  // otro, rompiendo la exclusión mutua. La reconciliación de un claim envejecido
+  // que sigue ambigua (ver reconciliarSubmittingEnvejecido) NO escribe nada en
+  // este estado — deliberado, para no resetear UpdatedAt (con el que se mide la
+  // antigüedad del claim).
   SUBMITTING: ['RECEIVED', 'RETURNED', 'SIGNED'],
   RECEIVED: ['PROCESSING', 'RETURNED'],
   PROCESSING: ['AUTHORIZED', 'NOT_AUTHORIZED', 'RETURNED', 'PROCESSING'],
@@ -169,6 +184,7 @@ function migrarModuloFiscal(user, params) {
         ActualizadoPor: user.Username,
         ActualizadoEn: new Date().toISOString(),
         ValidacionTributaria: FISCAL_VALIDACION_PENDIENTE,
+        TestOnly: !!item.TestOnly,
       };
       return map[header] !== undefined ? map[header] : '';
     }));
@@ -256,6 +272,13 @@ function validarItemFiscal_(item, environment) {
   if (!catalogo) throw new Error('El código de ítem "' + item.codigo + '" no existe en el catálogo fiscal activo.');
   if (Number(catalogo.TaxRateBasisPoints) !== Number(item.taxRateBasisPoints)) {
     throw new Error('La tarifa de impuesto del ítem "' + item.codigo + '" no coincide con el catálogo aprobado.');
+  }
+  // Bloqueo absoluto, sin excepción de administrador: un ítem TestOnly no
+  // representa un concepto de negocio real, así que nunca es válido en
+  // production — a diferencia de ValidacionTributaria (que un admin sí puede
+  // confirmar), aquí no existe ningún camino de aprobación posible.
+  if (environment === 'production' && esVerdadero(catalogo.TestOnly)) {
+    throw new Error('El código "' + item.codigo + '" está marcado TEST_ONLY: nunca puede facturarse en producción.');
   }
   if (environment === 'production' && catalogo.ValidacionTributaria !== FISCAL_VALIDACION_CONFIRMADA) {
     throw new Error(
@@ -605,10 +628,65 @@ function listarFacturasPendientesDePolling(user, params) {
   const pendientes = sheetToObjects(getSheet('FacturasFiscales')).filter(function (item) {
     if (item.Environment !== p.environment) return false;
     if (item.Status !== 'RECEIVED' && item.Status !== 'PROCESSING') return false;
+    // Suspendida para revisión manual: NUNCA se vuelve a sondear automáticamente,
+    // sin importar NextPollAt — evitar polling infinito es justamente el propósito
+    // de ReviewFlag. Solo reanudarPollingFactura (acción explícita de un admin) la
+    // vuelve a hacer elegible.
+    if (item.ReviewFlag === 'REQUIRES_REVIEW') return false;
     if (!item.NextPollAt) return true;
     return String(item.NextPollAt) <= nowIso;
   }).slice(0, limit);
   return { success: true, data: pendientes };
+}
+
+/**
+ * Reanudación EXPLÍCITA por un administrador de una factura suspendida
+ * (ReviewFlag='REQUIRES_REVIEW') tras exceder el límite de reintentos/antigüedad de
+ * polling. Exige sesión de usuario real (NO acepta serviceToken — no está en
+ * FISCAL_SERVICE_ACTIONS_ a propósito: reanudar es una decisión humana, nunca
+ * automática) y un motivo. No cambia el Status fiscal (sigue siendo
+ * RECEIVED/PROCESSING, el estado del SRI no cambió); solo limpia la bandera
+ * operativa interna y agenda un nuevo intento inmediato.
+ */
+function reanudarPollingFactura(user, params) {
+  const p = params || {};
+  requireFiscalAdmin(user, 'FACTURA_POLLING_RESUMED', { facturaId: p.facturaId });
+  if (!p.facturaId) throw new Error('facturaId es obligatorio.');
+  if (!p.motivo || String(p.motivo).trim().length < 5) {
+    throw new Error('motivo es obligatorio (mínimo 5 caracteres) para reanudar el polling de una factura.');
+  }
+
+  return conBloqueoFiscal(function () {
+    const sheet = getSheet('FacturasFiscales');
+    const { row: factura } = facturaFiscalPorId_(p.facturaId);
+    if (!factura) throw new Error('Factura no encontrada: ' + p.facturaId);
+    if (factura.ReviewFlag !== 'REQUIRES_REVIEW') {
+      throw new Error('La factura no está marcada para revisión (ReviewFlag actual: "' + (factura.ReviewFlag || '') + '").');
+    }
+
+    const now = new Date().toISOString();
+    updateRow(sheet, factura, {
+      ReviewFlag: '',
+      ReviewReason: '',
+      NextPollAt: now,
+      RetryCount: 0,
+    });
+
+    registrarAuditoriaFiscal({
+      facturaId: p.facturaId,
+      usuario: user.Username,
+      rol: user.Rol,
+      accion: 'FACTURA_POLLING_RESUMED',
+      estadoAnterior: factura.Status,
+      estadoNuevo: factura.Status,
+      canal: 'api',
+      resultado: 'ok',
+      motivo: p.motivo,
+    });
+
+    const { row: facturaActualizada } = facturaFiscalPorId_(p.facturaId);
+    return { success: true, data: facturaActualizada };
+  });
 }
 
 // ─────────────────────────────────────────────

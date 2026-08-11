@@ -86,7 +86,7 @@ describe('migración del módulo fiscal', () => {
     expect(result.data.catalogoSembrado).toBe(true)
 
     const catalogo = harness.objects('ConfiguracionFiscal')
-    expect(catalogo.map(item => item.CodigoInterno).sort()).toEqual(['CAPACITACION', 'CAPACITACION_CERTIFICADO'])
+    expect(catalogo.map(item => item.CodigoInterno).sort()).toEqual(['CAPACITACION', 'CAPACITACION_CERTIFICADO', 'PRUEBA_TECNICA_SRI'])
     expect(catalogo.every(item => Number(item.TaxRateBasisPoints) === 0)).toBe(true)
 
     expect(harness.objects('AuditoriaFiscal').map(item => item.Accion)).toContain('FISCAL_MODULE_MIGRATED')
@@ -99,7 +99,7 @@ describe('migración del módulo fiscal', () => {
     harness.properties.set('SRI_MIGRATION_CONFIRMATION', 'APPLY_SRI_MIGRATION_ONCE')
     const second = migrar(harness)
     expect(second.data.catalogoSembrado).toBe(false)
-    expect(harness.objects('ConfiguracionFiscal')).toHaveLength(2)
+    expect(harness.objects('ConfiguracionFiscal')).toHaveLength(3)
   })
 })
 
@@ -109,7 +109,8 @@ describe('catálogo fiscal', () => {
     migrar(harness)
     const result = harness.context.processRequest({ action: 'getConfiguracionFiscal', token: 'admin-token' })
     expect(result.success).toBe(true)
-    expect(result.data).toHaveLength(2)
+    expect(result.data).toHaveLength(3)
+    expect(result.data.map(item => item.CodigoInterno).sort()).toEqual(['CAPACITACION', 'CAPACITACION_CERTIFICADO', 'PRUEBA_TECNICA_SRI'])
   })
 
   it('el catálogo sembrado nace con ValidacionTributaria=pendiente (IVA 0% no confirmado aún)', () => {
@@ -117,6 +118,34 @@ describe('catálogo fiscal', () => {
     migrar(harness)
     const result = harness.context.processRequest({ action: 'getConfiguracionFiscal', token: 'admin-token' })
     expect(result.data.every(item => item.ValidacionTributaria === 'pendiente')).toBe(true)
+  })
+
+  it('solo PRUEBA_TECNICA_SRI nace marcado TestOnly=true', () => {
+    const harness = seededHarness()
+    migrar(harness)
+    const result = harness.context.processRequest({ action: 'getConfiguracionFiscal', token: 'admin-token' })
+    const testOnly = result.data.filter(item => item.TestOnly === true)
+    expect(testOnly.map(item => item.CodigoInterno)).toEqual(['PRUEBA_TECNICA_SRI'])
+  })
+})
+
+describe('catálogo TEST_ONLY — bloqueo absoluto en producción', () => {
+  const ITEM_PRUEBA = { codigo: 'PRUEBA_TECNICA_SRI', descripcion: 'Prueba técnica', cantidad: 1, precioUnitarioCents: 100, taxRateBasisPoints: 0, baseCents: 100, totalCents: 100 }
+
+  it('un ítem TestOnly se puede usar libremente en test', () => {
+    const harness = seededHarness()
+    migrar(harness)
+    const result = harness.context.processRequest(draftParams({ environment: 'test', items: [ITEM_PRUEBA], idempotencyKey: 'idem-testonly-1' }))
+    expect(result.success).toBe(true)
+  })
+
+  it('un ítem TestOnly se bloquea en production incluso si ValidacionTributaria estuviera confirmada', () => {
+    const harness = seededHarness()
+    migrar(harness)
+    harness.context.processRequest({ action: 'confirmarValidacionTributariaFiscal', token: 'admin-token', codigoInterno: 'PRUEBA_TECNICA_SRI', motivo: 'Intento de confirmar de todas formas.' })
+    const result = harness.context.processRequest(draftParams({ environment: 'production', items: [ITEM_PRUEBA], idempotencyKey: 'idem-testonly-2' }))
+    expect(result.success).toBe(false)
+    expect(result.error).toMatch(/TEST_ONLY/)
   })
 })
 

@@ -133,6 +133,7 @@ function processRequest(data) {
     getAuditoriaFiscal:          () => getAuditoriaFiscal(user, params),
     getFacturaFiscalCompleta:       () => getFacturaFiscalCompleta(user, params),
     listarFacturasPendientesDePolling: () => listarFacturasPendientesDePolling(user, params),
+    reanudarPollingFactura:         () => reanudarPollingFactura(user, params),
   };
 
   if (!handlers[action]) return { success: false, error: 'Acción no reconocida.' };
@@ -173,11 +174,11 @@ const SHEET_HEADERS = {
   Certificados: ['ID','InscripcionID','CodigoCertificado','CertificateVersion','TemplateVersion','PdfHash','PdfStorageReference','OriginalCertificateId','ReissuedCertificateId','CertificateStatus','IssuedAt','IssuedBy','VoidedAt','VoidedBy','VoidReason','ReissueReason','CreatedAt'],
   DescargasCertificados: ['ID','CertificadoID','InscripcionID','Usuario','Rol','Estado','FechaSolicitud','FechaConfirmacion','Motivo','PdfHash','PdfStorageReference','Canal'],
   // Módulo fiscal SRI (feature/sri-integration-production-ready) — ver docs/fiscal/DATA_MODEL.md
-  FacturasFiscales: ['ID','Environment','Status','InscripcionID','IdempotencyKey','DocumentType','IssueDate','Timezone','IssuerRuc','Establishment','EmissionPoint','Sequential','DocumentNumber','AccessKey','NumericCode','BuyerIdentificationType','BuyerIdentification','BuyerName','BuyerEmail','BuyerAddress','SubtotalWithoutTax','Subtotal0','SubtotalTaxed','DiscountCents','TaxTotal','GrandTotal','Currency','PaymentMethodInternal','SriPaymentCode','XmlVersion','SoftwareProviderMode','SoftwareProviderRuc','XmlGeneratedReference','XmlSignedReference','XmlAuthorizedReference','RideReference','Sha256Generated','Sha256Signed','Sha256Authorized','Sha256Ride','SriReceptionStatus','SriAuthorizationStatus','AuthorizationNumber','AuthorizationDate','LastSriMessage','RetryCount','CreatedBy','CreatedAt','UpdatedAt','AuthorizedAt','DeliveredAt','LastPolledAt','NextPollAt','XmlAuthorizedContent'],
+  FacturasFiscales: ['ID','Environment','Status','InscripcionID','IdempotencyKey','DocumentType','IssueDate','Timezone','IssuerRuc','Establishment','EmissionPoint','Sequential','DocumentNumber','AccessKey','NumericCode','BuyerIdentificationType','BuyerIdentification','BuyerName','BuyerEmail','BuyerAddress','SubtotalWithoutTax','Subtotal0','SubtotalTaxed','DiscountCents','TaxTotal','GrandTotal','Currency','PaymentMethodInternal','SriPaymentCode','XmlVersion','SoftwareProviderMode','SoftwareProviderRuc','XmlGeneratedReference','XmlSignedReference','XmlAuthorizedReference','RideReference','Sha256Generated','Sha256Signed','Sha256Authorized','Sha256Ride','SriReceptionStatus','SriAuthorizationStatus','AuthorizationNumber','AuthorizationDate','LastSriMessage','RetryCount','CreatedBy','CreatedAt','UpdatedAt','AuthorizedAt','DeliveredAt','LastPolledAt','NextPollAt','XmlAuthorizedContent','ReviewFlag','ReviewReason'],
   FacturaItems: ['ID','FacturaID','Codigo','Descripcion','Cantidad','PrecioUnitarioCents','DescuentoCents','TaxRateBasisPoints','SriTaxCode','BaseCents','TotalCents','CatalogVersion','ConfirmedBy','CreatedAt'],
   SecuenciaFiscal: ['ID','Environment','Establishment','EmissionPoint','DocumentType','LastSequential','UpdatedAt'],
   AuditoriaFiscal: ['ID','FacturaID','Usuario','Rol','Accion','FechaHora','EstadoAnterior','EstadoNuevo','Canal','Resultado','Motivo','Metadatos'],
-  ConfiguracionFiscal: ['ID','CodigoInterno','Descripcion','TaxRateBasisPoints','Activo','Version','ActualizadoPor','ActualizadoEn','ValidacionTributaria','ValidadoPor','ValidadoEn','MotivoValidacion'],
+  ConfiguracionFiscal: ['ID','CodigoInterno','Descripcion','TaxRateBasisPoints','Activo','Version','ActualizadoPor','ActualizadoEn','ValidacionTributaria','ValidadoPor','ValidadoEn','MotivoValidacion','TestOnly'],
 };
 
 const CERTIFICATE_TEMPLATE_VERSION = 'ra-canva-2026-v1';

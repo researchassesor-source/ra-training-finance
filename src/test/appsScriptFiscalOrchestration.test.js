@@ -187,3 +187,65 @@ describe('SUBMITTING como exclusión mutua para el envío a Recepción', () => {
     expect(reclamoOtraVez.success).toBe(true)
   })
 })
+
+describe('reanudarPollingFactura — reactivación explícita por un administrador', () => {
+  function facturaSuspendida(harness) {
+    const facturaId = crearYReservar(harness)
+    ;['GENERATED', 'SIGNED', 'SUBMITTING', 'RECEIVED', 'PROCESSING'].forEach(nuevoEstado => {
+      harness.context.processRequest({ action: 'transicionEstadoFactura', serviceToken: SERVICE_TOKEN, facturaId, nuevoEstado })
+    })
+    harness.context.processRequest({
+      action: 'transicionEstadoFactura', serviceToken: SERVICE_TOKEN, facturaId, nuevoEstado: 'PROCESSING',
+      camposAdicionales: { ReviewFlag: 'REQUIRES_REVIEW', ReviewReason: 'Excede reintentos automáticos (fixture de prueba).' },
+    })
+    return facturaId
+  }
+
+  it('exige sesión de usuario real: un serviceToken NO puede reanudar (no está en el allowlist de servicio)', () => {
+    const harness = seededHarness()
+    migrar(harness)
+    const facturaId = facturaSuspendida(harness)
+    const result = harness.context.processRequest({ action: 'reanudarPollingFactura', serviceToken: SERVICE_TOKEN, facturaId, motivo: 'Reintentado manualmente tras revisión.' })
+    expect(result.success).toBe(false)
+  })
+
+  it('exige un motivo de al menos 5 caracteres', () => {
+    const harness = seededHarness()
+    migrar(harness)
+    const facturaId = facturaSuspendida(harness)
+    const result = harness.context.processRequest({ action: 'reanudarPollingFactura', token: 'admin-token', facturaId, motivo: 'ok' })
+    expect(result.success).toBe(false)
+  })
+
+  it('limpia ReviewFlag/ReviewReason, resetea RetryCount y agenda un intento inmediato, sin tocar el Status fiscal', () => {
+    const harness = seededHarness()
+    migrar(harness)
+    const facturaId = facturaSuspendida(harness)
+
+    const result = harness.context.processRequest({ action: 'reanudarPollingFactura', token: 'admin-token', facturaId, motivo: 'Se corrigió la causa raíz, reintentar ahora.' })
+
+    expect(result.success).toBe(true)
+    expect(result.data.ReviewFlag).toBe('')
+    expect(result.data.Status).toBe('PROCESSING') // el estado del SRI no cambia, solo la bandera operativa
+    expect(Number(result.data.RetryCount)).toBe(0)
+    expect(harness.objects('AuditoriaFiscal').some(item => item.Accion === 'FACTURA_POLLING_RESUMED')).toBe(true)
+  })
+
+  it('la factura reanudada vuelve a aparecer en listarFacturasPendientesDePolling', () => {
+    const harness = seededHarness()
+    migrar(harness)
+    const facturaId = facturaSuspendida(harness)
+    harness.context.processRequest({ action: 'reanudarPollingFactura', token: 'admin-token', facturaId, motivo: 'Reintentar tras revisión manual.' })
+
+    const pendientes = harness.context.processRequest({ action: 'listarFacturasPendientesDePolling', serviceToken: SERVICE_TOKEN, environment: 'test' })
+    expect(pendientes.data.map(f => f.ID)).toContain(facturaId)
+  })
+
+  it('rechaza reanudar una factura que no está marcada para revisión', () => {
+    const harness = seededHarness()
+    migrar(harness)
+    const facturaId = crearYReservar(harness)
+    const result = harness.context.processRequest({ action: 'reanudarPollingFactura', token: 'admin-token', facturaId, motivo: 'Intento sin que esté suspendida.' })
+    expect(result.success).toBe(false)
+  })
+})
