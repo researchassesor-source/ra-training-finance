@@ -31,15 +31,41 @@ const FISCAL_CATALOG_INICIAL = [
   { CodigoInterno: 'CAPACITACION_CERTIFICADO', Descripcion: 'Curso o capacitación con certificado incluido', TaxRateBasisPoints: 0 },
 ];
 
-// Estados tomados de la Ficha Maestra v2.0 (más reciente que el prompt inicial),
-// sección 5. AUTHORIZED es inmutable: desde ahí solo se avanza hacia la entrega.
+// Estados tomados de la Ficha Maestra v2.0, sección 5, con dos ajustes hechos en
+// Fase 6 a partir del vocabulario real del SRI confirmado en Fase 5
+// (lib/fiscal/sri/estados.js):
+//
+// 1. SIGNED -> RETURNED (no "NOT_AUTHORIZED"): DEVUELTA es una respuesta de
+//    RECEPCIÓN, no de autorización. El valor anterior era un error de la Fase 2,
+//    escrito antes de tener el vocabulario SOAP real verificado.
+// 2. Se agrega SUBMITTING como paso intermedio SIGNED -> SUBMITTING -> RECEIVED.
+//    No es cosmético: es el mecanismo de exclusión mutua para el envío a Recepción.
+//    Enviar un comprobante al SRI es una llamada de red con efecto externo que NO
+//    se puede repetir de forma segura (a diferencia de generar o firmar, que son
+//    puro cómputo y toleran una segunda ejecución descartada). El orquestador
+//    (lib/fiscal/orchestration/facturaOrchestrator.js) primero intenta la
+//    transición SIGNED -> SUBMITTING; si dos llamadas concurrentes lo intentan, el
+//    LockService + la revalidación de estado bajo el lock (ver
+//    transicionEstadoFactura) garantiza que solo una gane esa transición — la otra
+//    la ve rechazada y no llega a llamar al SRI. Si el envío falla de forma
+//    transitoria (timeout/red/SOAP fault), el orquestador libera el claim
+//    volviendo a SIGNED para permitir un reintento posterior.
+// 3. PROCESSING tiene auto-bucle: una consulta de autorización que sigue
+//    devolviendo "en procesamiento" actualiza RetryCount/NextPollAt sin cambiar de
+//    estado.
+//
+// AUTHORIZED sigue siendo inmutable: desde ahí solo se avanza hacia la entrega.
 const FISCAL_TRANSICIONES_VALIDAS = {
   DRAFT: ['SEQUENCE_RESERVED'],
   SEQUENCE_RESERVED: ['GENERATED'],
   GENERATED: ['SIGNED'],
-  SIGNED: ['RECEIVED', 'NOT_AUTHORIZED'],
+  // Auto-bucle SIGNED->SIGNED: permite re-firmar (nueva SigningTime, nuevo hash) al
+  // reanudar tras un reinicio del proceso sin haber llegado a enviar todavía —
+  // seguro porque, mientras siga en SIGNED, nunca se llamó al SRI (ver SUBMITTING).
+  SIGNED: ['SUBMITTING', 'SIGNED'],
+  SUBMITTING: ['RECEIVED', 'RETURNED', 'SIGNED'],
   RECEIVED: ['PROCESSING', 'RETURNED'],
-  PROCESSING: ['AUTHORIZED', 'NOT_AUTHORIZED', 'RETURNED'],
+  PROCESSING: ['AUTHORIZED', 'NOT_AUTHORIZED', 'RETURNED', 'PROCESSING'],
   RETURNED: ['GENERATED'],
   AUTHORIZED: ['DELIVERY_PENDING'],
   DELIVERY_PENDING: ['DELIVERED', 'DELIVERY_PENDING'],
@@ -547,4 +573,154 @@ function getAuditoriaFiscal(user, params) {
   let eventos = sheetToObjects(getSheet('AuditoriaFiscal'));
   if (p.facturaId) eventos = eventos.filter(function (item) { return item.FacturaID === p.facturaId; });
   return { success: true, data: eventos };
+}
+
+/** Factura + sus ítems, para que el orquestador Node arme el XML. Solo lectura. */
+function getFacturaFiscalCompleta(user, params) {
+  const p = params || {};
+  requireFiscalAdmin(user, 'FACTURA_READ_FULL', { facturaId: p.facturaId });
+  if (!p.facturaId) throw new Error('facturaId es obligatorio.');
+  const { row: factura } = facturaFiscalPorId_(p.facturaId);
+  if (!factura) throw new Error('Factura no encontrada: ' + p.facturaId);
+  const items = sheetToObjects(getSheet('FacturaItems')).filter(function (item) {
+    return item.FacturaID === p.facturaId;
+  });
+  return { success: true, data: { factura: factura, items: items } };
+}
+
+/**
+ * Facturas elegibles para sondear autorización: en RECEIVED/PROCESSING y cuya
+ * NextPollAt ya llegó (o nunca se sondearon). Filtra por ambiente de forma dura —
+ * nunca mezcla filas de test y production en el mismo lote. Usado por
+ * api/fiscal/poll a través del orquestador.
+ */
+function listarFacturasPendientesDePolling(user, params) {
+  requireFiscalAdmin(user, 'FACTURAS_POLL_LIST');
+  const p = params || {};
+  if (p.environment !== 'test' && p.environment !== 'production') {
+    throw new Error('environment debe ser "test" o "production".');
+  }
+  const limit = Number.isInteger(p.limit) && p.limit > 0 ? p.limit : 20;
+  const nowIso = new Date().toISOString();
+  const pendientes = sheetToObjects(getSheet('FacturasFiscales')).filter(function (item) {
+    if (item.Environment !== p.environment) return false;
+    if (item.Status !== 'RECEIVED' && item.Status !== 'PROCESSING') return false;
+    if (!item.NextPollAt) return true;
+    return String(item.NextPollAt) <= nowIso;
+  }).slice(0, limit);
+  return { success: true, data: pendientes };
+}
+
+// ─────────────────────────────────────────────
+// AUTENTICACIÓN SERVIDOR-A-SERVIDOR (orquestador Node -> Apps Script)
+// ─────────────────────────────────────────────
+
+// Allowlist explícito: solo estas acciones aceptan serviceToken en vez de una
+// sesión de usuario. Todo lo demás (certificados, usuarios, etc.) sigue exigiendo
+// login normal — este mecanismo no amplía privilegios de ninguna otra acción.
+const FISCAL_SERVICE_ACTIONS_ = [
+  'getFacturaFiscalCompleta',
+  'listarFacturasPendientesDePolling',
+  'transicionEstadoFactura',
+  'reservarSecuencialFiscal',
+  'crearBorradorFactura',
+  'getConfiguracionFiscal',
+];
+
+function isFiscalServiceAction_(action) {
+  return FISCAL_SERVICE_ACTIONS_.indexOf(action) !== -1;
+}
+
+/**
+ * Valida el secreto servidor-a-servidor contra la Script Property
+ * FISCAL_SERVICE_TOKEN (nunca hardcodeada, nunca logueada — ni aquí ni en el
+ * llamador Node, ver lib/fiscal/orchestration/gasClient.js). Si coincide, se
+ * construye un usuario sintético para que requireFiscalAdmin/registrarAuditoriaFiscal
+ * sigan funcionando igual y la auditoría quede atribuida de forma identificable al
+ * servicio automatizado, no a un usuario humano.
+ */
+function validateFiscalServiceToken_(serviceToken) {
+  const expected = PropertiesService.getScriptProperties().getProperty('FISCAL_SERVICE_TOKEN');
+  if (!expected || String(serviceToken) !== expected) return null;
+  return { Username: 'fiscal-service', Rol: 'admin', UserID: 'SERVICE-FISCAL' };
+}
+
+// ─────────────────────────────────────────────
+// TRIGGER DE POLLING (Apps Script -> /api/fiscal/poll)
+// ─────────────────────────────────────────────
+//
+// Arquitectura elegida (ver docs/fiscal/architecture.md): un time-driven trigger de
+// Apps Script llama periódicamente a /api/fiscal/poll en vez de usar Vercel Cron de
+// pago. Nada de esto se ejecuta automáticamente todavía — instalarTriggerPollingFiscal
+// debe correrla a mano un administrador desde el editor de Apps Script, después de
+// haber cargado FISCAL_POLL_ENDPOINT_URL y FISCAL_POLL_SECRET como Script Properties
+// (nunca hardcodeados aquí). No requiere el certificado P12 en absoluto: sondear
+// autorización es una consulta de solo lectura al SRI.
+
+/**
+ * Función que el trigger ejecuta periódicamente. Llama a /api/fiscal/poll con el
+ * secreto server-to-server en un header (nunca en la URL, para que no quede en
+ * logs de acceso). Falla en silencio hacia el registro de ejecuciones de Apps
+ * Script (Extensiones > Apps Script > Ejecuciones) si el endpoint no responde —
+ * eso es exactamente "tolerar caída temporal del SRI/Vercel" en la práctica: el
+ * próximo disparo del trigger, unos minutos después, simplemente lo vuelve a
+ * intentar.
+ */
+function ejecutarPollingFiscal() {
+  const properties = PropertiesService.getScriptProperties();
+  const endpointUrl = properties.getProperty('FISCAL_POLL_ENDPOINT_URL');
+  const secret = properties.getProperty('FISCAL_POLL_SECRET');
+  if (!endpointUrl || !secret) {
+    Logger.log('ejecutarPollingFiscal: faltan FISCAL_POLL_ENDPOINT_URL o FISCAL_POLL_SECRET, no se ejecuta.');
+    return;
+  }
+  try {
+    const response = UrlFetchApp.fetch(endpointUrl, {
+      method: 'post',
+      contentType: 'application/json',
+      headers: { 'x-fiscal-poll-secret': secret },
+      payload: JSON.stringify({}),
+      muteHttpExceptions: true,
+    });
+    // Se registra solo el código de estado y el conteo de procesadas -- nunca el
+    // secreto, nunca el cuerpo completo de la respuesta (podría incluir mensajes
+    // del SRI con datos de comprobantes).
+    var procesadas = '?';
+    try { procesadas = JSON.parse(response.getContentText()).data.procesadas; } catch (e) {}
+    Logger.log('ejecutarPollingFiscal: HTTP ' + response.getResponseCode() + ', procesadas=' + procesadas);
+  } catch (err) {
+    Logger.log('ejecutarPollingFiscal: error de red al llamar al endpoint de polling.');
+  }
+}
+
+/**
+ * Instala el trigger de tiempo (cada 5 minutos). Idempotente: si ya existe un
+ * trigger para ejecutarPollingFiscal, no crea uno duplicado. Debe correrse a mano
+ * una sola vez desde el editor de Apps Script, nunca automáticamente.
+ */
+function instalarTriggerPollingFiscal() {
+  const yaExiste = ScriptApp.getProjectTriggers().some(function (t) {
+    return t.getHandlerFunction() === 'ejecutarPollingFiscal';
+  });
+  if (yaExiste) {
+    Logger.log('instalarTriggerPollingFiscal: ya existe un trigger, no se crea otro.');
+    return;
+  }
+  ScriptApp.newTrigger('ejecutarPollingFiscal')
+    .timeBased()
+    .everyMinutes(5)
+    .create();
+  Logger.log('instalarTriggerPollingFiscal: trigger creado (cada 5 minutos).');
+}
+
+/** Quita el/los trigger(s) de polling fiscal — para desactivar la automatización. */
+function eliminarTriggerPollingFiscal() {
+  var eliminados = 0;
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'ejecutarPollingFiscal') {
+      ScriptApp.deleteTrigger(t);
+      eliminados += 1;
+    }
+  });
+  Logger.log('eliminarTriggerPollingFiscal: ' + eliminados + ' trigger(s) eliminado(s).');
 }

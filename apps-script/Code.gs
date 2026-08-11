@@ -32,13 +32,23 @@ function doGet(e) {
 }
 
 function processRequest(data) {
-  const { action, token, ...params } = data;
+  const { action, token, serviceToken, ...params } = data;
 
   if (action === 'login') return handleLogin(params);
   // Endpoint público: verificación de certificados por QR, sin sesión requerida.
   if (action === 'verificarCertificado') return handleVerificarCertificado(params);
 
-  const user = validateToken(token);
+  // Llamadas servidor-a-servidor del orquestador fiscal (Vercel -> Apps Script), sin
+  // sesión de usuario interactiva. Ver apps-script/Fiscal.gs — solo un allowlist
+  // explícito de acciones acepta este camino, y solo si el secreto coincide con la
+  // Script Property FISCAL_SERVICE_TOKEN (nunca hardcodeado, nunca logueado).
+  var user;
+  if (serviceToken && isFiscalServiceAction_(action)) {
+    user = validateFiscalServiceToken_(serviceToken);
+    if (!user) return { success: false, error: 'Token de servicio fiscal inválido o no configurado.' };
+  } else {
+    user = validateToken(token);
+  }
   if (!user) return { success: false, error: 'Sesión inválida o expirada. Por favor inicia sesión de nuevo.' };
 
   const handlers = {
@@ -121,6 +131,8 @@ function processRequest(data) {
     transicionEstadoFactura:     () => transicionEstadoFactura(user, params),
     getFacturasFiscales:         () => getFacturasFiscales(user, params),
     getAuditoriaFiscal:          () => getAuditoriaFiscal(user, params),
+    getFacturaFiscalCompleta:       () => getFacturaFiscalCompleta(user, params),
+    listarFacturasPendientesDePolling: () => listarFacturasPendientesDePolling(user, params),
   };
 
   if (!handlers[action]) return { success: false, error: 'Acción no reconocida.' };
@@ -161,7 +173,7 @@ const SHEET_HEADERS = {
   Certificados: ['ID','InscripcionID','CodigoCertificado','CertificateVersion','TemplateVersion','PdfHash','PdfStorageReference','OriginalCertificateId','ReissuedCertificateId','CertificateStatus','IssuedAt','IssuedBy','VoidedAt','VoidedBy','VoidReason','ReissueReason','CreatedAt'],
   DescargasCertificados: ['ID','CertificadoID','InscripcionID','Usuario','Rol','Estado','FechaSolicitud','FechaConfirmacion','Motivo','PdfHash','PdfStorageReference','Canal'],
   // Módulo fiscal SRI (feature/sri-integration-production-ready) — ver docs/fiscal/DATA_MODEL.md
-  FacturasFiscales: ['ID','Environment','Status','InscripcionID','IdempotencyKey','DocumentType','IssueDate','Timezone','IssuerRuc','Establishment','EmissionPoint','Sequential','DocumentNumber','AccessKey','NumericCode','BuyerIdentificationType','BuyerIdentification','BuyerName','BuyerEmail','BuyerAddress','SubtotalWithoutTax','Subtotal0','SubtotalTaxed','DiscountCents','TaxTotal','GrandTotal','Currency','PaymentMethodInternal','SriPaymentCode','XmlVersion','SoftwareProviderMode','SoftwareProviderRuc','XmlGeneratedReference','XmlSignedReference','XmlAuthorizedReference','RideReference','Sha256Generated','Sha256Signed','Sha256Authorized','Sha256Ride','SriReceptionStatus','SriAuthorizationStatus','AuthorizationNumber','AuthorizationDate','LastSriMessage','RetryCount','CreatedBy','CreatedAt','UpdatedAt','AuthorizedAt','DeliveredAt'],
+  FacturasFiscales: ['ID','Environment','Status','InscripcionID','IdempotencyKey','DocumentType','IssueDate','Timezone','IssuerRuc','Establishment','EmissionPoint','Sequential','DocumentNumber','AccessKey','NumericCode','BuyerIdentificationType','BuyerIdentification','BuyerName','BuyerEmail','BuyerAddress','SubtotalWithoutTax','Subtotal0','SubtotalTaxed','DiscountCents','TaxTotal','GrandTotal','Currency','PaymentMethodInternal','SriPaymentCode','XmlVersion','SoftwareProviderMode','SoftwareProviderRuc','XmlGeneratedReference','XmlSignedReference','XmlAuthorizedReference','RideReference','Sha256Generated','Sha256Signed','Sha256Authorized','Sha256Ride','SriReceptionStatus','SriAuthorizationStatus','AuthorizationNumber','AuthorizationDate','LastSriMessage','RetryCount','CreatedBy','CreatedAt','UpdatedAt','AuthorizedAt','DeliveredAt','LastPolledAt','NextPollAt','XmlAuthorizedContent'],
   FacturaItems: ['ID','FacturaID','Codigo','Descripcion','Cantidad','PrecioUnitarioCents','DescuentoCents','TaxRateBasisPoints','SriTaxCode','BaseCents','TotalCents','CatalogVersion','ConfirmedBy','CreatedAt'],
   SecuenciaFiscal: ['ID','Environment','Establishment','EmissionPoint','DocumentType','LastSequential','UpdatedAt'],
   AuditoriaFiscal: ['ID','FacturaID','Usuario','Rol','Accion','FechaHora','EstadoAnterior','EstadoNuevo','Canal','Resultado','Motivo','Metadatos'],

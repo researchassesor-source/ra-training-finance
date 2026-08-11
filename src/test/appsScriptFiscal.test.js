@@ -314,7 +314,7 @@ describe('transición de estados de factura', () => {
     const harness = seededHarness()
     migrar(harness)
     const facturaId = facturaReservada(harness)
-    ;['GENERATED', 'SIGNED', 'RECEIVED', 'PROCESSING', 'AUTHORIZED'].forEach(nuevoEstado => {
+    ;['GENERATED', 'SIGNED', 'SUBMITTING', 'RECEIVED', 'PROCESSING', 'AUTHORIZED'].forEach(nuevoEstado => {
       const step = harness.context.processRequest({ action: 'transicionEstadoFactura', token: 'admin-token', facturaId, nuevoEstado })
       expect(step.success).toBe(true)
     })
