@@ -154,4 +154,44 @@ describe('handoff idempotente CRM a Finance', () => {
     })
     expect(harness.objects('Ingresos')[0].Estado).toBe('confirmado')
   })
+
+  it('permite actualizar aval institucional en una inscripción CRM sin cédula y conserva la trazabilidad', () => {
+    const harness = createHarness()
+    const created = harness.context.processRequest(crmRequest())
+
+    const result = harness.context.processRequest({
+      action: 'updateInscripcion',
+      token: 'integration-token',
+      id: created.id,
+      inscripcion: {
+        requiereAvalExterno: true,
+        institucionAval: 'ITSAL',
+      },
+    })
+
+    const updated = harness.objects('Inscripciones')[0]
+    expect(result).toMatchObject({
+      success: true,
+      persistenceVerified: true,
+      changedFields: expect.arrayContaining(['RequiereAvalExterno', 'InstitucionAval', 'EstadoAval']),
+    })
+    expect(updated).toMatchObject({
+      ID: created.id,
+      ClienteID: '',
+      RequiereAvalExterno: true,
+      InstitucionAval: 'ITSAL',
+      EstadoAval: 'pendiente',
+      EstadoPago: 'pendiente',
+      CRMEnrollmentID: 'ENR-CRM-001',
+      CRMContactID: 'CONTACT-001',
+      CRMCourseID: 'COURSE-001',
+      Origen: 'CRM',
+    })
+    expect(harness.objects('Inscripciones')).toHaveLength(1)
+    expect(harness.objects('Ingresos')[0]).toMatchObject({
+      ID: updated.IngresoID,
+      Estado: 'pendiente_verificacion',
+    })
+    expect(harness.objects('Certificados')).toHaveLength(0)
+  })
 })

@@ -1454,13 +1454,14 @@ function resumenCertificadoParaVendedor(row) {
   return resumen;
 }
 
-function validarDatosInscripcion(inscripcion) {
+function validarDatosInscripcion(inscripcion, options) {
+  options = options || {};
   if (!inscripcion) return 'Los datos de la inscripción son obligatorios.';
   if (!inscripcion.servicioId && !inscripcion.servicioNombre) return 'Seleccione un servicio.';
   if (!String(inscripcion.clienteNombre || '').trim()) return 'Ingrese el nombre del participante.';
   const monto = Number(inscripcion.monto);
   if (String(inscripcion.monto === undefined ? '' : inscripcion.monto).trim() === '' || !isFinite(monto) || monto < 0) return 'Ingrese un monto válido.';
-  if (!String(inscripcion.metodoPago || '').trim()) return 'Seleccione el método de pago.';
+  if (!options.permitirMetodoPagoPendiente && !String(inscripcion.metodoPago || '').trim()) return 'Seleccione el método de pago.';
   if (inscripcion.clienteEmail && !emailValido(inscripcion.clienteEmail)) return 'Ingrese un correo electrónico válido.';
   if (inscripcion.fechaInicio && !fechaSolo(inscripcion.fechaInicio)) return 'La fecha de inicio no tiene un formato válido.';
   if (inscripcion.fechaFin && !fechaSolo(inscripcion.fechaFin)) return 'La fecha de fin no tiene un formato válido.';
@@ -1915,7 +1916,11 @@ function updateInscripcionBajoBloqueo(user, { id, historicalKey, inscripcion } =
       ? inscripcion.requiereAvalExterno : esVerdadero(row.RequiereAvalExterno),
     institucionAval: tienePropiedad(inscripcion, 'institucionAval') ? inscripcion.institucionAval : row.InstitucionAval,
   };
-  const validationError = validarDatosInscripcion(merged);
+  const validationError = validarDatosInscripcion(merged, {
+    permitirMetodoPagoPendiente: String(row.Origen || '').trim().toUpperCase() === 'CRM'
+      && String(row.EstadoPago || '').trim() !== 'verificado'
+      && !String(merged.metodoPago || '').trim(),
+  });
   if (validationError) return { success: false, error: validationError };
 
   const requiereAval = tienePropiedad(inscripcion, 'requiereAvalExterno')
