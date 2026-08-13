@@ -5,6 +5,7 @@ import Login from './components/Auth/Login'
 import AdminDashboard from './components/Dashboard/AdminDashboard'
 import UserDashboard from './components/Dashboard/UserDashboard'
 import IngresosList from './components/Ingresos/IngresosList'
+import FacturacionView from './components/Facturacion/FacturacionView'
 import EgresosList from './components/Egresos/EgresosList'
 import PagosList from './components/Pagos/PagosList'
 import ContratosList from './components/Contratos/ContratosList'
@@ -83,6 +84,7 @@ function AppRoutes() {
         {/* Admin routes */}
         <Route path="/dashboard"     element={<RequireAdmin><AdminDashboard /></RequireAdmin>} />
         <Route path="/ingresos"      element={<RequireAdmin><IngresosList /></RequireAdmin>} />
+        <Route path="/facturacion"   element={<RequireAdmin><FacturacionView /></RequireAdmin>} />
         <Route path="/egresos"       element={<RequireAdmin><EgresosList /></RequireAdmin>} />
         <Route path="/pagos"         element={<RequireAdmin><PagosList /></RequireAdmin>} />
         <Route path="/contratos"     element={<RequireAdmin><ContratosList /></RequireAdmin>} />

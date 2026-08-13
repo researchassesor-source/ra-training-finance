@@ -38,6 +38,39 @@ function getToken() {
   return localStorage.getItem('rat_token')
 }
 
+async function fiscalFetch(path, options = {}) {
+  const token = getToken()
+  const method = options.method || 'GET'
+  const query = new URLSearchParams(options.query || {})
+  if (token) query.set('token', token)
+  const url = `${path}${query.toString() ? `?${query.toString()}` : ''}`
+  const fetchOptions = { method }
+  if (options.body) {
+    fetchOptions.headers = { 'Content-Type': 'application/json' }
+    fetchOptions.body = JSON.stringify({ token, ...options.body })
+  }
+  const res = await fetch(url, fetchOptions)
+  if (options.blob) {
+    if (!res.ok) {
+      let message = `Error HTTP ${res.status}`
+      try {
+        const data = await res.json()
+        message = data.error || message
+      } catch { /* ignore */ }
+      throw new Error(message)
+    }
+    const blob = await res.blob()
+    const disposition = res.headers.get('Content-Disposition') || ''
+    const match = disposition.match(/filename="?([^";]+)"?/i)
+    return { blob, filename: match ? match[1] : options.fallbackFilename }
+  }
+  let data
+  try { data = await res.json() }
+  catch { throw new Error('El servidor devolvió una respuesta inválida.') }
+  if (!res.ok || data.success !== true) throw new Error(data.error || `Error HTTP ${res.status}`)
+  return data
+}
+
 // ── In-memory cache (stale-while-revalidate, 45 s TTL) ──────────────────────
 const _cache = new Map()
 const _TTL   = 45_000
@@ -212,9 +245,19 @@ export const api = {
     bust('getInscripciones', 'getIngresos', 'getDashboard')
     return call('updateInscripcion', { id, historicalKey, inscripcion }, getToken())
   },
-  verificarPagoInscripcion: (id, correcciones = {}) => {
+  verificarPagoInscripcion: async (id, correcciones = {}) => {
     bust('getInscripciones', 'getIngresos', 'getDashboard')
-    return call('verificarPagoInscripcion', { id, ...correcciones }, getToken())
+    const result = await call('verificarPagoInscripcion', { id, ...correcciones }, getToken())
+    try {
+      const fiscal = await api.crearFacturaFiscalDesdeInscripcion(id)
+      bust('getFacturasFiscales')
+      return { ...result, fiscal }
+    } catch (err) {
+      return {
+        ...result,
+        fiscalWarning: err.message || 'Pago verificado; la factura fiscal requiere revisión administrativa.',
+      }
+    }
   },
   emitirCertificado: (id) => {
     bust('getInscripciones', 'getDashboard')
@@ -258,6 +301,23 @@ export const api = {
     bust('getInscripciones', 'getIngresos', 'getDashboard')
     return call('deleteInscripcion', { id }, getToken())
   },
+
+  getFacturasFiscales: (filtros = {}) =>
+    fiscalFetch('/api/fiscal/list', { query: filtros }),
+  getFacturaFiscalStatus: (facturaId) =>
+    fiscalFetch('/api/fiscal/status', { query: { facturaId } }),
+  descargarDocumentoFiscal: (facturaId, tipo) =>
+    fiscalFetch('/api/fiscal/document', {
+      query: { facturaId, tipo },
+      blob: true,
+      fallbackFilename: `${tipo === 'XML_AUTORIZADO' ? 'factura' : 'ride'}_${facturaId}`,
+    }),
+  procesarFacturaFiscal: (facturaId) =>
+    fiscalFetch('/api/fiscal/process', { method: 'POST', body: { facturaId } }),
+  cerrarEntregaFiscal: (facturaId) =>
+    fiscalFetch('/api/fiscal/finalize-delivery', { method: 'POST', body: { facturaId } }),
+  crearFacturaFiscalDesdeInscripcion: (inscripcionId) =>
+    fiscalFetch('/api/fiscal/from-inscripcion', { method: 'POST', body: { inscripcionId } }),
 
   getConfigPagos: () =>
     callCached('getConfigPagos', {}, getToken()),

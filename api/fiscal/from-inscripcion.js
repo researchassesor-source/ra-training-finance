@@ -1,0 +1,158 @@
+import { continuarFlujoFactura } from '../../lib/fiscal/orchestration/facturaOrchestrator.js'
+import { getActiveEnvironment, getEmisorConfig } from '../../lib/fiscal/emisorConfig.js'
+import { callGasActionAsUser } from '../../lib/fiscal/orchestration/gasClient.js'
+import { loadSigningKeysFromEnv, SigningKeysNotConfiguredError } from '../../lib/fiscal/orchestration/loadSigningKeys.js'
+
+const DEFAULT_ESTABLISHMENT = '001'
+const DEFAULT_EMISSION_POINT = '002'
+
+function text(value) {
+  return value === null || value === undefined ? '' : String(value).trim()
+}
+
+function cents(value) {
+  return Math.round((Number(value) || 0) * 100)
+}
+
+function idType(identification) {
+  return text(identification).length === 13 ? 'ruc' : 'cedula'
+}
+
+function publicFactura(row = {}) {
+  return {
+    id: row.ID || '',
+    status: row.Status || '',
+    environment: row.Environment || '',
+    documentNumber: row.DocumentNumber || [row.Establishment, row.EmissionPoint, row.Sequential].filter(Boolean).join('-'),
+    sequential: row.Sequential || '',
+  }
+}
+
+function validationError(message) {
+  const error = new Error(message)
+  error.statusCode = 422
+  return error
+}
+
+function invoicePayloadFromInscripcion(inscripcion, environment) {
+  const id = text(inscripcion.ClienteID || inscripcion.RUC)
+  const name = text(inscripcion.RazonSocial || inscripcion.ClienteNombre)
+  const amount = cents(inscripcion.Monto)
+  if (text(inscripcion.EstadoPago).toLowerCase() !== 'verificado') {
+    throw validationError('La inscripción debe tener el pago verificado antes de facturar.')
+  }
+  if (!name) throw validationError('Falta razón social o nombre del cliente para facturar.')
+  if (!/^\d{10}$|^\d{13}$/.test(id)) throw validationError('Falta cédula/RUC válido del cliente para facturar.')
+  if (amount <= 0) throw validationError('El monto de la inscripción no es válido para facturar.')
+
+  const serviceName = text(inscripcion.ServicioNombre || 'Curso R.A. Training avalado por ITSAL')
+  const description = `${serviceName} - Curso R.A. Training avalado por ITSAL`
+  return {
+    environment,
+    idempotencyKey: `inscripcion:${text(inscripcion.ID)}:pago-verificado:v1`,
+    inscripcionId: text(inscripcion.ID),
+    documentType: '01',
+    issuerRuc: process.env.SRI_ISSUER_RUC || '0691787373001',
+    buyerIdentificationType: idType(id),
+    buyerIdentification: id,
+    buyerName: name,
+    buyerEmail: text(inscripcion.ClienteEmail),
+    buyerAddress: text(inscripcion.DireccionFactura),
+    paymentMethodInternal: text(inscripcion.MetodoPago || 'Transferencia'),
+    taxTotal: 0,
+    grandTotal: amount,
+    discountCents: 0,
+    items: [{
+      codigo: 'CAPACITACION',
+      descripcion: description,
+      cantidad: 1,
+      precioUnitarioCents: amount,
+      descuentoCents: 0,
+      taxRateBasisPoints: 0,
+      baseCents: amount,
+      totalCents: amount,
+    }],
+  }
+}
+
+async function findExistingByInscripcion(token, environment, inscripcionId) {
+  const rows = await callGasActionAsUser('getFacturasFiscales', { environment }, token, { timeoutMs: 45_000 })
+  return (Array.isArray(rows) ? rows : []).find(row => text(row.InscripcionID) === text(inscripcionId))
+}
+
+export default async function handler(req, res) {
+  if (req.method !== 'POST') {
+    res.status(405).json({ success: false, error: 'Método no permitido' })
+    return
+  }
+  let body = req.body
+  if (typeof body === 'string') {
+    try { body = JSON.parse(body) } catch { return res.status(400).json({ success: false, error: 'JSON inválido' }) }
+  }
+  const { token, inscripcionId } = body || {}
+  if (!token || !inscripcionId) {
+    res.status(400).json({ success: false, error: 'token e inscripcionId son obligatorios.' })
+    return
+  }
+
+  const environment = getActiveEnvironment()
+  let createdFactura = null
+
+  try {
+    const existing = await findExistingByInscripcion(token, environment, inscripcionId)
+    if (existing) {
+      res.status(200).json({ success: true, data: { factura: publicFactura(existing), idempotent: true } })
+      return
+    }
+
+    const inscripciones = await callGasActionAsUser('getInscripciones', { filtros: {} }, token, { timeoutMs: 45_000 })
+    const inscripcion = (Array.isArray(inscripciones) ? inscripciones : []).find(item => text(item.ID) === text(inscripcionId))
+    if (!inscripcion) throw validationError('No se encontró la inscripción para facturar.')
+
+    const draftPayload = invoicePayloadFromInscripcion(inscripcion, environment)
+    const draft = await callGasActionAsUser('crearBorradorFactura', draftPayload, token, { timeoutMs: 45_000 })
+    createdFactura = draft
+    if (draft?.Status === 'DRAFT') {
+      await callGasActionAsUser('reservarSecuencialFiscal', {
+        facturaId: draft.ID,
+        establishment: DEFAULT_ESTABLISHMENT,
+        emissionPoint: DEFAULT_EMISSION_POINT,
+      }, token, { timeoutMs: 45_000 })
+      const detail = await callGasActionAsUser('getFacturaFiscalCompleta', { facturaId: draft.ID }, token, { timeoutMs: 45_000 })
+      createdFactura = detail.factura || draft
+    }
+
+    let signingKeys
+    try {
+      signingKeys = loadSigningKeysFromEnv()
+    } catch (err) {
+      if (err instanceof SigningKeysNotConfiguredError) {
+        res.status(200).json({
+          success: true,
+          data: { factura: publicFactura(createdFactura || draft), attention: 'Factura creada; certificado de firma pendiente de configurar.' },
+        })
+        return
+      }
+      throw err
+    }
+
+    const processed = await continuarFlujoFactura((createdFactura || draft).ID, {
+      environment,
+      emisor: getEmisorConfig(),
+      signingKeys,
+      gasOptions: {},
+    })
+    res.status(200).json({ success: true, data: { factura: publicFactura(processed?.factura || createdFactura || draft), processed } })
+  } catch (err) {
+    const status = err.statusCode || (createdFactura ? 200 : 502)
+    res.status(status).json({
+      success: createdFactura ? true : false,
+      error: createdFactura ? undefined : (err.message || 'No se pudo crear la factura fiscal.'),
+      data: createdFactura ? {
+        factura: publicFactura(createdFactura),
+        attention: 'Pago verificado; la factura fiscal requiere atención administrativa.',
+        reason: err.message || 'Error fiscal no crítico para el pago.',
+      } : undefined,
+    })
+  }
+}

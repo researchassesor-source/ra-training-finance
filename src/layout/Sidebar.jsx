@@ -13,6 +13,7 @@ const adminLinks = [
   { to: '/dashboard',      icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/calendario',     icon: CalendarDays,    label: 'Calendario' },
   { to: '/ingresos',       icon: TrendingUp,      label: 'Ingresos' },
+  { to: '/facturacion',    icon: FileText,        label: 'Facturación' },
   { to: '/egresos',        icon: TrendingDown,    label: 'Egresos' },
   { to: '/inscripciones',  icon: GraduationCap,   label: 'Inscripciones' },
   { to: '/aval-externo',   icon: ShieldCheck,     label: 'Avales Institucionales' },
