@@ -88,6 +88,59 @@ const FISCAL_TRANSICIONES_VALIDAS = {
   NOT_AUTHORIZED: [],
 };
 
+/**
+ * Normaliza un código fiscal de ancho fijo (Establishment/EmissionPoint/Sequential)
+ * a la forma canónica con ceros a la izquierda. Existe porque Google Sheets, en una
+ * celda con formato "Automático", convierte un valor numérico-parecido escrito como
+ * texto (p. ej. "001") al NÚMERO 1 — perdiendo los ceros a la izquierda tanto al
+ * escribir como, sobre todo, al leer con sheetToObjects (que devuelve el tipo crudo
+ * de la celda). La reconstrucción aquí es exacta y sin ambigüedad porque Sheets
+ * preserva el valor numérico real, solo pierde el padding — nunca oculta un dato
+ * corrupto: si el valor no es puramente numérico o excede el ancho esperado, lanza
+ * en vez de adivinar.
+ */
+function normalizarCodigoFiscal_(valor, ancho, etiqueta) {
+  if (valor === null || valor === undefined || valor === '') return '';
+  var str = String(valor).trim();
+  if (!/^\d+$/.test(str)) {
+    throw new Error('Código fiscal corrupto en ' + etiqueta + ': "' + valor + '" no es puramente numérico.');
+  }
+  if (str.length > ancho) {
+    throw new Error('Código fiscal corrupto en ' + etiqueta + ': "' + valor + '" excede ' + ancho + ' dígitos.');
+  }
+  while (str.length < ancho) str = '0' + str;
+  return str;
+}
+
+/** Aplica normalizarCodigoFiscal_ a los 3 códigos de ancho fijo de una fila de
+ * FacturasFiscales ya leída de Sheets — el punto único por el que pasan
+ * prácticamente todos los consumidores (facturaFiscalPorId_, getFacturasFiscales,
+ * listarFacturasPendientesDePolling). */
+function normalizarCodigosFacturaFiscal_(row) {
+  if (!row) return row;
+  row.Establishment = normalizarCodigoFiscal_(row.Establishment, 3, 'FacturasFiscales.Establishment (ID ' + row.ID + ')');
+  row.EmissionPoint = normalizarCodigoFiscal_(row.EmissionPoint, 3, 'FacturasFiscales.EmissionPoint (ID ' + row.ID + ')');
+  row.Sequential = normalizarCodigoFiscal_(row.Sequential, 9, 'FacturasFiscales.Sequential (ID ' + row.ID + ')');
+  return row;
+}
+
+/**
+ * Fuerza formato de celda Texto ANTES de escribir un código fiscal de ancho fijo —
+ * en ese orden, porque reformatear una celda que ya tiene un número guardado no
+ * restituye los ceros perdidos; hay que fijar el formato Texto y luego reescribir el
+ * valor. Acotado a las columnas de código fiscal en FacturasFiscales/SecuenciaFiscal
+ * (no se toca el helper genérico updateRow, usado por el resto de la app con
+ * columnas donde SÍ se quiere un número real, p. ej. montos).
+ */
+function forzarTextoEnCelda_(sheet, rowIndex, columnName, valor) {
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  const idx = headers.indexOf(columnName) + 1;
+  if (idx <= 0) return;
+  const range = sheet.getRange(rowIndex, idx);
+  range.setNumberFormat('@');
+  range.setValue(valor);
+}
+
 function conBloqueoFiscal(callback) {
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
@@ -144,7 +197,7 @@ function requireFiscalAdmin(user, action, context) {
 function facturaFiscalPorId_(id) {
   const sheet = getSheet('FacturasFiscales');
   const row = sheetToObjects(sheet).find(function (item) { return item.ID === id; });
-  return { sheet: sheet, row: row };
+  return { sheet: sheet, row: normalizarCodigosFacturaFiscal_(row) };
 }
 
 // ─────────────────────────────────────────────
@@ -233,10 +286,12 @@ function verificarConflictoSerieFiscal(user, params) {
   const environment = params && params.environment;
 
   const facturasEnSerie = sheetToObjects(getSheet('FacturasFiscales')).filter(function (item) {
-    return item.Establishment === establishment && item.EmissionPoint === emissionPoint;
+    return normalizarCodigoFiscal_(item.Establishment, 3, 'FacturasFiscales.Establishment') === establishment &&
+      normalizarCodigoFiscal_(item.EmissionPoint, 3, 'FacturasFiscales.EmissionPoint') === emissionPoint;
   });
   const secuenciaEnSerie = sheetToObjects(getSheet('SecuenciaFiscal')).filter(function (item) {
-    return item.Establishment === establishment && item.EmissionPoint === emissionPoint
+    return normalizarCodigoFiscal_(item.Establishment, 3, 'SecuenciaFiscal.Establishment') === establishment &&
+      normalizarCodigoFiscal_(item.EmissionPoint, 3, 'SecuenciaFiscal.EmissionPoint') === emissionPoint
       && (!environment || item.Environment === environment);
   });
 
@@ -456,17 +511,27 @@ function reservarSecuencialFiscal(user, params) {
     }
 
     const secuenciaSheet = getSheet('SecuenciaFiscal');
+    // Los códigos leídos de Sheets pueden venir corruptos (ceros a la izquierda
+    // perdidos si la celda no está en formato Texto) — se normalizan ANTES de
+    // comparar contra establishment/emissionPoint (que ya son canónicos, recién
+    // calculados arriba). Sin esto, un contador existente con "001" guardado como el
+    // número 1 nunca se encontraría, y cada reserva creería erróneamente que es la
+    // primera vez, reiniciando el secuencial en 1 en vez de continuar la serie.
     const contadores = sheetToObjects(secuenciaSheet);
     const claveContador = { Environment: factura.Environment, Establishment: establishment, EmissionPoint: emissionPoint, DocumentType: documentType };
     const contadorExistente = contadores.find(function (item) {
-      return item.Environment === claveContador.Environment && item.Establishment === claveContador.Establishment &&
-        item.EmissionPoint === claveContador.EmissionPoint && item.DocumentType === claveContador.DocumentType;
+      return item.Environment === claveContador.Environment &&
+        normalizarCodigoFiscal_(item.Establishment, 3, 'SecuenciaFiscal.Establishment') === claveContador.Establishment &&
+        normalizarCodigoFiscal_(item.EmissionPoint, 3, 'SecuenciaFiscal.EmissionPoint') === claveContador.EmissionPoint &&
+        item.DocumentType === claveContador.DocumentType;
     });
 
     if (!contadorExistente) {
       // Primer uso de esta serie en este ambiente: exigir verificación de conflicto explícita primero.
       const facturasPrevias = sheetToObjects(getSheet('FacturasFiscales')).filter(function (item) {
-        return item.Establishment === establishment && item.EmissionPoint === emissionPoint && item.ID !== p.facturaId;
+        return item.ID !== p.facturaId &&
+          normalizarCodigoFiscal_(item.Establishment, 3, 'FacturasFiscales.Establishment') === establishment &&
+          normalizarCodigoFiscal_(item.EmissionPoint, 3, 'FacturasFiscales.EmissionPoint') === emissionPoint;
       });
       if (facturasPrevias.length > 0) {
         throw new Error('Conflicto de serie: ya existen facturas con establecimiento ' + establishment + ' / punto ' + emissionPoint + '. Deteniendo, no se asigna secuencial automáticamente.');
@@ -480,11 +545,18 @@ function reservarSecuencialFiscal(user, params) {
 
     if (contadorExistente) {
       updateRow(secuenciaSheet, contadorExistente, { LastSequential: nuevoSecuencial, UpdatedAt: now });
+      forzarTextoEnCelda_(secuenciaSheet, contadorExistente._row, 'Establishment', establishment);
+      forzarTextoEnCelda_(secuenciaSheet, contadorExistente._row, 'EmissionPoint', emissionPoint);
+      forzarTextoEnCelda_(secuenciaSheet, contadorExistente._row, 'LastSequential', String(nuevoSecuencial));
     } else {
       secuenciaSheet.appendRow(SHEET_HEADERS.SecuenciaFiscal.map(function (header) {
         const map = { ID: generateId('FSEQ'), Environment: claveContador.Environment, Establishment: establishment, EmissionPoint: emissionPoint, DocumentType: documentType, LastSequential: nuevoSecuencial, UpdatedAt: now };
         return map[header] !== undefined ? map[header] : '';
       }));
+      const nuevaFila = secuenciaSheet.getLastRow();
+      forzarTextoEnCelda_(secuenciaSheet, nuevaFila, 'Establishment', establishment);
+      forzarTextoEnCelda_(secuenciaSheet, nuevaFila, 'EmissionPoint', emissionPoint);
+      forzarTextoEnCelda_(secuenciaSheet, nuevaFila, 'LastSequential', String(nuevoSecuencial));
     }
 
     const facturaSheet = getSheet('FacturasFiscales');
@@ -497,6 +569,14 @@ function reservarSecuencialFiscal(user, params) {
       Status: 'SEQUENCE_RESERVED',
       UpdatedAt: now,
     });
+    // Refuerzo: forzar formato Texto en estas 3 columnas para que Sheets no vuelva a
+    // convertir "001"/"002"/"000000001" en números y perder los ceros a la izquierda
+    // (ver normalizarCodigoFiscal_ para la reconstrucción en lectura, que sigue
+    // siendo la protección real; esto es defensa adicional para que el dato crudo en
+    // la hoja también sea legible/correcto).
+    forzarTextoEnCelda_(facturaSheet, facturaActual._row, 'Establishment', establishment);
+    forzarTextoEnCelda_(facturaSheet, facturaActual._row, 'EmissionPoint', emissionPoint);
+    forzarTextoEnCelda_(facturaSheet, facturaActual._row, 'Sequential', secuencialFormateado);
 
     registrarAuditoriaFiscal({
       facturaId: p.facturaId,
@@ -584,7 +664,7 @@ function transicionEstadoFactura(user, params) {
 function getFacturasFiscales(user, params) {
   requireFiscalAdmin(user, 'FACTURAS_LIST');
   const p = params || {};
-  let facturas = sheetToObjects(getSheet('FacturasFiscales'));
+  let facturas = sheetToObjects(getSheet('FacturasFiscales')).map(normalizarCodigosFacturaFiscal_);
   if (p.environment) facturas = facturas.filter(function (item) { return item.Environment === p.environment; });
   if (p.status) facturas = facturas.filter(function (item) { return item.Status === p.status; });
   return { success: true, data: facturas };
@@ -625,7 +705,7 @@ function listarFacturasPendientesDePolling(user, params) {
   }
   const limit = Number.isInteger(p.limit) && p.limit > 0 ? p.limit : 20;
   const nowIso = new Date().toISOString();
-  const pendientes = sheetToObjects(getSheet('FacturasFiscales')).filter(function (item) {
+  const pendientes = sheetToObjects(getSheet('FacturasFiscales')).map(normalizarCodigosFacturaFiscal_).filter(function (item) {
     if (item.Environment !== p.environment) return false;
     if (item.Status !== 'RECEIVED' && item.Status !== 'PROCESSING') return false;
     // Suspendida para revisión manual: NUNCA se vuelve a sondear automáticamente,
@@ -685,6 +765,70 @@ function reanudarPollingFactura(user, params) {
     });
 
     const { row: facturaActualizada } = facturaFiscalPorId_(p.facturaId);
+    return { success: true, data: facturaActualizada };
+  });
+}
+
+/**
+ * Reabre EXPLÍCITAMENTE una factura NOT_AUTHORIZED para corrección técnica y
+ * reenvío (ej. tras corregir un bug de firma) — decisión humana, NUNCA automática:
+ * NO está en FISCAL_SERVICE_ACTIONS_ a propósito (mismo motivo que
+ * reanudarPollingFactura), y NOT_AUTHORIZED sigue sin salida en
+ * FISCAL_TRANSICIONES_VALIDAS — la única puerta de salida es esta función, que hace
+ * su propia validación de estado en vez de pasar por transicionEstadoFactura.
+ * Conserva FacturaID/AccessKey/Establishment/EmissionPoint/Sequential intactos (no
+ * los toca) y deja Status=GENERATED: generarYFirmarFactura reutiliza la MISMA clave
+ * de acceso ya persistida para reconstruir y re-firmar, y el flujo normal
+ * (SIGNED->SUBMITTING->...) retoma desde ahí sin ningún atajo. El rechazo anterior no
+ * se borra: ya quedó en AuditoriaFiscal por la transición NOT_AUTHORIZED original, y
+ * aquí además se copia a los metadatos de este evento para que quede autocontenido.
+ */
+function reabrirFacturaRechazadaParaCorreccion(user, params) {
+  const p = params || {};
+  requireFiscalAdmin(user, 'FACTURA_REOPEN_FOR_CORRECTION', { facturaId: p.facturaId });
+  if (!p.facturaId) throw new Error('facturaId es obligatorio.');
+  if (!p.motivo || String(p.motivo).trim().length < 5) {
+    throw new Error('motivo es obligatorio (mínimo 5 caracteres) para reabrir una factura rechazada.');
+  }
+
+  return conBloqueoFiscal(function () {
+    const sheet = getSheet('FacturasFiscales');
+    const { row: factura } = facturaFiscalPorId_(p.facturaId);
+    if (!factura) throw new Error('Factura no encontrada: ' + p.facturaId);
+    if (factura.Status !== 'NOT_AUTHORIZED') {
+      throw new Error('Solo se puede reabrir una factura en estado NOT_AUTHORIZED (actual: ' + factura.Status + ').');
+    }
+
+    const now = new Date().toISOString();
+    const motivoRechazoAnterior = factura.LastSriMessage || '';
+    const accessKeyPrevia = factura.AccessKey;
+    const sequentialPrevio = factura.Sequential;
+
+    updateRow(sheet, factura, {
+      Status: 'GENERATED',
+      UpdatedAt: now,
+      ReviewFlag: '',
+      ReviewReason: '',
+    });
+
+    registrarAuditoriaFiscal({
+      facturaId: p.facturaId,
+      usuario: user.Username,
+      rol: user.Rol,
+      accion: 'FACTURA_REOPEN_FOR_CORRECTION',
+      estadoAnterior: 'NOT_AUTHORIZED',
+      estadoNuevo: 'GENERATED',
+      canal: 'api',
+      resultado: 'ok',
+      motivo: p.motivo,
+      metadatos: { motivoRechazoAnterior: motivoRechazoAnterior, accessKey: accessKeyPrevia, sequential: sequentialPrevio },
+    });
+
+    const { row: facturaActualizada } = facturaFiscalPorId_(p.facturaId);
+    // Nunca debe cambiar como resultado de reabrir — solo el Status se mueve.
+    if (facturaActualizada.AccessKey !== accessKeyPrevia || facturaActualizada.Sequential !== sequentialPrevio) {
+      throw new Error('Invariante violada: AccessKey/Sequential cambiaron al reabrir. Deteniendo.');
+    }
     return { success: true, data: facturaActualizada };
   });
 }

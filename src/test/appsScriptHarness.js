@@ -56,6 +56,7 @@ class Range {
   setFontWeight() { return this }
   setBackground() { return this }
   setFontColor() { return this }
+  setNumberFormat() { return this }
 }
 
 class Sheet {

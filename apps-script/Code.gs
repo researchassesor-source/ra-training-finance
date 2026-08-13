@@ -134,6 +134,7 @@ function processRequest(data) {
     getFacturaFiscalCompleta:       () => getFacturaFiscalCompleta(user, params),
     listarFacturasPendientesDePolling: () => listarFacturasPendientesDePolling(user, params),
     reanudarPollingFactura:         () => reanudarPollingFactura(user, params),
+    reabrirFacturaRechazadaParaCorreccion: () => reabrirFacturaRechazadaParaCorreccion(user, params),
   };
 
   if (!handlers[action]) return { success: false, error: 'Acción no reconocida.' };
