@@ -19,10 +19,16 @@
  * Requiere, como variables de entorno (nunca impresas):
  *   GAS_URL               - URL /exec real de Apps Script (RATraining-Finanzas).
  *   FISCAL_SERVICE_TOKEN   - el secreto de la Script Property del mismo nombre.
+ * Opcional para la reapertura NOT_AUTHORIZED, si no se desea escribirlos
+ * interactivamente:
+ *   FISCAL_ADMIN_USERNAME
+ *   FISCAL_ADMIN_PASSWORD
  *
  * Uso:
  *   $env:GAS_URL="https://script.google.com/macros/s/AKfycb.../exec"
  *   $env:FISCAL_SERVICE_TOKEN="..."
+ *   $env:FISCAL_ADMIN_USERNAME="admin"
+ *   $env:FISCAL_ADMIN_PASSWORD="..."
  *   node scripts/enviar-primera-factura-sri-pruebas.mjs
  */
 import { execFileSync } from 'node:child_process'
@@ -36,7 +42,7 @@ import { parseP12, checkCertificateValidity, privateKeyToPem, certificateToPemAn
 import { verifyFacturaXmlSignature } from '../lib/fiscal/xadesSign.js'
 import { resolveSriEndpoint } from '../lib/fiscal/sri/config.js'
 import { getEmisorConfig } from '../lib/fiscal/emisorConfig.js'
-import { callGasAction, callGasActionAsUser, GasClientError } from '../lib/fiscal/orchestration/gasClient.js'
+import { callGasAction, callGasActionAsUser, callGasLogin, GasClientError } from '../lib/fiscal/orchestration/gasClient.js'
 import {
   buildXmlParaFactura,
   generarYFirmarFactura,
@@ -119,6 +125,16 @@ function sha256Hex(text) {
   return createHash('sha256').update(text, 'utf8').digest('hex')
 }
 
+async function obtenerSesionFiscalHumana(gasUrl) {
+  const username = (process.env.FISCAL_ADMIN_USERNAME || (await ask('Usuario administrador fiscal: '))).trim()
+  const password = process.env.FISCAL_ADMIN_PASSWORD || await askHidden('Contraseña del administrador fiscal (no se mostrará): ')
+  const sesion = await callGasLogin(username, password, { gasUrl })
+  if (!sesion.user || sesion.user.rol !== 'admin') {
+    throw new Error('La sesión emitida no corresponde a un administrador fiscal.')
+  }
+  return sesion.token
+}
+
 async function main() {
   console.log('=== Envío de la primera factura real a SRI Pruebas ===\n')
   console.log(`FacturaID fija: ${FACTURA_ID} — no se crea ninguna otra, no se reserva otro secuencial.\n`)
@@ -178,7 +194,7 @@ async function main() {
     }
     // ── Reapertura tras corrección técnica (ej. bug de firma ya corregido) ──
     // NUNCA automática: solo aplica a ESTA factura TEST_ONLY, en test, con rechazo
-    // previo confirmado, y requiere un token de sesión humana real (FISCAL_USER_TOKEN)
+    // previo confirmado, y requiere una sesión humana real emitida por login.
     // -- reabrirFacturaRechazadaParaCorreccion en Fiscal.gs no acepta serviceToken.
     if (factura.Status === 'NOT_AUTHORIZED') {
       const esCandidataEstrechaParaReapertura =
@@ -192,15 +208,9 @@ async function main() {
         console.log('NOT_AUTHORIZED, pero no cumple el guard estrecho de este script TEST_ONLY. No se hace nada.')
         return
       }
-      const userToken = process.env.FISCAL_USER_TOKEN
-      if (!userToken) {
-        console.log('La factura está NOT_AUTHORIZED (rechazo previo: ' + factura.LastSriMessage + ').')
-        console.log('Para reabrirla se requiere FISCAL_USER_TOKEN (sesión humana real, no el')
-        console.log('FISCAL_SERVICE_TOKEN) -- es una decisión humana explícita, nunca automática.')
-        console.log('Inicia sesión en la app real, copia el token de sesión, y vuelve a ejecutar con:')
-        console.log('  $env:FISCAL_USER_TOKEN="<token de tu sesión>"')
-        return
-      }
+      console.log('La factura está NOT_AUTHORIZED (rechazo previo: ' + factura.LastSriMessage + ').')
+      console.log('Para reabrirla se requiere login real de administrador fiscal; no se usa serviceToken ni tokens copiados del navegador.')
+      const userToken = await obtenerSesionFiscalHumana(gasUrl)
       console.log(`Reabriendo ${FACTURA_ID} para corrección técnica (rechazo previo: ${factura.LastSriMessage})...`)
       const reabierta = await callGasActionAsUser(
         'reabrirFacturaRechazadaParaCorreccion',
