@@ -314,7 +314,7 @@ async function main() {
     console.log('\nNingún dato del .p12 (contraseña, base64, clave privada) ni el FISCAL_SERVICE_TOKEN fueron impresos.')
 
     // ── 14. Confirmación explícita ──────────────────────────────────────────
-    const confirmacion = await ask(`\nEscriba ${CONFIRMACION_ESPERADA} para realizar exactamente una transmisión a SRI Pruebas: `)
+    const confirmacion = process.env.FISCAL_CONFIRM_SEND_TEST_ONLY || await ask(`\nEscriba ${CONFIRMACION_ESPERADA} para realizar exactamente una transmisión a SRI Pruebas: `)
     if (confirmacion.trim() !== CONFIRMACION_ESPERADA) {
       console.log('\nConfirmación no recibida tal cual. No se envió nada. Este script termina aquí.')
       return
