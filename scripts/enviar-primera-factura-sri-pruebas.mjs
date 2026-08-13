@@ -250,7 +250,7 @@ async function main() {
     // ── 7. P12 interactivo (ruta y contraseña ocultas) ─────────────────────
     const p12Path = (process.argv[2] || (await ask('Ruta completa del archivo .p12 real: '))).trim()
     if (!existsSync(p12Path)) { console.error(`No se encontró: ${p12Path}`); process.exitCode = 1; return }
-    let password = await askHidden('Contraseña del .p12 (no se mostrará): ')
+    let password = process.env.FISCAL_P12_PASSWORD || await askHidden('Contraseña del .p12 (no se mostrará): ')
 
     let signedXml, claveAcceso, facturaFirmada
     try {
