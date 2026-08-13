@@ -36,6 +36,7 @@ const ITEM_CAPACITACION = {
   cantidad: 1,
   precioUnitarioCents: 100,
   taxRateBasisPoints: 0,
+  sriTaxCode: '2:0',
   baseCents: 100,
   totalCents: 100,
 }
@@ -50,6 +51,7 @@ function draftParams(overrides) {
     buyerIdentification: '0804655462',
     buyerName: 'Angel David Espinoza Ureta',
     buyerEmail: 'david005espinoza@gmail.com',
+    paymentMethodInternal: 'Transferencia',
     items: [ITEM_CAPACITACION],
     taxTotal: 0,
     grandTotal: 100,
@@ -101,6 +103,43 @@ describe('migración del módulo fiscal', () => {
     expect(second.data.catalogoSembrado).toBe(false)
     expect(harness.objects('ConfiguracionFiscal')).toHaveLength(3)
   })
+
+
+  it('migrarCatalogoFiscalV2 actualiza solo el catalogo v1 persistido sin tocar facturas', () => {
+    const harness = seededHarness()
+    harness.seed('ConfiguracionFiscal', [
+      { ID: 'FCFG-1', CodigoInterno: 'CAPACITACION', Descripcion: 'Capacitacion', TaxRateBasisPoints: 0, SriTaxCode: '', Activo: true, Version: 1, ValidacionTributaria: 'pendiente', TestOnly: false },
+      { ID: 'FCFG-2', CodigoInterno: 'CAPACITACION_CERTIFICADO', Descripcion: 'Capacitacion con certificado', TaxRateBasisPoints: 0, SriTaxCode: '', Activo: true, Version: 1, ValidacionTributaria: 'pendiente', TestOnly: false },
+      { ID: 'FCFG-3', CodigoInterno: 'PRUEBA_TECNICA_SRI', Descripcion: 'Prueba', TaxRateBasisPoints: 0, SriTaxCode: '', Activo: true, Version: 1, ValidacionTributaria: 'pendiente', TestOnly: true },
+    ])
+    harness.seed('FacturasFiscales', [{ ID: 'FACT_1786427014475_WZ5MR', Status: 'DELIVERED', AccessKey: 'clave-historica', Sequential: '000000001', XmlAuthorizedReference: 'xml-ref', RideReference: 'ride-ref', Sha256Authorized: 'xml-sha', Sha256Ride: 'ride-sha' }])
+
+    const result = harness.context.processRequest({ action: 'migrarCatalogoFiscalV2', token: 'admin-token', confirmacion: 'APLICAR_CATALOGO_FISCAL_V2' })
+
+    expect(result.success).toBe(true)
+    const cursos = harness.objects('ConfiguracionFiscal').filter(item => ['CAPACITACION', 'CAPACITACION_CERTIFICADO'].includes(item.CodigoInterno))
+    expect(cursos.every(item => item.SriTaxCode === '2:0')).toBe(true)
+    expect(cursos.every(item => Number(item.Version) === 2)).toBe(true)
+    expect(cursos.every(item => item.ValidacionTributaria === 'confirmado')).toBe(true)
+    expect(harness.objects('FacturasFiscales')[0]).toMatchObject({ ID: 'FACT_1786427014475_WZ5MR', Status: 'DELIVERED', AccessKey: 'clave-historica', Sequential: '000000001', XmlAuthorizedReference: 'xml-ref', RideReference: 'ride-ref' })
+    expect(harness.objects('AuditoriaFiscal').map(item => item.Accion)).toContain('FISCAL_CATALOG_V2_MIGRATED')
+  })
+
+  it('migrarCatalogoFiscalV2 es idempotente y exige admin + confirmacion propia', () => {
+    const harness = seededHarness()
+    migrar(harness)
+    const sinConfirmacion = harness.context.processRequest({ action: 'migrarCatalogoFiscalV2', token: 'admin-token' })
+    expect(sinConfirmacion.success).toBe(false)
+    const vendedor = harness.context.processRequest({ action: 'migrarCatalogoFiscalV2', token: 'seller-token', confirmacion: 'APLICAR_CATALOGO_FISCAL_V2' })
+    expect(vendedor.success).toBe(false)
+
+    const first = harness.context.processRequest({ action: 'migrarCatalogoFiscalV2', token: 'admin-token', confirmacion: 'APLICAR_CATALOGO_FISCAL_V2' })
+    const second = harness.context.processRequest({ action: 'migrarCatalogoFiscalV2', token: 'admin-token', confirmacion: 'APLICAR_CATALOGO_FISCAL_V2' })
+    expect(first.success).toBe(true)
+    expect(second.success).toBe(true)
+    expect(second.data.cambiosAplicados).toBe(0)
+    expect(harness.objects('ConfiguracionFiscal')).toHaveLength(3)
+  })
 })
 
 describe('catálogo fiscal', () => {
@@ -113,11 +152,17 @@ describe('catálogo fiscal', () => {
     expect(result.data.map(item => item.CodigoInterno).sort()).toEqual(['CAPACITACION', 'CAPACITACION_CERTIFICADO', 'PRUEBA_TECNICA_SRI'])
   })
 
-  it('el catálogo sembrado nace con ValidacionTributaria=pendiente (IVA 0% no confirmado aún)', () => {
+  it('los cursos R.A. Training avalados por ITSAL nacen confirmados con IVA 0% por producto', () => {
     const harness = seededHarness()
     migrar(harness)
     const result = harness.context.processRequest({ action: 'getConfiguracionFiscal', token: 'admin-token' })
-    expect(result.data.every(item => item.ValidacionTributaria === 'pendiente')).toBe(true)
+    const cursos = result.data.filter(item => ['CAPACITACION', 'CAPACITACION_CERTIFICADO'].includes(item.CodigoInterno))
+    expect(cursos).toHaveLength(2)
+    expect(cursos.every(item => item.ValidacionTributaria === 'confirmado')).toBe(true)
+    expect(cursos.every(item => item.SriTaxCode === '2:0')).toBe(true)
+    expect(cursos.every(item => Number(item.TaxRateBasisPoints) === 0)).toBe(true)
+    const prueba = result.data.find(item => item.CodigoInterno === 'PRUEBA_TECNICA_SRI')
+    expect(prueba.ValidacionTributaria).toBe('pendiente')
   })
 
   it('solo PRUEBA_TECNICA_SRI nace marcado TestOnly=true', () => {
@@ -129,7 +174,7 @@ describe('catálogo fiscal', () => {
   })
 })
 
-describe('catálogo TEST_ONLY — bloqueo absoluto en producción', () => {
+describe('catalogo TEST_ONLY - bloqueo absoluto en produccion', () => {
   const ITEM_PRUEBA = { codigo: 'PRUEBA_TECNICA_SRI', descripcion: 'Prueba técnica', cantidad: 1, precioUnitarioCents: 100, taxRateBasisPoints: 0, baseCents: 100, totalCents: 100 }
 
   it('un ítem TestOnly se puede usar libremente en test', () => {
@@ -150,12 +195,16 @@ describe('catálogo TEST_ONLY — bloqueo absoluto en producción', () => {
 })
 
 describe('validación tributaria del catálogo (gate de producción)', () => {
-  it('bloquea un borrador en environment=production mientras el código esté pendiente', () => {
+  it('acepta en production un curso R.A. Training avalado por ITSAL con IVA 0% configurado por producto', () => {
     const harness = seededHarness()
     migrar(harness)
     const result = harness.context.processRequest(draftParams({ environment: 'production', idempotencyKey: 'idem-prod-1' }))
-    expect(result.success).toBe(false)
-    expect(result.error).toMatch(/tributario/i)
+    expect(result.success).toBe(true)
+    expect(result.data.Subtotal0).toBe(100)
+    expect(result.data.SubtotalTaxed).toBe(0)
+    expect(result.data.TaxTotal).toBe(0)
+    expect(result.data.GrandTotal).toBe(100)
+    expect(harness.objects('FacturaItems')[0].SriTaxCode).toBe('2:0')
   })
 
   it('permite el mismo borrador en environment=test aunque esté pendiente (sin efecto tributario real)', () => {
@@ -174,19 +223,16 @@ describe('validación tributaria del catálogo (gate de producción)', () => {
     expect(noAdmin.success).toBe(false)
   })
 
-  it('una vez confirmado el código, el borrador de producción se acepta', () => {
+  it('confirmarValidacionTributariaFiscal mantiene auditable la confirmacion de un codigo', () => {
     const harness = seededHarness()
     migrar(harness)
     const confirm = harness.context.processRequest({
       action: 'confirmarValidacionTributariaFiscal', token: 'admin-token',
-      codigoInterno: 'CAPACITACION', motivo: 'Confirmado por contador externo tras revisión de RUC y actividad económica.',
+      codigoInterno: 'CAPACITACION', motivo: 'Confirmado por contador externo tras revision de RUC y actividad economica.',
     })
     expect(confirm.success).toBe(true)
     expect(confirm.data.validacionTributaria).toBe('confirmado')
     expect(harness.objects('AuditoriaFiscal').some(item => item.Accion === 'TAX_VALIDATION_CONFIRM' && item.EstadoNuevo === 'confirmado')).toBe(true)
-
-    const result = harness.context.processRequest(draftParams({ environment: 'production', idempotencyKey: 'idem-prod-2' }))
-    expect(result.success).toBe(true)
   })
 
   it('se puede revertir una confirmación a pendiente (confirmado: false), y vuelve a bloquear producción', () => {
@@ -211,7 +257,7 @@ describe('borrador de factura', () => {
       items: [{ ...ITEM_CAPACITACION, codigo: 'CONSULTORIA' }],
     }))
     expect(result.success).toBe(false)
-    expect(result.error).toMatch(/catálogo/i)
+    expect(result.error).toMatch(/cat.logo/i)
   })
 
   it('rechaza una tarifa de impuesto que no coincide con el catálogo', () => {
@@ -231,6 +277,24 @@ describe('borrador de factura', () => {
     expect(result.error).toMatch(/grandTotal/)
   })
 
+  it('rechaza un codigo SRI de impuesto que no coincide con el producto configurado', () => {
+    const harness = seededHarness()
+    migrar(harness)
+    const result = harness.context.processRequest(draftParams({
+      items: [{ ...ITEM_CAPACITACION, sriTaxCode: '2:4' }],
+    }))
+    expect(result.success).toBe(false)
+    expect(result.error).toMatch(/SRI/)
+  })
+
+  it('rechaza taxTotal si no coincide con la suma de impuestos de los items', () => {
+    const harness = seededHarness()
+    migrar(harness)
+    const result = harness.context.processRequest(draftParams({ taxTotal: 12, grandTotal: 112 }))
+    expect(result.success).toBe(false)
+    expect(result.error).toMatch(/taxTotal/)
+  })
+
   it('crea un borrador válido en estado DRAFT y audita la creación', () => {
     const harness = seededHarness()
     migrar(harness)
@@ -238,8 +302,35 @@ describe('borrador de factura', () => {
     expect(result.success).toBe(true)
     expect(result.data.Status).toBe('DRAFT')
     expect(result.data.GrandTotal).toBe(100)
+    expect(result.data.PaymentMethodInternal).toBe('Transferencia')
+    expect(result.data.SriPaymentCode).toBe('20')
     expect(harness.objects('FacturaItems')).toHaveLength(1)
     expect(harness.objects('AuditoriaFiscal').map(item => item.Accion)).toContain('FACTURA_DRAFT_CREATED')
+  })
+
+  it('bloquea production si la forma de pago no tiene codigo SRI resuelto', () => {
+    const harness = seededHarness()
+    migrar(harness)
+    const result = harness.context.processRequest(draftParams({
+      environment: 'production',
+      idempotencyKey: 'idem-prod-payment-missing',
+      paymentMethodInternal: 'Metodo no catalogado',
+    }))
+    expect(result.success).toBe(false)
+    expect(result.error).toMatch(/SriPaymentCode/)
+  })
+
+  it('permite proporcionar SriPaymentCode explicito sin inventar una regla global', () => {
+    const harness = seededHarness()
+    migrar(harness)
+    const result = harness.context.processRequest(draftParams({
+      environment: 'production',
+      idempotencyKey: 'idem-prod-payment-explicit',
+      paymentMethodInternal: 'Pago bancario verificado',
+      sriPaymentCode: '20',
+    }))
+    expect(result.success).toBe(true)
+    expect(result.data.SriPaymentCode).toBe('20')
   })
 
   it('es idempotente ante la misma idempotencyKey: no crea un segundo borrador', () => {
@@ -261,6 +352,109 @@ describe('borrador de factura', () => {
   })
 })
 
+
+describe('backfill controlado de SriPaymentCode historico', () => {
+  function seedFacturaAutorizada(harness, overrides = {}) {
+    harness.seed('FacturasFiscales', [{
+      ID: 'FACT-HIST',
+      Environment: 'production',
+      Status: 'DELIVERED',
+      PaymentMethodInternal: 'Transferencia',
+      SriPaymentCode: '',
+      AccessKey: 'clave-historica',
+      Establishment: '001',
+      EmissionPoint: '002',
+      Sequential: '000000001',
+      DocumentNumber: '001-002-000000001',
+      AuthorizationNumber: '1308202601069178737300120010020000000019473817618',
+      AuthorizationDate: '2026-08-13T17:12:18-05:00',
+      XmlAuthorizedReference: 'xml-ref',
+      XmlAuthorizedContent: '<factura><pagos><pago><formaPago>20</formaPago><total>8.00</total></pago></pagos></factura>',
+      RideReference: 'drive:ride-ref',
+      Sha256Authorized: 'xml-sha',
+      Sha256Ride: 'ride-sha',
+      ...overrides,
+    }])
+  }
+
+  it('completa SriPaymentCode una sola vez si el XML autorizado lo respalda', () => {
+    const harness = seededHarness()
+    migrar(harness)
+    seedFacturaAutorizada(harness)
+
+    const first = harness.context.processRequest({
+      action: 'backfillSriPaymentCodeFacturaAutorizada',
+      token: 'admin-token',
+      facturaId: 'FACT-HIST',
+      confirmacion: 'BACKFILL_SRI_PAYMENT_CODE',
+      sriPaymentCode: '20',
+    })
+    const second = harness.context.processRequest({
+      action: 'backfillSriPaymentCodeFacturaAutorizada',
+      token: 'admin-token',
+      facturaId: 'FACT-HIST',
+      confirmacion: 'BACKFILL_SRI_PAYMENT_CODE',
+      sriPaymentCode: '20',
+    })
+
+    expect(first.success).toBe(true)
+    expect(first.changed).toBe(true)
+    expect(second.success).toBe(true)
+    expect(second.idempotent).toBe(true)
+    const factura = harness.objects('FacturasFiscales')[0]
+    expect(factura).toMatchObject({
+      SriPaymentCode: '20',
+      Status: 'DELIVERED',
+      AccessKey: 'clave-historica',
+      Sequential: '000000001',
+      RideReference: 'drive:ride-ref',
+      Sha256Authorized: 'xml-sha',
+      Sha256Ride: 'ride-sha',
+    })
+    expect(harness.objects('AuditoriaFiscal').filter(item => item.Accion === 'FISCAL_PAYMENT_CODE_BACKFILLED')).toHaveLength(1)
+  })
+
+  it('bloquea el backfill si el XML autorizado no contiene ese formaPago', () => {
+    const harness = seededHarness()
+    migrar(harness)
+    seedFacturaAutorizada(harness, { XmlAuthorizedContent: '<factura></factura>' })
+
+    const result = harness.context.processRequest({
+      action: 'backfillSriPaymentCodeFacturaAutorizada',
+      token: 'admin-token',
+      facturaId: 'FACT-HIST',
+      confirmacion: 'BACKFILL_SRI_PAYMENT_CODE',
+      sriPaymentCode: '20',
+    })
+
+    expect(result.success).toBe(false)
+    expect(result.error).toMatch(/XML autorizado/)
+    expect(harness.objects('FacturasFiscales')[0].SriPaymentCode).toBe('')
+  })
+
+  it('exige administrador y confirmacion explicita', () => {
+    const harness = seededHarness()
+    migrar(harness)
+    seedFacturaAutorizada(harness)
+
+    const noAdmin = harness.context.processRequest({
+      action: 'backfillSriPaymentCodeFacturaAutorizada',
+      token: 'seller-token',
+      facturaId: 'FACT-HIST',
+      confirmacion: 'BACKFILL_SRI_PAYMENT_CODE',
+      sriPaymentCode: '20',
+    })
+    const noConfirm = harness.context.processRequest({
+      action: 'backfillSriPaymentCodeFacturaAutorizada',
+      token: 'admin-token',
+      facturaId: 'FACT-HIST',
+      sriPaymentCode: '20',
+    })
+
+    expect(noAdmin.success).toBe(false)
+    expect(noConfirm.success).toBe(false)
+  })
+})
 describe('reserva atómica de secuencial', () => {
   function crearBorrador(harness, idempotencyKey) {
     return harness.context.processRequest(draftParams({ idempotencyKey })).data
@@ -300,6 +494,26 @@ describe('reserva atómica de secuencial', () => {
     const result = harness.context.processRequest({ action: 'reservarSecuencialFiscal', token: 'admin-token', facturaId: factura.ID, establishment: '001', emissionPoint: '002' })
     expect(result.success).toBe(false)
     expect(result.error).toMatch(/conflicto/i)
+  })
+
+  it('no trata una factura TEST como conflicto al reservar la primera factura PRODUCTION de la misma serie', () => {
+    const harness = seededHarness()
+    migrar(harness)
+    harness.seed('FacturasFiscales', [{
+      ID: 'FACT_TEST_PREVIA',
+      Environment: 'test',
+      Status: 'DELIVERED',
+      Establishment: '001',
+      EmissionPoint: '002',
+      Sequential: '000000001',
+    }])
+    const draft = harness.context.processRequest(draftParams({ environment: 'production', idempotencyKey: 'idem-prod-seq-1' })).data
+    const result = harness.context.processRequest({ action: 'reservarSecuencialFiscal', token: 'admin-token', facturaId: draft.ID, establishment: '001', emissionPoint: '002' })
+
+    expect(result.success).toBe(true)
+    const updated = harness.context.processRequest({ action: 'getFacturaFiscalCompleta', token: 'admin-token', facturaId: draft.ID }).data.factura
+    expect(updated.Environment).toBe('production')
+    expect(updated.Sequential).toBe('000000001')
   })
 
   it('rechaza reservar sobre una factura que no está en DRAFT', () => {
@@ -358,15 +572,36 @@ describe('verificación de conflicto de serie', () => {
   it('no reporta conflicto sobre una serie sin uso previo', () => {
     const harness = seededHarness()
     migrar(harness)
-    const result = harness.context.processRequest({ action: 'verificarConflictoSerieFiscal', token: 'admin-token', establishment: '001', emissionPoint: '002' })
+    const result = harness.context.processRequest({ action: 'verificarConflictoSerieFiscal', token: 'admin-token', establishment: '001', emissionPoint: '002', environment: 'test' })
     expect(result.data.conflict).toBe(false)
   })
 
-  it('reporta conflicto si ya hay una factura en esa serie', () => {
+  it('reporta conflicto si ya hay una factura en esa serie, en ese mismo environment', () => {
     const harness = seededHarness()
     migrar(harness)
     harness.seed('FacturasFiscales', [{ ID: 'FACT-X', Environment: 'production', Status: 'AUTHORIZED', Establishment: '001', EmissionPoint: '002' }])
-    const result = harness.context.processRequest({ action: 'verificarConflictoSerieFiscal', token: 'admin-token', establishment: '001', emissionPoint: '002' })
+    const result = harness.context.processRequest({ action: 'verificarConflictoSerieFiscal', token: 'admin-token', establishment: '001', emissionPoint: '002', environment: 'production' })
     expect(result.data.conflict).toBe(true)
+  })
+
+  it('environment es obligatorio -- sin él, se rechaza en vez de mezclar series de ambientes distintos', () => {
+    const harness = seededHarness()
+    migrar(harness)
+    const result = harness.context.processRequest({ action: 'verificarConflictoSerieFiscal', token: 'admin-token', establishment: '001', emissionPoint: '002' })
+    expect(result.success).toBe(false)
+  })
+
+  it('regresión: una factura TEST_ONLY en 001-002 (test) NO contamina la lectura de conflicto en production sobre la MISMA serie -- bug real que causaba el falso "conflicto de lectura" al previsualizar la primera factura productiva', () => {
+    const harness = seededHarness()
+    migrar(harness)
+    harness.seed('FacturasFiscales', [{ ID: 'FACT_TEST_ONLY', Environment: 'test', Status: 'AUTHORIZED', Establishment: '001', EmissionPoint: '002' }])
+
+    const enProduction = harness.context.processRequest({ action: 'verificarConflictoSerieFiscal', token: 'admin-token', establishment: '001', emissionPoint: '002', environment: 'production' })
+    expect(enProduction.data.conflict).toBe(false)
+    expect(enProduction.data.facturasEncontradas).toBe(0)
+
+    const enTest = harness.context.processRequest({ action: 'verificarConflictoSerieFiscal', token: 'admin-token', establishment: '001', emissionPoint: '002', environment: 'test' })
+    expect(enTest.data.conflict).toBe(true)
+    expect(enTest.data.facturasEncontradas).toBe(1)
   })
 })

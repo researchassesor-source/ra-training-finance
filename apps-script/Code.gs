@@ -123,6 +123,7 @@ function processRequest(data) {
     deleteTimbrada:       () => deleteTimbrada(user, params),
     // Módulo fiscal SRI — ver apps-script/Fiscal.gs
     migrarModuloFiscal:          () => migrarModuloFiscal(user, params),
+    migrarCatalogoFiscalV2:      () => migrarCatalogoFiscalV2(user, params),
     getConfiguracionFiscal:      () => obtenerConfiguracionFiscalActiva(user, params),
     confirmarValidacionTributariaFiscal: () => confirmarValidacionTributariaFiscal(user, params),
     verificarConflictoSerieFiscal: () => verificarConflictoSerieFiscal(user, params),
@@ -135,6 +136,10 @@ function processRequest(data) {
     listarFacturasPendientesDePolling: () => listarFacturasPendientesDePolling(user, params),
     reanudarPollingFactura:         () => reanudarPollingFactura(user, params),
     reabrirFacturaRechazadaParaCorreccion: () => reabrirFacturaRechazadaParaCorreccion(user, params),
+    backfillSriPaymentCodeFacturaAutorizada: () => backfillSriPaymentCodeFacturaAutorizada(user, params),
+    guardarRideFiscal:              () => guardarRideFiscal(user, params),
+    getDocumentoFiscalParaDescarga: () => getDocumentoFiscalParaDescarga(user, params),
+    cerrarEntregaFiscal:            () => cerrarEntregaFiscal(user, params),
   };
 
   if (!handlers[action]) return { success: false, error: 'Acción no reconocida.' };
@@ -179,7 +184,7 @@ const SHEET_HEADERS = {
   FacturaItems: ['ID','FacturaID','Codigo','Descripcion','Cantidad','PrecioUnitarioCents','DescuentoCents','TaxRateBasisPoints','SriTaxCode','BaseCents','TotalCents','CatalogVersion','ConfirmedBy','CreatedAt'],
   SecuenciaFiscal: ['ID','Environment','Establishment','EmissionPoint','DocumentType','LastSequential','UpdatedAt'],
   AuditoriaFiscal: ['ID','FacturaID','Usuario','Rol','Accion','FechaHora','EstadoAnterior','EstadoNuevo','Canal','Resultado','Motivo','Metadatos'],
-  ConfiguracionFiscal: ['ID','CodigoInterno','Descripcion','TaxRateBasisPoints','Activo','Version','ActualizadoPor','ActualizadoEn','ValidacionTributaria','ValidadoPor','ValidadoEn','MotivoValidacion','TestOnly'],
+  ConfiguracionFiscal: ['ID','CodigoInterno','Descripcion','TaxRateBasisPoints','SriTaxCode','Activo','Version','ActualizadoPor','ActualizadoEn','ValidacionTributaria','ValidadoPor','ValidadoEn','MotivoValidacion','TestOnly'],
 };
 
 const CERTIFICATE_TEMPLATE_VERSION = 'ra-canva-2026-v1';

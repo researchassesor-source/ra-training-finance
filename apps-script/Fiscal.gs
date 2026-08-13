@@ -12,7 +12,7 @@
 // no negativos, transiciones de estado permitidas), no vuelve a derivar el cálculo.
 // ============================================================
 
-const FISCAL_CATALOG_VERSION = 1;
+const FISCAL_CATALOG_VERSION = 2;
 const FISCAL_MIGRATION_PARAM_CONFIRMATION = 'APLICAR_MODULO_FISCAL';
 const FISCAL_MIGRATION_PROPERTY_VALUE = 'APPLY_SRI_MIGRATION_ONCE';
 
@@ -26,17 +26,15 @@ const FISCAL_MIGRATION_PROPERTY_VALUE = 'APPLY_SRI_MIGRATION_ONCE';
 const FISCAL_VALIDACION_PENDIENTE = 'pendiente';
 const FISCAL_VALIDACION_CONFIRMADA = 'confirmado';
 
+// Regla aprobada por producto/servicio, NO global:
+// R.A. Training -> cursos de formacion avalados por ITSAL -> IVA 0%.
+// Los cursos nacen confirmados con SriTaxCode='2:0'. Otros productos deben
+// agregarse y validarse de forma explicita antes de facturar en produccion.
 const FISCAL_CATALOG_INICIAL = [
-  { CodigoInterno: 'CAPACITACION', Descripcion: 'Curso o capacitación', TaxRateBasisPoints: 0 },
-  { CodigoInterno: 'CAPACITACION_CERTIFICADO', Descripcion: 'Curso o capacitación con certificado incluido', TaxRateBasisPoints: 0 },
-  // Ítem exclusivo para la prueba técnica de certificación SRI (Fase 6, endurecimiento).
-  // TestOnly=true: validarItemFiscal_ lo bloquea de forma absoluta en
-  // environment='production', sin excepción de admin — a diferencia del gate de
-  // ValidacionTributaria (que un admin puede confirmar), este nunca se habilita
-  // para producción porque no representa un concepto de negocio real. Usarlo no
-  // confirma ni modifica el tratamiento tributario de CAPACITACION/
-  // CAPACITACION_CERTIFICADO, que sigue pendiente de validación por separado.
-  { CodigoInterno: 'PRUEBA_TECNICA_SRI', Descripcion: 'Prueba técnica de certificación — Ambiente de Pruebas SRI', TaxRateBasisPoints: 0, TestOnly: true },
+  { CodigoInterno: 'CAPACITACION', Descripcion: 'Curso de formacion avalado por ITSAL', TaxRateBasisPoints: 0, SriTaxCode: '2:0', ValidacionTributaria: FISCAL_VALIDACION_CONFIRMADA, MotivoValidacion: 'Decision tributaria aprobada: cursos de formacion avalados por ITSAL -> IVA 0%.' },
+  { CodigoInterno: 'CAPACITACION_CERTIFICADO', Descripcion: 'Curso de formacion avalado por ITSAL con certificado incluido', TaxRateBasisPoints: 0, SriTaxCode: '2:0', ValidacionTributaria: FISCAL_VALIDACION_CONFIRMADA, MotivoValidacion: 'Decision tributaria aprobada: cursos de formacion avalados por ITSAL -> IVA 0%.' },
+  // Item exclusivo para pruebas tecnicas SRI. TEST_ONLY: nunca facturable en produccion.
+  { CodigoInterno: 'PRUEBA_TECNICA_SRI', Descripcion: 'Prueba tecnica de certificacion - Ambiente de Pruebas SRI', TaxRateBasisPoints: 0, SriTaxCode: '2:0', TestOnly: true },
 ];
 
 // Estados tomados de la Ficha Maestra v2.0, sección 5, con dos ajustes hechos en
@@ -122,6 +120,54 @@ function normalizarCodigosFacturaFiscal_(row) {
   row.EmissionPoint = normalizarCodigoFiscal_(row.EmissionPoint, 3, 'FacturasFiscales.EmissionPoint (ID ' + row.ID + ')');
   row.Sequential = normalizarCodigoFiscal_(row.Sequential, 9, 'FacturasFiscales.Sequential (ID ' + row.ID + ')');
   return row;
+}
+
+const FISCAL_SRI_PAYMENT_CODES_ = ['01','15','16','17','18','19','20','21'];
+const FISCAL_PAYMENT_METHOD_CATALOG_ = [
+  {
+    codigo: 'TRANSFERENCIA',
+    sriPaymentCode: '20',
+    etiquetas: ['transferencia', 'transferencia bancaria', 'deposito', 'deposito bancario'],
+  },
+];
+
+function normalizarTextoFiscal_(valor) {
+  return String(valor || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+function validarSriPaymentCodeFiscal_(code) {
+  const value = String(code || '').trim();
+  if (!value) return '';
+  if (FISCAL_SRI_PAYMENT_CODES_.indexOf(value) === -1) {
+    throw new Error('SriPaymentCode no reconocido: ' + value + '. Configure el código SRI de forma explícita antes de facturar.');
+  }
+  return value;
+}
+
+function resolverSriPaymentCodeFiscal_(paymentMethodInternal, explicitCode, environment) {
+  const explicit = validarSriPaymentCodeFiscal_(explicitCode);
+  if (explicit) return explicit;
+
+  const normalized = normalizarTextoFiscal_(paymentMethodInternal);
+  if (normalized) {
+    for (var i = 0; i < FISCAL_PAYMENT_METHOD_CATALOG_.length; i++) {
+      var entry = FISCAL_PAYMENT_METHOD_CATALOG_[i];
+      for (var j = 0; j < entry.etiquetas.length; j++) {
+        if (normalized === entry.etiquetas[j] || normalized.indexOf(entry.etiquetas[j]) !== -1) {
+          return entry.sriPaymentCode;
+        }
+      }
+    }
+  }
+
+  if (environment === 'production') {
+    throw new Error('No se pudo resolver SriPaymentCode para la forma de pago "' + String(paymentMethodInternal || '') + '". Configure el código SRI antes de crear la factura productiva.');
+  }
+  return '';
 }
 
 /**
@@ -232,16 +278,35 @@ function migrarModuloFiscal(user, params) {
         CodigoInterno: item.CodigoInterno,
         Descripcion: item.Descripcion,
         TaxRateBasisPoints: item.TaxRateBasisPoints,
+        SriTaxCode: item.SriTaxCode || '',
         Activo: true,
         Version: FISCAL_CATALOG_VERSION,
         ActualizadoPor: user.Username,
         ActualizadoEn: new Date().toISOString(),
-        ValidacionTributaria: FISCAL_VALIDACION_PENDIENTE,
+        ValidacionTributaria: item.ValidacionTributaria || FISCAL_VALIDACION_PENDIENTE,
+        MotivoValidacion: item.MotivoValidacion || '',
         TestOnly: !!item.TestOnly,
       };
       return map[header] !== undefined ? map[header] : '';
     }));
     catalogoSembrado = true;
+  });
+
+  FISCAL_CATALOG_INICIAL.forEach(function (item) {
+    const existente = sheetToObjects(getSheet('ConfiguracionFiscal')).find(function (row) { return row.CodigoInterno === item.CodigoInterno; });
+    if (!existente) return;
+    const campos = {
+      Descripcion: item.Descripcion,
+      TaxRateBasisPoints: item.TaxRateBasisPoints,
+      SriTaxCode: item.SriTaxCode || '',
+      Version: FISCAL_CATALOG_VERSION,
+      ActualizadoPor: user.Username,
+      ActualizadoEn: new Date().toISOString(),
+      TestOnly: !!item.TestOnly,
+    };
+    if (item.ValidacionTributaria) campos.ValidacionTributaria = item.ValidacionTributaria;
+    if (item.MotivoValidacion) campos.MotivoValidacion = item.MotivoValidacion;
+    updateRow(getSheet('ConfiguracionFiscal'), existente, campos);
   });
 
   registrarAuditoriaFiscal({
@@ -256,6 +321,113 @@ function migrarModuloFiscal(user, params) {
   PropertiesService.getScriptProperties().deleteProperty('SRI_MIGRATION_CONFIRMATION');
 
   return { success: true, data: { hojasAseguradas: hojasAseguradas, catalogoSembrado: catalogoSembrado } };
+}
+
+function migrarCatalogoFiscalV2(user, params) {
+  requireFiscalAdmin(user, 'FISCAL_CATALOG_V2_MIGRATION', { canal: 'api' });
+  params = params || {};
+  if (params.confirmacion !== 'APLICAR_CATALOGO_FISCAL_V2') {
+    throw new Error('Migraci?n bloqueada: confirme expl?citamente confirmacion="APLICAR_CATALOGO_FISCAL_V2".');
+  }
+
+  return conBloqueoFiscal(function () {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName('ConfiguracionFiscal');
+    if (!sheet) {
+      throw new Error('No existe la hoja ConfiguracionFiscal. No se ejecuta migraci?n inicial ni se crean hojas.');
+    }
+
+    const lastCol = sheet.getLastColumn();
+    const headers = lastCol > 0 ? sheet.getRange(1, 1, 1, lastCol).getValues()[0] : [];
+    if (!headers.length || headers.indexOf('CodigoInterno') === -1) {
+      throw new Error('ConfiguracionFiscal no tiene encabezados v?lidos. No se puede aplicar cat?logo fiscal v2.');
+    }
+    SHEET_HEADERS.ConfiguracionFiscal.forEach(function (header) {
+      if (headers.indexOf(header) !== -1) return;
+      const col = sheet.getLastColumn() + 1;
+      const cell = sheet.getRange(1, col);
+      cell.setValue(header);
+      cell.setFontWeight('bold').setBackground('#3730a3').setFontColor('#ffffff');
+    });
+
+    let catalogo = sheetToObjects(sheet);
+    const cambios = [];
+    const creados = [];
+    const ahora = new Date().toISOString();
+
+    FISCAL_CATALOG_INICIAL.forEach(function (item) {
+      const existente = catalogo.find(function (row) { return row.CodigoInterno === item.CodigoInterno; });
+      const objetivo = {
+        Descripcion: item.Descripcion,
+        TaxRateBasisPoints: item.TaxRateBasisPoints,
+        SriTaxCode: item.SriTaxCode || '',
+        Activo: true,
+        Version: FISCAL_CATALOG_VERSION,
+        TestOnly: !!item.TestOnly,
+      };
+      if (item.ValidacionTributaria) objetivo.ValidacionTributaria = item.ValidacionTributaria;
+      if (item.MotivoValidacion) objetivo.MotivoValidacion = item.MotivoValidacion;
+
+      if (!existente) {
+        const nuevo = {
+          ID: generateId('FCFG'),
+          CodigoInterno: item.CodigoInterno,
+          Descripcion: objetivo.Descripcion,
+          TaxRateBasisPoints: objetivo.TaxRateBasisPoints,
+          SriTaxCode: objetivo.SriTaxCode,
+          Activo: true,
+          Version: FISCAL_CATALOG_VERSION,
+          ActualizadoPor: user.Username,
+          ActualizadoEn: ahora,
+          ValidacionTributaria: objetivo.ValidacionTributaria || FISCAL_VALIDACION_PENDIENTE,
+          MotivoValidacion: objetivo.MotivoValidacion || '',
+          TestOnly: objetivo.TestOnly,
+        };
+        sheet.appendRow(SHEET_HEADERS.ConfiguracionFiscal.map(function (header) {
+          return nuevo[header] !== undefined ? nuevo[header] : '';
+        }));
+        creados.push(item.CodigoInterno);
+        return;
+      }
+
+      const campos = {};
+      Object.keys(objetivo).forEach(function (key) {
+        if (String(existente[key]) !== String(objetivo[key])) campos[key] = objetivo[key];
+      });
+      if (Object.keys(campos).length) {
+        campos.ActualizadoPor = user.Username;
+        campos.ActualizadoEn = ahora;
+        updateRow(sheet, existente, campos);
+        cambios.push({ CodigoInterno: item.CodigoInterno, campos: Object.keys(campos).filter(function (key) { return key !== 'ActualizadoPor' && key !== 'ActualizadoEn'; }) });
+      }
+    });
+
+    registrarAuditoriaFiscal({
+      usuario: user.Username,
+      rol: user.Rol,
+      accion: 'FISCAL_CATALOG_V2_MIGRATED',
+      canal: 'api',
+      resultado: 'ok',
+      motivo: cambios.length || creados.length ? 'Cat?logo fiscal v2 aplicado.' : 'Cat?logo fiscal v2 ya estaba aplicado.',
+      metadatos: {
+        versionObjetivo: FISCAL_CATALOG_VERSION,
+        codigosActualizados: cambios,
+        codigosCreados: creados,
+        facturasAlteradas: 0,
+      },
+    });
+
+    catalogo = sheetToObjects(sheet);
+    return {
+      success: true,
+      data: {
+        versionObjetivo: FISCAL_CATALOG_VERSION,
+        cambiosAplicados: cambios.length,
+        codigosCreados: creados,
+        catalogo: catalogo.filter(function (item) { return esVerdadero(item.Activo); }),
+      },
+    };
+  });
 }
 
 // ─────────────────────────────────────────────
@@ -284,15 +456,23 @@ function verificarConflictoSerieFiscal(user, params) {
   const establishment = String((params && params.establishment) || '').padStart(3, '0');
   const emissionPoint = String((params && params.emissionPoint) || '').padStart(3, '0');
   const environment = params && params.environment;
+  // environment es OBLIGATORIO (no opcional): sin esto, un conflicto de test
+  // contaminaba la lectura de production y viceversa -- exactamente el "conflicto de
+  // lectura" reportado al previsualizar la primera factura productiva contra la
+  // misma serie 001-002 ya usada por la factura TEST_ONLY.
+  if (environment !== 'test' && environment !== 'production') {
+    throw new Error('environment debe ser "test" o "production" (obligatorio, para no mezclar series de ambientes distintos).');
+  }
 
   const facturasEnSerie = sheetToObjects(getSheet('FacturasFiscales')).filter(function (item) {
     return normalizarCodigoFiscal_(item.Establishment, 3, 'FacturasFiscales.Establishment') === establishment &&
-      normalizarCodigoFiscal_(item.EmissionPoint, 3, 'FacturasFiscales.EmissionPoint') === emissionPoint;
+      normalizarCodigoFiscal_(item.EmissionPoint, 3, 'FacturasFiscales.EmissionPoint') === emissionPoint &&
+      item.Environment === environment;
   });
   const secuenciaEnSerie = sheetToObjects(getSheet('SecuenciaFiscal')).filter(function (item) {
     return normalizarCodigoFiscal_(item.Establishment, 3, 'SecuenciaFiscal.Establishment') === establishment &&
-      normalizarCodigoFiscal_(item.EmissionPoint, 3, 'SecuenciaFiscal.EmissionPoint') === emissionPoint
-      && (!environment || item.Environment === environment);
+      normalizarCodigoFiscal_(item.EmissionPoint, 3, 'SecuenciaFiscal.EmissionPoint') === emissionPoint &&
+      item.Environment === environment;
   });
 
   const conflicto = facturasEnSerie.length > 0 || secuenciaEnSerie.length > 0;
@@ -305,14 +485,22 @@ function verificarConflictoSerieFiscal(user, params) {
     metadatos: { establishment: establishment, emissionPoint: emissionPoint, environment: environment || null, facturasEncontradas: facturasEnSerie.length, contadoresEncontrados: secuenciaEnSerie.length },
   });
 
+  // Refleja SOLO lo que Finance conoce (su propio contador) -- no prueba que no se
+  // haya facturado esa serie por otro medio antes de que este módulo existiera.
+  const ultimoSecuencialEnFinance = secuenciaEnSerie.length > 0
+    ? Math.max.apply(null, secuenciaEnSerie.map(function (item) { return Number(item.LastSequential) || 0; }))
+    : null;
+
   return {
     success: true,
     data: {
       conflict: conflicto,
       establishment: establishment,
       emissionPoint: emissionPoint,
+      environment: environment,
       facturasEncontradas: facturasEnSerie.length,
       contadoresEncontrados: secuenciaEnSerie.length,
+      ultimoSecuencialEnFinance: ultimoSecuencialEnFinance,
     },
   };
 }
@@ -327,6 +515,15 @@ function validarItemFiscal_(item, environment) {
   if (!catalogo) throw new Error('El código de ítem "' + item.codigo + '" no existe en el catálogo fiscal activo.');
   if (Number(catalogo.TaxRateBasisPoints) !== Number(item.taxRateBasisPoints)) {
     throw new Error('La tarifa de impuesto del ítem "' + item.codigo + '" no coincide con el catálogo aprobado.');
+  }
+  if (!catalogo.SriTaxCode) {
+    throw new Error('El codigo "' + item.codigo + '" no tiene SriTaxCode configurado en el catalogo fiscal.');
+  }
+  if (item.sriTaxCode && String(item.sriTaxCode) !== String(catalogo.SriTaxCode)) {
+    throw new Error('El codigo SRI de impuesto del item "' + item.codigo + '" no coincide con el catalogo aprobado.');
+  }
+  if (!Number.isInteger(item.baseCents) || !Number.isInteger(item.totalCents) || item.totalCents < item.baseCents) {
+    throw new Error('Los totales del item "' + item.codigo + '" deben estar en centavos y totalCents no puede ser menor que baseCents.');
   }
   // Bloqueo absoluto, sin excepción de administrador: un ítem TestOnly no
   // representa un concepto de negocio real, así que nunca es válido en
@@ -416,10 +613,15 @@ function crearBorradorFactura(user, params) {
 
     const subtotalWithoutTax = p.items.reduce(function (acc, item) { return acc + item.baseCents; }, 0);
     const taxTotal = Number.isInteger(p.taxTotal) ? p.taxTotal : 0;
+    const taxTotalDesdeItems = p.items.reduce(function (acc, item) { return acc + (item.totalCents - item.baseCents); }, 0);
+    if (taxTotal !== taxTotalDesdeItems) {
+      throw new Error('taxTotal (' + taxTotal + ') no coincide con la suma de impuestos de los items (' + taxTotalDesdeItems + ').');
+    }
     const grandTotalEsperado = subtotalWithoutTax + taxTotal;
     if (Number.isInteger(p.grandTotal) && p.grandTotal !== grandTotalEsperado) {
       throw new Error('grandTotal (' + p.grandTotal + ') no coincide con subtotalWithoutTax + taxTotal (' + grandTotalEsperado + ').');
     }
+    const sriPaymentCode = resolverSriPaymentCodeFiscal_(p.paymentMethodInternal, p.sriPaymentCode, p.environment);
 
     const id = generateId('FACT');
     const now = new Date().toISOString();
@@ -444,6 +646,7 @@ function crearBorradorFactura(user, params) {
       GrandTotal: grandTotalEsperado,
       Currency: p.currency || 'USD',
       PaymentMethodInternal: p.paymentMethodInternal || '',
+      SriPaymentCode: sriPaymentCode,
       CreatedBy: user.Username,
       CreatedAt: now,
       UpdatedAt: now,
@@ -464,7 +667,7 @@ function crearBorradorFactura(user, params) {
           PrecioUnitarioCents: item.precioUnitarioCents,
           DescuentoCents: Number.isInteger(item.descuentoCents) ? item.descuentoCents : 0,
           TaxRateBasisPoints: item.taxRateBasisPoints,
-          SriTaxCode: item.sriTaxCode || '',
+          SriTaxCode: catalogoFiscalPorCodigo_(item.codigo).SriTaxCode || '',
           BaseCents: item.baseCents,
           TotalCents: item.totalCents,
           CatalogVersion: FISCAL_CATALOG_VERSION,
@@ -484,7 +687,7 @@ function crearBorradorFactura(user, params) {
       estadoNuevo: 'DRAFT',
       canal: 'api',
       resultado: 'ok',
-      metadatos: { itemCount: p.items.length, grandTotal: grandTotalEsperado },
+      metadatos: { itemCount: p.items.length, grandTotal: grandTotalEsperado, sriPaymentCode: sriPaymentCode },
     });
 
     return { success: true, data: registro, idempotent: false };
@@ -530,6 +733,7 @@ function reservarSecuencialFiscal(user, params) {
       // Primer uso de esta serie en este ambiente: exigir verificación de conflicto explícita primero.
       const facturasPrevias = sheetToObjects(getSheet('FacturasFiscales')).filter(function (item) {
         return item.ID !== p.facturaId &&
+          item.Environment === factura.Environment &&
           normalizarCodigoFiscal_(item.Establishment, 3, 'FacturasFiscales.Establishment') === establishment &&
           normalizarCodigoFiscal_(item.EmissionPoint, 3, 'FacturasFiscales.EmissionPoint') === emissionPoint;
       });
@@ -691,6 +895,224 @@ function getFacturaFiscalCompleta(user, params) {
   return { success: true, data: { factura: factura, items: items } };
 }
 
+function fiscalSha256Bytes_(bytes) {
+  var digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, bytes);
+  return digest.map(function (byte) {
+    var value = byte;
+    if (value < 0) value += 256;
+    var hex = value.toString(16);
+    return hex.length === 1 ? '0' + hex : hex;
+  }).join('');
+}
+
+function fiscalSha256Text_(text) {
+  return fiscalSha256Bytes_(Utilities.newBlob(String(text || ''), 'text/plain').getBytes());
+}
+
+function fiscalBlobBytes_(blob) {
+  return blob.getBytes ? blob.getBytes() : (blob.bytes || []);
+}
+
+function fiscalEncodeBase64_(bytes) {
+  if (Utilities.base64Encode) return Utilities.base64Encode(bytes);
+  throw new Error('No se pudo codificar el documento fiscal para descarga.');
+}
+
+function fiscalDecodeBase64_(value) {
+  try {
+    return Utilities.base64Decode(String(value || ''));
+  } catch (err) {
+    throw new Error('El PDF RIDE enviado no tiene un base64 valido.');
+  }
+}
+
+function fiscalSafeFilename_(value, fallback) {
+  var name = String(value || fallback || 'documento-fiscal.pdf').trim();
+  name = name.replace(/[\\/:*?"<>|]+/g, '_').slice(0, 140);
+  return name || fallback || 'documento-fiscal.pdf';
+}
+
+function fiscalDocumentsFolder_() {
+  var props = PropertiesService.getScriptProperties();
+  var folderId = props.getProperty('FISCAL_DRIVE_FOLDER_ID');
+  if (folderId) return DriveApp.getFolderById(folderId);
+  var folderName = 'R.A. Training Finance - Documentos fiscales';
+  var existing = DriveApp.getFoldersByName(folderName);
+  if (existing && existing.hasNext()) return existing.next();
+  return DriveApp.createFolder(folderName);
+}
+
+function guardarRideFiscal(user, params) {
+  const p = params || {};
+  requireFiscalAdmin(user, 'RIDE_STORE', { facturaId: p.facturaId });
+  if (!p.facturaId) throw new Error('facturaId es obligatorio.');
+  if (!p.ridePdfBase64) throw new Error('ridePdfBase64 es obligatorio.');
+  if (!/^[a-f0-9]{64}$/i.test(String(p.sha256Ride || ''))) throw new Error('sha256Ride debe ser una huella SHA-256 valida.');
+
+  return conBloqueoFiscal(function () {
+    const sheet = getSheet('FacturasFiscales');
+    const { row: factura } = facturaFiscalPorId_(p.facturaId);
+    if (!factura) throw new Error('Factura no encontrada: ' + p.facturaId);
+    if (factura.SriAuthorizationStatus !== 'AUTORIZADO' || !factura.AuthorizationNumber) {
+      throw new Error('Solo se puede almacenar RIDE para una factura autorizada.');
+    }
+    if (factura.Status !== 'DELIVERY_PENDING' && factura.Status !== 'DELIVERED') {
+      throw new Error('La factura debe estar en DELIVERY_PENDING o DELIVERED para almacenar RIDE.');
+    }
+
+    const esperado = String(p.sha256Ride).toLowerCase();
+    if (factura.RideReference || factura.Sha256Ride) {
+      if (String(factura.Sha256Ride || '').toLowerCase() === esperado && factura.RideReference) {
+        return { success: true, data: { factura: factura, rideReference: factura.RideReference, sha256Ride: factura.Sha256Ride, idempotent: true } };
+      }
+      registrarAuditoriaFiscal({
+        facturaId: p.facturaId,
+        usuario: user.Username,
+        rol: user.Rol,
+        accion: 'RIDE_STORE_REJECTED',
+        estadoAnterior: factura.Status,
+        estadoNuevo: factura.Status,
+        canal: 'api',
+        resultado: 'rechazado',
+        motivo: 'Intento de reemplazar un RIDE ya registrado con una huella distinta.',
+        metadatos: { previousHash: factura.Sha256Ride || '', incomingHash: esperado },
+      });
+      throw new Error('La factura ya tiene un RIDE registrado con otra huella. No se reemplazo.');
+    }
+
+    const bytes = fiscalDecodeBase64_(p.ridePdfBase64);
+    const calculado = fiscalSha256Bytes_(bytes);
+    if (calculado !== esperado) {
+      throw new Error('El hash SHA-256 del RIDE recibido no coincide con el PDF enviado.');
+    }
+
+    const folder = fiscalDocumentsFolder_();
+    const filename = fiscalSafeFilename_(p.filename, 'RIDE_' + (factura.DocumentNumber || factura.ID) + '.pdf');
+    const blob = Utilities.newBlob(bytes, 'application/pdf', filename);
+    const file = folder.createFile ? folder.createFile(blob) : DriveApp.createFile(blob);
+    try {
+      if (file.setSharing) file.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE);
+    } catch (err) {
+      // Drive ya crea archivos privados por defecto.
+    }
+    const reference = 'drive:' + file.getId();
+    const now = new Date().toISOString();
+    updateRow(sheet, factura, {
+      RideReference: reference,
+      Sha256Ride: esperado,
+      UpdatedAt: now,
+    });
+
+    registrarAuditoriaFiscal({
+      facturaId: p.facturaId,
+      usuario: user.Username,
+      rol: user.Rol,
+      accion: 'RIDE_STORED',
+      estadoAnterior: factura.Status,
+      estadoNuevo: factura.Status,
+      canal: 'api',
+      resultado: 'ok',
+      metadatos: { rideReference: reference, sha256Ride: esperado, filename: filename },
+    });
+
+    const { row: facturaActualizada } = facturaFiscalPorId_(p.facturaId);
+    return { success: true, data: { factura: facturaActualizada, rideReference: reference, sha256Ride: esperado, idempotent: false } };
+  });
+}
+
+function getDocumentoFiscalParaDescarga(user, params) {
+  const p = params || {};
+  requireFiscalAdmin(user, 'FISCAL_DOCUMENT_DOWNLOAD', { facturaId: p.facturaId });
+  if (!p.facturaId) throw new Error('facturaId es obligatorio.');
+  const tipo = String(p.tipo || '').toUpperCase();
+  if (tipo !== 'RIDE' && tipo !== 'XML_AUTORIZADO') throw new Error('tipo debe ser RIDE o XML_AUTORIZADO.');
+
+  const { row: factura } = facturaFiscalPorId_(p.facturaId);
+  if (!factura) throw new Error('Factura no encontrada: ' + p.facturaId);
+  if (factura.SriAuthorizationStatus !== 'AUTORIZADO' || !factura.AuthorizationNumber) {
+    throw new Error('La factura todavia no tiene autorizacion SRI registrada.');
+  }
+
+  if (tipo === 'XML_AUTORIZADO') {
+    const xml = String(factura.XmlAuthorizedContent || '');
+    if (!xml) throw new Error('El XML autorizado no esta disponible para descarga.');
+    const sha = fiscalSha256Text_(xml);
+    if (factura.Sha256Authorized && String(factura.Sha256Authorized).toLowerCase() !== sha) {
+      throw new Error('El XML autorizado no coincide con la huella registrada.');
+    }
+    return { success: true, data: {
+      facturaId: factura.ID,
+      tipo: tipo,
+      filename: 'XML_AUTORIZADO_' + fiscalSafeFilename_(factura.DocumentNumber || factura.ID, factura.ID) + '.xml',
+      mimeType: 'application/xml',
+      sha256: sha,
+      contentBase64: fiscalEncodeBase64_(Utilities.newBlob(xml, 'application/xml').getBytes()),
+    } };
+  }
+
+  if (!factura.RideReference || !factura.Sha256Ride) throw new Error('La factura autorizada aun no tiene RIDE almacenado.');
+  if (String(factura.RideReference).indexOf('drive:') !== 0) throw new Error('Referencia RIDE no soportada.');
+  const fileId = String(factura.RideReference).slice(6);
+  const file = DriveApp.getFileById(fileId);
+  const bytes = fiscalBlobBytes_(file.getBlob());
+  const sha = fiscalSha256Bytes_(bytes);
+  if (String(factura.Sha256Ride).toLowerCase() !== sha) {
+    throw new Error('El RIDE almacenado no coincide con la huella registrada.');
+  }
+  return { success: true, data: {
+    facturaId: factura.ID,
+    tipo: tipo,
+    filename: file.getName ? file.getName() : ('RIDE_' + fiscalSafeFilename_(factura.DocumentNumber || factura.ID, factura.ID) + '.pdf'),
+    mimeType: 'application/pdf',
+    sha256: sha,
+    contentBase64: fiscalEncodeBase64_(bytes),
+  } };
+}
+
+function cerrarEntregaFiscal(user, params) {
+  const p = params || {};
+  requireFiscalAdmin(user, 'FISCAL_DELIVERY_COMPLETE', { facturaId: p.facturaId });
+  if (!p.facturaId) throw new Error('facturaId es obligatorio.');
+
+  return conBloqueoFiscal(function () {
+    const sheet = getSheet('FacturasFiscales');
+    const { row: factura } = facturaFiscalPorId_(p.facturaId);
+    if (!factura) throw new Error('Factura no encontrada: ' + p.facturaId);
+    if (factura.SriAuthorizationStatus !== 'AUTORIZADO' || !factura.AuthorizationNumber) {
+      throw new Error('No se puede cerrar la entrega sin autorizacion SRI.');
+    }
+    if (!factura.XmlAuthorizedContent && !factura.XmlAuthorizedReference) {
+      throw new Error('No se puede cerrar la entrega sin XML autorizado recuperable.');
+    }
+    if (!factura.RideReference || !factura.Sha256Ride) {
+      throw new Error('No se puede cerrar la entrega sin RIDE almacenado.');
+    }
+    if (factura.Status === 'DELIVERED') {
+      return { success: true, data: { factura: factura, idempotent: true } };
+    }
+    if (factura.Status !== 'DELIVERY_PENDING') {
+      throw new Error('Solo una factura DELIVERY_PENDING puede cerrarse como DELIVERED (actual: ' + factura.Status + ').');
+    }
+
+    const now = new Date().toISOString();
+    updateRow(sheet, factura, { Status: 'DELIVERED', DeliveredAt: now, UpdatedAt: now });
+    registrarAuditoriaFiscal({
+      facturaId: p.facturaId,
+      usuario: user.Username,
+      rol: user.Rol,
+      accion: 'FISCAL_DELIVERY_COMPLETED',
+      estadoAnterior: 'DELIVERY_PENDING',
+      estadoNuevo: 'DELIVERED',
+      canal: 'api',
+      resultado: 'ok',
+      motivo: p.motivo || 'XML autorizado y RIDE almacenados correctamente.',
+      metadatos: { rideReference: factura.RideReference, sha256Ride: factura.Sha256Ride },
+    });
+    const { row: facturaActualizada } = facturaFiscalPorId_(p.facturaId);
+    return { success: true, data: { factura: facturaActualizada, idempotent: false } };
+  });
+}
+
 /**
  * Facturas elegibles para sondear autorización: en RECEIVED/PROCESSING y cuya
  * NextPollAt ya llegó (o nunca se sondearon). Filtra por ambiente de forma dura —
@@ -840,6 +1262,81 @@ function reabrirFacturaRechazadaParaCorreccion(user, params) {
 // Allowlist explícito: solo estas acciones aceptan serviceToken en vez de una
 // sesión de usuario. Todo lo demás (certificados, usuarios, etc.) sigue exigiendo
 // login normal — este mecanismo no amplía privilegios de ninguna otra acción.
+function backfillSriPaymentCodeFacturaAutorizada(user, params) {
+  const p = params || {};
+  requireFiscalAdmin(user, 'FISCAL_PAYMENT_CODE_BACKFILL', { facturaId: p.facturaId });
+  if (p.confirmacion !== 'BACKFILL_SRI_PAYMENT_CODE') {
+    throw new Error('Confirmación inválida. Para el backfill use confirmacion="BACKFILL_SRI_PAYMENT_CODE".');
+  }
+  if (!p.facturaId) throw new Error('facturaId es obligatorio.');
+
+  return conBloqueoFiscal(function () {
+    const sheet = getSheet('FacturasFiscales');
+    const { row: factura } = facturaFiscalPorId_(p.facturaId);
+    if (!factura) throw new Error('Factura no encontrada: ' + p.facturaId);
+
+    const estadosPermitidos = ['AUTHORIZED', 'DELIVERY_PENDING', 'DELIVERED'];
+    if (estadosPermitidos.indexOf(factura.Status) === -1) {
+      throw new Error('El backfill de SriPaymentCode solo aplica a facturas autorizadas/entregadas (estado actual: ' + factura.Status + ').');
+    }
+
+    const targetCode = resolverSriPaymentCodeFiscal_(p.paymentMethodInternal || factura.PaymentMethodInternal, p.sriPaymentCode, factura.Environment || 'production');
+    const existingCode = String(factura.SriPaymentCode || '').trim();
+    const authorizedXml = String(factura.XmlAuthorizedContent || '');
+    if (!authorizedXml || authorizedXml.indexOf('<formaPago>' + targetCode + '</formaPago>') === -1) {
+      throw new Error('Backfill bloqueado: el XML autorizado inmutable no contiene formaPago ' + targetCode + '. No se modifica metadata fiscal histórica sin respaldo del XML.');
+    }
+    if (existingCode === targetCode) {
+      return { success: true, data: factura, idempotent: true, changed: false };
+    }
+    if (existingCode && existingCode !== targetCode) {
+      throw new Error('Backfill bloqueado: la factura ya tiene SriPaymentCode=' + existingCode + ' y no coincide con ' + targetCode + '.');
+    }
+
+    const invariantes = {
+      Status: factura.Status,
+      AccessKey: factura.AccessKey,
+      Establishment: factura.Establishment,
+      EmissionPoint: factura.EmissionPoint,
+      Sequential: factura.Sequential,
+      DocumentNumber: factura.DocumentNumber,
+      AuthorizationNumber: factura.AuthorizationNumber,
+      AuthorizationDate: factura.AuthorizationDate,
+      XmlAuthorizedContent: factura.XmlAuthorizedContent,
+      XmlAuthorizedReference: factura.XmlAuthorizedReference,
+      RideReference: factura.RideReference,
+      Sha256Authorized: factura.Sha256Authorized,
+      Sha256Ride: factura.Sha256Ride,
+    };
+
+    updateRow(sheet, factura, {
+      SriPaymentCode: targetCode,
+      UpdatedAt: new Date().toISOString(),
+    });
+
+    registrarAuditoriaFiscal({
+      facturaId: p.facturaId,
+      usuario: user.Username,
+      rol: user.Rol,
+      accion: 'FISCAL_PAYMENT_CODE_BACKFILLED',
+      estadoAnterior: factura.Status,
+      estadoNuevo: factura.Status,
+      canal: 'api',
+      resultado: 'ok',
+      motivo: p.motivo || 'Backfill controlado de SriPaymentCode con XML autorizado como fuente de verdad.',
+      metadatos: { sriPaymentCodeAnterior: existingCode, sriPaymentCodeNuevo: targetCode },
+    });
+
+    const { row: actualizada } = facturaFiscalPorId_(p.facturaId);
+    Object.keys(invariantes).forEach(function (key) {
+      if (String(actualizada[key] || '') !== String(invariantes[key] || '')) {
+        throw new Error('Invariante violada durante backfill de SriPaymentCode: cambió ' + key + '.');
+      }
+    });
+    return { success: true, data: actualizada, idempotent: false, changed: true };
+  });
+}
+
 const FISCAL_SERVICE_ACTIONS_ = [
   'getFacturaFiscalCompleta',
   'listarFacturasPendientesDePolling',
@@ -847,6 +1344,9 @@ const FISCAL_SERVICE_ACTIONS_ = [
   'reservarSecuencialFiscal',
   'crearBorradorFactura',
   'getConfiguracionFiscal',
+  'guardarRideFiscal',
+  'getDocumentoFiscalParaDescarga',
+  'cerrarEntregaFiscal',
 ];
 
 function isFiscalServiceAction_(action) {

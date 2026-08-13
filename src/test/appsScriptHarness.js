@@ -77,6 +77,8 @@ class Sheet {
 
 export function createAppsScriptHarness({ authSecret = 'test-only-secret-with-at-least-32-characters' } = {}) {
   const sheets = {}
+  const driveFiles = new Map()
+  const driveFolders = new Map()
   const locks = { waits: 0, releases: 0 }
   const spreadsheet = {
     getSheetByName: name => sheets[name] || null,
@@ -84,6 +86,46 @@ export function createAppsScriptHarness({ authSecret = 'test-only-secret-with-at
   }
   const properties = new Map(authSecret ? [['AUTH_SECRET', authSecret]] : [])
   const logs = []
+  function makeBlob(bytes, mimeType = '', name = '') {
+    const normalized = Array.isArray(bytes)
+      ? bytes
+      : typeof bytes === 'string'
+        ? [...Buffer.from(bytes, 'utf8')]
+        : [...Buffer.from(bytes || [])]
+    return {
+      bytes: normalized,
+      mimeType,
+      name,
+      getBytes: () => normalized,
+      getName: () => name,
+      getContentType: () => mimeType,
+    }
+  }
+
+  function makeFile(blob) {
+    const id = `drive-${driveFiles.size + 1}`
+    const file = {
+      id,
+      blob,
+      getId: () => id,
+      getName: () => blob.getName ? blob.getName() : blob.name,
+      getBlob: () => blob,
+      setSharing: () => file,
+    }
+    driveFiles.set(id, file)
+    return file
+  }
+
+  function makeFolder(name) {
+    const folder = {
+      name,
+      createFile: blob => makeFile(blob),
+      getName: () => name,
+    }
+    driveFolders.set(name, folder)
+    return folder
+  }
+
   const context = {
     console,
     SpreadsheetApp: { getActiveSpreadsheet: () => spreadsheet },
@@ -104,10 +146,30 @@ export function createAppsScriptHarness({ authSecret = 'test-only-secret-with-at
     ContentService: { MimeType: { JSON: 'JSON' }, createTextOutput: value => ({ setMimeType: () => value }) },
     Utilities: {
       DigestAlgorithm: { SHA_256: 'SHA_256' },
-      computeDigest: (_algorithm, value) => [...crypto.createHash('sha256').update(String(value)).digest()],
+      computeDigest: (_algorithm, value) => {
+        const input = Array.isArray(value) ? Buffer.from(value) : Buffer.from(String(value), 'utf8')
+        return [...crypto.createHash('sha256').update(input).digest()]
+      },
       base64Decode: value => [...Buffer.from(value, 'base64')],
-      newBlob: bytes => ({ bytes }),
+      base64Encode: value => Buffer.from(Array.isArray(value) ? value : String(value), Array.isArray(value) ? undefined : 'utf8').toString('base64'),
+      newBlob: (bytes, mimeType, name) => makeBlob(bytes, mimeType, name),
       getUuid: () => crypto.randomUUID(),
+    },
+    DriveApp: {
+      Access: { PRIVATE: 'PRIVATE' },
+      Permission: { NONE: 'NONE' },
+      createFolder: name => makeFolder(name),
+      getFoldersByName: name => {
+        const folder = driveFolders.get(name)
+        let consumed = false
+        return { hasNext: () => Boolean(folder) && !consumed, next: () => { consumed = true; return folder } }
+      },
+      getFolderById: id => driveFolders.get(id) || makeFolder(id),
+      createFile: blob => makeFile(blob),
+      getFileById: id => {
+        if (!driveFiles.has(id)) throw new Error(`Drive file not found: ${id}`)
+        return driveFiles.get(id)
+      },
     },
     MailApp: { sendEmail: () => {} },
     Logger: { log: value => logs.push(String(value)) },
@@ -133,5 +195,5 @@ export function createAppsScriptHarness({ authSecret = 'test-only-secret-with-at
     return rows.map(row => Object.fromEntries(headers.map((header, index) => [header, row[index] ?? ''])))
   }
 
-  return { code, context, ensureSheet, locks, logs, objects, properties, seed, sheets, sourceHeaders }
+  return { code, context, driveFiles, driveFolders, ensureSheet, locks, logs, objects, properties, seed, sheets, sourceHeaders }
 }
