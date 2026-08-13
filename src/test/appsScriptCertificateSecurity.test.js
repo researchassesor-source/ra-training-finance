@@ -29,7 +29,13 @@ describe('seguridad de certificados en Apps Script', () => {
   })
 
   it('deriva el rol desde la sesión y no desde el payload', () => {
-    expect(functionSource('processRequest')).toContain('const user = validateToken(token)')
+    // Fase 6 añadió un segundo camino de autenticación (serviceToken, para el
+    // orquestador fiscal servidor-a-servidor) — `user` pasó de declararse con
+    // `const` en una sola línea a `var user` asignado en cada rama, pero la
+    // invariante de seguridad sigue intacta en ambos casos: ninguna rama toma el
+    // rol de `data`/`params` (payload del cliente).
+    expect(functionSource('processRequest')).toContain('user = validateToken(token)')
+    expect(functionSource('processRequest')).not.toMatch(/Rol\s*:\s*(data|params)\./)
     expect(functionSource('requireCertificateAdmin')).toContain('isAdmin(user)')
   })
 
