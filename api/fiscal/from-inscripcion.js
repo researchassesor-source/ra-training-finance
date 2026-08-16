@@ -54,13 +54,63 @@ function assertProductionInvoicingEnvironmentIsExplicit(environment) {
 }
 
 /**
+ * Sequential real, normalizado estrictamente: solo dígitos, y > 0. Una fila sin
+ * secuencial (DRAFT recién creado, o valor vacío/no numérico) devuelve null y NUNCA
+ * cuenta como secuencial consumido -- ni el 0 ni un valor no numérico son un
+ * secuencial real.
+ */
+function strictSequentialNumber_(value) {
+  const raw = String(value === null || value === undefined ? '' : value).trim()
+  if (!/^\d+$/.test(raw)) return null
+  const n = Number(raw)
+  return n > 0 ? n : null
+}
+
+/** Mismo padStart(length,'0') que usa verificarConflictoSerieFiscal en Fiscal.gs
+ * para comparar códigos fiscales -- para que una fila con Establishment=1 (número)
+ * siga comparando igual que '001'. */
+function normalizarCodigoFiscalJs_(value, length) {
+  return String(value === null || value === undefined ? '' : value).trim().padStart(length, '0')
+}
+
+/**
+ * Mayor Sequential ya persistido en FacturasFiscales para esta serie exacta
+ * (Environment + Establishment 001 + EmissionPoint 002 + DocumentType 01). Ignora
+ * filas de otra serie, otro ambiente, otro tipo de documento, y filas sin secuencial
+ * real (un DRAFT sin secuencial no "reserva" ningún número).
+ */
+function maxSequentialPersistidoParaSerie_(facturas, environment) {
+  return facturas.reduce((max, row) => {
+    if (String(row?.Environment || '') !== environment) return max
+    if (normalizarCodigoFiscalJs_(row?.Establishment, 3) !== DEFAULT_ESTABLISHMENT) return max
+    if (normalizarCodigoFiscalJs_(row?.EmissionPoint, 3) !== DEFAULT_EMISSION_POINT) return max
+    if (normalizarCodigoFiscalJs_(row?.DocumentType, 2) !== '01') return max
+    const sequential = strictSequentialNumber_(row?.Sequential)
+    if (sequential === null) return max
+    return Math.max(max, sequential)
+  }, 0)
+}
+
+/**
  * Preflight de serie ANTES de crear un DRAFT nuevo (nunca para el camino
- * idempotente, que no crea nada). Reutiliza la acción read-only ya existente en
- * Fiscal.gs (verificarConflictoSerieFiscal) -- no se toca su lógica. El caso crítico
- * es facturas existentes en la serie sin ningún contador de secuencia en Finance:
- * eso indica una reconciliación pendiente, no un simple "primer uso", y crear un
- * DRAFT ahí dejaría avanzar hacia reservarSecuencialFiscal sobre una serie que
- * Finance no puede numerar con confianza.
+ * idempotente, que no crea nada). Reutiliza acciones read-only ya existentes --
+ * verificarConflictoSerieFiscal y getFacturasFiscales -- sin tocar su lógica.
+ *
+ * Dos inconsistencias distintas se bloquean aquí:
+ * A) facturas existentes en la serie sin ningún contador de secuencia en Finance:
+ *    indica una reconciliación pendiente, no un simple "primer uso".
+ * B) SÍ existe contador, pero su LastSequential (ultimoSecuencialEnFinance) quedó
+ *    por DEBAJO del mayor Sequential ya persistido en FacturasFiscales para esta
+ *    serie: reservarSecuencialFiscal usaría LastSequential+1, repitiendo un número
+ *    ya emitido -- exactamente el bug reportado (factura 001-002-000000005 con
+ *    contador en 3).
+ *
+ * Un contador POR ENCIMA del máximo persistido (caso D del prompt) NO se bloquea ni
+ * se corrige: es una situación segura ya contemplada -- el contador puede haber
+ * reservado números para facturas que todavía no llegaron a un estado terminal con
+ * Sequential visible aquí (p.ej. otra factura en SUBMITTING/PROCESSING de este mismo
+ * ciclo). Este preflight solo DETECTA y bloquea; nunca escribe SecuenciaFiscal, nunca
+ * reserva, nunca corrige.
  */
 async function assertSeriesConsistentBeforeDraft(token, environment) {
   const conflicto = await callGasActionAsUser('verificarConflictoSerieFiscal', {
@@ -75,6 +125,18 @@ async function assertSeriesConsistentBeforeDraft(token, environment) {
       'La serie 001-002 tiene facturas existentes pero no existe un contador de secuencia en Finance. ' +
       'Requiere reconciliación administrativa antes de emitir.'
     )
+  }
+
+  if (contadoresEncontrados > 0) {
+    const facturas = await callGasActionAsUser('getFacturasFiscales', { environment }, token, { timeoutMs: 45_000 })
+    const maxSequentialPersistido = maxSequentialPersistidoParaSerie_(Array.isArray(facturas) ? facturas : [], environment)
+    const ultimoSecuencialEnFinance = Number(conflicto?.ultimoSecuencialEnFinance) || 0
+    if (ultimoSecuencialEnFinance < maxSequentialPersistido) {
+      throw validationError(
+        'La secuencia fiscal de Finance está desactualizada respecto a las facturas existentes. ' +
+        'Requiere reconciliación administrativa antes de emitir.'
+      )
+    }
   }
 }
 

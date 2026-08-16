@@ -201,6 +201,168 @@ describe('POST /api/fiscal/from-inscripcion — preflight de serie antes del DRA
   })
 })
 
+function facturaRow(overrides = {}) {
+  return {
+    ID: 'FAC-OTHER', InscripcionID: 'INS-OTHER', Environment: 'production',
+    Establishment: '001', EmissionPoint: '002', DocumentType: '01',
+    Sequential: '', Status: 'AUTHORIZED',
+    ...overrides,
+  }
+}
+
+describe('POST /api/fiscal/from-inscripcion — consistencia de secuencia (LastSequential vs máximo persistido)', () => {
+  // environment='production' explícito en todos estos tests: sin esto, getActiveEnvironment()
+  // cae a 'test' (su fallback seguro) y las fixtures sembradas en facturasPorEnvironment.production
+  // nunca se consultarían -- exactamente el aislamiento de ambientes que el hotfix anterior protege.
+  beforeEach(() => {
+    process.env.SRI_ENVIRONMENT = 'production'
+  })
+
+  it('1. max factura=1, contador=1 -> PASS', async () => {
+    conflictoFixture = { facturasEncontradas: 1, contadoresEncontrados: 1, ultimoSecuencialEnFinance: 1 }
+    facturasPorEnvironment.production = [facturaRow({ Sequential: '000000001' })]
+    const res = mockRes()
+    await handler({ method: 'POST', body: { token: 'tok', inscripcionId: 'INS-1' } }, res)
+
+    expect(callsFor('crearBorradorFactura')).toHaveLength(1)
+    expect(res.statusCode).toBe(200)
+  })
+
+  it('2. max factura=5, contador=5 -> PASS', async () => {
+    conflictoFixture = { facturasEncontradas: 5, contadoresEncontrados: 1, ultimoSecuencialEnFinance: 5 }
+    facturasPorEnvironment.production = [
+      facturaRow({ ID: 'F1', Sequential: '1' }),
+      facturaRow({ ID: 'F2', Sequential: '000000005' }),
+      facturaRow({ ID: 'F3', Sequential: '3' }),
+    ]
+    const res = mockRes()
+    await handler({ method: 'POST', body: { token: 'tok', inscripcionId: 'INS-1' } }, res)
+
+    expect(callsFor('crearBorradorFactura')).toHaveLength(1)
+    expect(res.statusCode).toBe(200)
+  })
+
+  it('3. max factura=5, contador=3 -> BLOQUEA antes del DRAFT', async () => {
+    conflictoFixture = { facturasEncontradas: 5, contadoresEncontrados: 1, ultimoSecuencialEnFinance: 3 }
+    facturasPorEnvironment.production = [facturaRow({ Sequential: '5' })]
+    const res = mockRes()
+    await handler({ method: 'POST', body: { token: 'tok', inscripcionId: 'INS-1' } }, res)
+
+    expect(res.statusCode).toBe(422)
+    expect(res.body.success).toBe(false)
+    expect(res.body.error).toMatch(/secuencia fiscal de Finance está desactualizada respecto a las facturas existentes/)
+    expect(callsFor('crearBorradorFactura')).toHaveLength(0)
+    expect(callsFor('reservarSecuencialFiscal')).toHaveLength(0)
+  })
+
+  it('4. max factura=1, sin contador -> BLOQUEA antes del DRAFT (regla A, sin cambios)', async () => {
+    conflictoFixture = { facturasEncontradas: 1, contadoresEncontrados: 0 }
+    facturasPorEnvironment.production = [facturaRow({ Sequential: '1' })]
+    const res = mockRes()
+    await handler({ method: 'POST', body: { token: 'tok', inscripcionId: 'INS-1' } }, res)
+
+    expect(res.statusCode).toBe(422)
+    expect(res.body.error).toMatch(/no existe un contador de secuencia en Finance/)
+    expect(callsFor('crearBorradorFactura')).toHaveLength(0)
+  })
+
+  it('5. sin facturas, sin contador -> PASS (primer uso)', async () => {
+    conflictoFixture = { facturasEncontradas: 0, contadoresEncontrados: 0 }
+    facturasPorEnvironment.production = []
+    const res = mockRes()
+    await handler({ method: 'POST', body: { token: 'tok', inscripcionId: 'INS-1' } }, res)
+
+    expect(callsFor('crearBorradorFactura')).toHaveLength(1)
+    // Primer uso: el máximo persistido nunca se consulta porque contadoresEncontrados === 0.
+    expect(callsFor('getFacturasFiscales')).toHaveLength(1) // solo el de findExistingByInscripcion (idempotencia)
+  })
+
+  it('6. un DRAFT sin Sequential no aumenta el máximo persistido', async () => {
+    conflictoFixture = { facturasEncontradas: 2, contadoresEncontrados: 1, ultimoSecuencialEnFinance: 1 }
+    facturasPorEnvironment.production = [
+      facturaRow({ ID: 'F1', Sequential: '1' }),
+      facturaRow({ ID: 'F-DRAFT', Sequential: '', Status: 'DRAFT' }),
+    ]
+    const res = mockRes()
+    await handler({ method: 'POST', body: { token: 'tok', inscripcionId: 'INS-1' } }, res)
+
+    expect(callsFor('crearBorradorFactura')).toHaveLength(1)
+    expect(res.statusCode).toBe(200)
+  })
+
+  it('7. una factura test no participa en el cálculo del máximo production', async () => {
+    conflictoFixture = { facturasEncontradas: 0, contadoresEncontrados: 1, ultimoSecuencialEnFinance: 0 }
+    facturasPorEnvironment.production = []
+    facturasPorEnvironment.test = [facturaRow({ Environment: 'test', Sequential: '99' })]
+    const res = mockRes()
+    await handler({ method: 'POST', body: { token: 'tok', inscripcionId: 'INS-1' } }, res)
+
+    expect(callsFor('crearBorradorFactura')).toHaveLength(1)
+    expect(res.statusCode).toBe(200)
+  })
+
+  it('8. otra serie (EmissionPoint 003) no participa en el cálculo del máximo', async () => {
+    conflictoFixture = { facturasEncontradas: 0, contadoresEncontrados: 1, ultimoSecuencialEnFinance: 0 }
+    facturasPorEnvironment.production = [facturaRow({ EmissionPoint: '003', Sequential: '50' })]
+    const res = mockRes()
+    await handler({ method: 'POST', body: { token: 'tok', inscripcionId: 'INS-1' } }, res)
+
+    expect(callsFor('crearBorradorFactura')).toHaveLength(1)
+    expect(res.statusCode).toBe(200)
+  })
+
+  it('9. otro DocumentType (ej. nota de crédito) no participa en el cálculo del máximo', async () => {
+    conflictoFixture = { facturasEncontradas: 0, contadoresEncontrados: 1, ultimoSecuencialEnFinance: 0 }
+    facturasPorEnvironment.production = [facturaRow({ DocumentType: '04', Sequential: '50' })]
+    const res = mockRes()
+    await handler({ method: 'POST', body: { token: 'tok', inscripcionId: 'INS-1' } }, res)
+
+    expect(callsFor('crearBorradorFactura')).toHaveLength(1)
+    expect(res.statusCode).toBe(200)
+  })
+
+  it('10. una factura production existente de la MISMA InscripcionID sigue siendo idempotente; el preflight de secuencia nunca corre', async () => {
+    conflictoFixture = { facturasEncontradas: 5, contadoresEncontrados: 1, ultimoSecuencialEnFinance: 3 } // inconsistente a propósito
+    facturasPorEnvironment.production = [{ ID: 'FAC-PROD-1', InscripcionID: 'INS-1', Environment: 'production', Status: 'AUTHORIZED', DocumentNumber: '001-002-000000005' }]
+    const res = mockRes()
+    await handler({ method: 'POST', body: { token: 'tok', inscripcionId: 'INS-1' } }, res)
+
+    expect(res.body.data).toMatchObject({ idempotent: true })
+    expect(callsFor('verificarConflictoSerieFiscal')).toHaveLength(0)
+    expect(callsFor('crearBorradorFactura')).toHaveLength(0)
+  })
+
+  it('11/12. la inconsistencia de secuencia nunca deja pasar crearBorradorFactura ni reservarSecuencialFiscal', async () => {
+    conflictoFixture = { facturasEncontradas: 5, contadoresEncontrados: 1, ultimoSecuencialEnFinance: 3 }
+    facturasPorEnvironment.production = [facturaRow({ Sequential: '5' })]
+    const res = mockRes()
+    await handler({ method: 'POST', body: { token: 'tok', inscripcionId: 'INS-1' } }, res)
+
+    expect(callsFor('crearBorradorFactura')).toHaveLength(0)
+    expect(callsFor('reservarSecuencialFiscal')).toHaveLength(0)
+  })
+
+  it('D. contador POR ENCIMA del máximo persistido no se bloquea ni se corrige (números reservados para facturas aún no terminales)', async () => {
+    conflictoFixture = { facturasEncontradas: 1, contadoresEncontrados: 1, ultimoSecuencialEnFinance: 7 }
+    facturasPorEnvironment.production = [facturaRow({ Sequential: '5' })]
+    const res = mockRes()
+    await handler({ method: 'POST', body: { token: 'tok', inscripcionId: 'INS-1' } }, res)
+
+    expect(callsFor('crearBorradorFactura')).toHaveLength(1)
+    expect(res.statusCode).toBe(200)
+  })
+
+  it('nunca escribe SecuenciaFiscal ni reserva nada: solo detecta y bloquea (0 llamadas a reservarSecuencialFiscal en el caso inconsistente)', async () => {
+    conflictoFixture = { facturasEncontradas: 5, contadoresEncontrados: 1, ultimoSecuencialEnFinance: 3 }
+    facturasPorEnvironment.production = [facturaRow({ Sequential: '5' })]
+    const res = mockRes()
+    await handler({ method: 'POST', body: { token: 'tok', inscripcionId: 'INS-1' } }, res)
+
+    expect(callGasActionAsUserMock.mock.calls.some(call => call[0] === 'reservarSecuencialFiscal')).toBe(false)
+    expect(callGasActionAsUserMock.mock.calls.some(call => call[0] === 'transicionEstadoFactura')).toBe(false)
+  })
+})
+
 describe('Fiscal.gs / motor SRI', () => {
   it('no se invoca ninguna acción de firma/SOAP/SRI real (continuarFlujoFactura solo se llama si hay llaves configuradas)', async () => {
     const res = mockRes()
