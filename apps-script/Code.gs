@@ -42,10 +42,19 @@ function processRequest(data) {
   // sesión de usuario interactiva. Ver apps-script/Fiscal.gs — solo un allowlist
   // explícito de acciones acepta este camino, y solo si el secreto coincide con la
   // Script Property FISCAL_SERVICE_TOKEN (nunca hardcodeado, nunca logueado).
+  // Llamadas servidor-a-servidor del CRM comercial (importCrmPurchase,
+  // getCrmPurchaseStatus(es), markCrmCourseCompleted) -- mismo patron que el fiscal,
+  // secreto propio (CRM_SERVICE_TOKEN) y allowlist propio.
   var user;
   if (serviceToken && isFiscalServiceAction_(action)) {
     user = validateFiscalServiceToken_(serviceToken);
     if (!user) return { success: false, error: 'Token de servicio fiscal inválido o no configurado.' };
+  } else if (isCrmServiceAction_(action)) {
+    // Sin fallback: las acciones comerciales CRM exigen SIEMPRE serviceToken
+    // válido, aunque venga un token legacy (admin) co-presente en el mismo
+    // payload -- ese token legacy nunca sustituye al serviceToken aquí.
+    user = validateCrmServiceToken_(serviceToken);
+    if (!user) return { success: false, error: 'Token de servicio CRM inválido o no configurado.' };
   } else {
     user = validateToken(token);
   }
@@ -140,6 +149,15 @@ function processRequest(data) {
     guardarRideFiscal:              () => guardarRideFiscal(user, params),
     getDocumentoFiscalParaDescarga: () => getDocumentoFiscalParaDescarga(user, params),
     cerrarEntregaFiscal:            () => cerrarEntregaFiscal(user, params),
+    // Modulo comercial CRM (aditivo) -- ver seccion MODULO COMERCIAL CRM
+    importCrmPurchase:        () => importCrmPurchase(user, params),
+    verificarPagoCompraCrm:   () => verificarPagoCompraCrm(user, params),
+    getCrmPurchaseStatus:     () => getCrmPurchaseStatus(user, params),
+    getCrmPurchaseStatuses:   () => getCrmPurchaseStatuses(user, params),
+    markCrmCourseCompleted:   () => markCrmCourseCompleted(user, params),
+    getCrmEnrollmentCommerceState:  () => getCrmEnrollmentCommerceState(user, params),
+    getCrmEnrollmentCommerceStates: () => getCrmEnrollmentCommerceStates(user, params),
+    enviarEntregableAvalEmail: () => enviarEntregableAvalEmail(user, params),
   };
 
   if (!handlers[action]) return { success: false, error: 'Acción no reconocida.' };
@@ -169,7 +187,15 @@ const SHEET_HEADERS = {
   Proyecciones:     ['ID','Evento','Tipo','FechaEstimada','MontoProyectado','MontoReal','Estado','Notas','CreadoPor','FechaCreacion'],
   Categorias:       ['ID','Nombre','Tipo','Activo'],
   Servicios:        ['ID','Nombre','Tipo','Modalidad','Precio','Duracion','Descripcion','Activo','FechaCreacion','FechaEvento','FechaFinEvento','LugarEvento'],
-  Inscripciones:    ['ID','ClienteNombre','ClienteID','ClienteEmail','ClienteTelefono','ServicioID','ServicioNombre','Modalidad','FechaInicio','Monto','MetodoPago','RazonSocial','RUC','DireccionFactura','EstadoPago','EstadoCertificado','IngresoID','Notas','CreadoPor','FechaCreacion','FechaEmisionCertificado','RequiereAvalExterno','EstadoAval','AvalReferencia','FechaAval','ValorAval','FechaFin','NumeroComprobante','FechaPago','FechaVerificacionPago','VerificadoPor','InstitucionAval','CodigoCertificado','EmitidoPor','EstadoEntrega','FechaEntregaCertificado','EntregadoPor','AvalEnlaceExterno','AvalCodigoExterno','AvalTextoConfirmado','CertificateVersion','TemplateVersion','PdfHash','PdfStorageReference','OriginalCertificateId','ReissuedCertificateId','CertificateStatus','IssuedAt','IssuedBy','VoidedAt','VoidedBy','VoidReason','ReissueReason','CRMEnrollmentID','CRMContactID','CRMCourseID','Origen'],
+  Inscripciones:    ['ID','ClienteNombre','ClienteID','ClienteEmail','ClienteTelefono','ServicioID','ServicioNombre','Modalidad','FechaInicio','Monto','MetodoPago','RazonSocial','RUC','DireccionFactura','EstadoPago','EstadoCertificado','IngresoID','Notas','CreadoPor','FechaCreacion','FechaEmisionCertificado','RequiereAvalExterno','EstadoAval','AvalReferencia','FechaAval','ValorAval','FechaFin','NumeroComprobante','FechaPago','FechaVerificacionPago','VerificadoPor','InstitucionAval','CodigoCertificado','EmitidoPor','EstadoEntrega','FechaEntregaCertificado','EntregadoPor','AvalEnlaceExterno','AvalCodigoExterno','AvalTextoConfirmado','CertificateVersion','TemplateVersion','PdfHash','PdfStorageReference','OriginalCertificateId','ReissuedCertificateId','CertificateStatus','IssuedAt','IssuedBy','VoidedAt','VoidedBy','VoidReason','ReissueReason',
+                     // Modulo comercial CRM (aditivo) -- ver seccion MODULO COMERCIAL CRM.
+                     // Insertadas ANTES de CRMEnrollmentID/CRMContactID/CRMCourseID/Origen a
+                     // proposito: appsScriptCrmHandoff.test.js fija esas 4 como las ULTIMAS
+                     // columnas de la hoja; agregar aqui en vez de al final preserva ese
+                     // contrato exacto. Vacias para todo registro legacy/manual o CRM sin
+                     // oferta comercial: nunca cambia su comportamiento actual.
+                     'CRMOfferType','CRMParentOrderID','CRMCompletionStatus','CRMCompletedAt',
+                     'CRMEnrollmentID','CRMContactID','CRMCourseID','Origen'],
   Sesiones:         ['Token','Username','UserID','Rol','Nombre','Expira'],
   ConfigPagos:      ['ID','Nombre','Tipo','Detalles','Instrucciones','Activo','FechaCreacion'],
   Convenios:        ['ID','Organizacion','Representante','Cargo','Objeto','ObligacionesRA','ObligacionesAliado','Vigencia','FechaInicio','FechaFin','Estado','Notas','CreadoPor','FechaCreacion'],
@@ -179,6 +205,16 @@ const SHEET_HEADERS = {
   AuditoriaCertificados: ['ID','CertificadoID','InscripcionID','Usuario','Rol','Accion','FechaHora','EstadoAnterior','EstadoNuevo','Canal','Resultado','Motivo','Metadatos'],
   Certificados: ['ID','InscripcionID','CodigoCertificado','CertificateVersion','TemplateVersion','PdfHash','PdfStorageReference','OriginalCertificateId','ReissuedCertificateId','CertificateStatus','IssuedAt','IssuedBy','VoidedAt','VoidedBy','VoidReason','ReissueReason','CreatedAt'],
   DescargasCertificados: ['ID','CertificadoID','InscripcionID','Usuario','Rol','Estado','FechaSolicitud','FechaConfirmacion','Motivo','PdfHash','PdfStorageReference','Canal'],
+  // Modulo comercial CRM (aditivo). Una compra = una fila, identidad CRMOrderID.
+  // FinanceInscripcionID apunta a la UNICA inscripcion academica del enrollment
+  // (compartida entre INSTITUTIONAL y su AVAL_UPGRADE -- nunca duplicada).
+  CRMCompras: ['ID','CRMOrderID','CRMEnrollmentID','FinanceInscripcionID','CRMContactID','CRMCourseID','OfferType','ParentCRMOrderID','Amount','PaymentStatus','NumeroComprobante','FechaPago','FechaVerificacionPago','VerificadoPor','CreatedAt','UpdatedAt'],
+  // Segundo entregable (certificado avalado externamente) para compras FULL.
+  // Hoja SEPARADA, vinculada por InscripcionID -- nunca una segunda fila en
+  // Certificados, para no romper resolvers que asumen un certificado principal por
+  // inscripcion (asegurarRegistroCertificado, buscarCertificadoPublico,
+  // resolverCertificadoAdministrativo).
+  EntregablesAval: ['ID','InscripcionID','EstadoValidacionExterna','ReferenciaExterna','EnlaceExterno','CodigoExterno','PdfHash','PdfStorageReference','EstadoEntregaFinal','FechaEntregaFinal','CreatedAt','UpdatedAt'],
   // Módulo fiscal SRI (feature/sri-integration-production-ready) — ver docs/fiscal/DATA_MODEL.md
   FacturasFiscales: ['ID','Environment','Status','InscripcionID','IdempotencyKey','DocumentType','IssueDate','Timezone','IssuerRuc','Establishment','EmissionPoint','Sequential','DocumentNumber','AccessKey','NumericCode','BuyerIdentificationType','BuyerIdentification','BuyerName','BuyerEmail','BuyerAddress','SubtotalWithoutTax','Subtotal0','SubtotalTaxed','DiscountCents','TaxTotal','GrandTotal','Currency','PaymentMethodInternal','SriPaymentCode','XmlVersion','SoftwareProviderMode','SoftwareProviderRuc','XmlGeneratedReference','XmlSignedReference','XmlAuthorizedReference','RideReference','Sha256Generated','Sha256Signed','Sha256Authorized','Sha256Ride','SriReceptionStatus','SriAuthorizationStatus','AuthorizationNumber','AuthorizationDate','LastSriMessage','RetryCount','CreatedBy','CreatedAt','UpdatedAt','AuthorizedAt','DeliveredAt','LastPolledAt','NextPollAt','XmlAuthorizedContent','ReviewFlag','ReviewReason'],
   FacturaItems: ['ID','FacturaID','Codigo','Descripcion','Cantidad','PrecioUnitarioCents','DescuentoCents','TaxRateBasisPoints','SriTaxCode','BaseCents','TotalCents','CatalogVersion','ConfirmedBy','CreatedAt'],
@@ -2436,7 +2472,26 @@ function emitirCertificadoBajoBloqueo(user, { id } = {}) {
     return { success: true, alreadyIssued: true, data: certificadoParaCliente(certificadoExistente, row) };
   }
   if (row.EstadoPago !== 'verificado') return { success: false, error: 'El pago debe estar verificado antes de emitir el certificado.' };
-  if (esVerdadero(row.RequiereAvalExterno) && row.EstadoAval !== 'avalado') {
+
+  if (row.CRMOfferType) {
+    // Flujo comercial nuevo (FULL/INSTITUTIONAL): el certificado institucional se
+    // emite con pago + curso completado, SIN esperar el aval externo -- el aval
+    // habilita un segundo entregable separado (ver marcarAval/EntregablesAval), no
+    // bloquea este. AVAL_UPGRADE no representa una certificación independiente.
+    if (row.CRMOfferType === 'AVAL_UPGRADE') {
+      return { success: false, error: 'Este registro es un upgrade de aval; el certificado se emite sobre la compra institucional original, no aquí.' };
+    }
+    if (row.CRMCompletionStatus !== CRM_COMPLETION_STATUS_COMPLETADO) {
+      return { success: false, error: 'El curso debe estar completado/aprobado (confirmado por markCrmCourseCompleted) antes de emitir el certificado.' };
+    }
+    registrarAuditoriaCrm_({
+      inscripcionId: row.ID, usuario: user.Username, rol: user.Rol,
+      accion: 'CERTIFICATE_ELIGIBLE', resultado: 'ok',
+      metadatos: { offerType: row.CRMOfferType },
+    });
+  } else if (esVerdadero(row.RequiereAvalExterno) && row.EstadoAval !== 'avalado') {
+    // Comportamiento legacy INTACTO: registros importados por importCrmEnrollment o
+    // manuales, sin CRMOfferType, siguen bloqueados hasta el aval, como hoy.
     return { success: false, error: 'El certificado requiere el aval institucional antes de poder emitirse.' };
   }
   const faltantes = datosFaltantesCertificado(row);
@@ -3164,6 +3219,10 @@ function getCertificadosAval(user, { filtros = {} } = {}) {
       AvalCodigoExterno: i.AvalCodigoExterno || '',
       FechaAval: i.FechaAval || '',
       ValorAval: Number(i.ValorAval) || 0,
+      // Contexto comercial CRM -- no sensible, ayuda al revisor de aval. Vacio para
+      // registros sin oferta comercial (legacy o CRM sin compra asociada).
+      CRMOfferType: i.CRMOfferType || '',
+      CRMCompletionStatus: i.CRMCompletionStatus || '',
     };
   });
   return { success: true, data: out };
@@ -3213,6 +3272,567 @@ function marcarAval(user, { id, avalReferencia, valorAval, avalEnlaceExterno, av
     estadoNuevo: 'avalado',
     canal: 'panel_aval',
     resultado: 'ok',
+  });
+  // Puente Fase F/G: solo para compras FULL del flujo comercial CRM -- prepara el
+  // segundo entregable en su propia hoja, sin tocar el comportamiento legacy arriba.
+  const filaActualizada = sheetToObjects(sheet).find(function (r) { return r.ID === id; });
+  if (filaActualizada && filaActualizada.CRMOfferType === 'FULL') {
+    prepararEntregableAvalTrasConfirmacion_(filaActualizada, user);
+  }
+  return { success: true };
+}
+
+// ─────────────────────────────────────────────
+// MODULO COMERCIAL CRM (aditivo)
+//
+// Identidad de COMPRA = CRMOrderID (hoja CRMCompras, idempotencia). CRMEnrollmentID
+// sigue siendo la identidad ACADEMICA: existe UNA SOLA Inscripcion por
+// CRMEnrollmentID (creada por importCrmEnrollment o por la primera compra
+// FULL/INSTITUTIONAL, lo que ocurra primero) -- AVAL_UPGRADE nunca crea una
+// Inscripcion nueva, siempre reutiliza la de su compra INSTITUTIONAL padre. No
+// reemplaza importCrmEnrollment (intacto) ni addInscripcion (intacto).
+// ─────────────────────────────────────────────
+
+const CRM_OFFER_TYPES = ['FULL', 'INSTITUTIONAL', 'AVAL_UPGRADE'];
+const CRM_COMPLETION_STATUS_COMPLETADO = 'completado';
+const CRM_STATUS_BATCH_LIMIT = 50;
+
+const CRM_SERVICE_ACTIONS_ = [
+  'importCrmPurchase',
+  'verificarPagoCompraCrm',
+  'getCrmPurchaseStatus',
+  'getCrmPurchaseStatuses',
+  'markCrmCourseCompleted',
+  'getCrmEnrollmentCommerceState',
+  'getCrmEnrollmentCommerceStates',
+];
+
+function isCrmServiceAction_(action) {
+  return CRM_SERVICE_ACTIONS_.indexOf(action) !== -1;
+}
+
+/** Igual patron que validateFiscalServiceToken_: secreto propio (CRM_SERVICE_TOKEN,
+ * Script Property), usuario sintetico admin. */
+function validateCrmServiceToken_(serviceToken) {
+  const expected = PropertiesService.getScriptProperties().getProperty('CRM_SERVICE_TOKEN');
+  if (!expected || String(serviceToken) !== expected) return null;
+  return { Username: 'crm-service', Rol: 'admin', UserID: 'SERVICE-CRM' };
+}
+
+function registrarAuditoriaCrm_(evento) {
+  registrarAuditoriaCertificado(Object.assign({ canal: 'crm_service' }, evento));
+}
+
+function crmPaymentStatusLabel_(estadoPago) {
+  const map = { pendiente: 'PAYMENT_PENDING', pagado: 'PAYMENT_REPORTED', verificado: 'PAYMENT_VERIFIED', cancelado: 'PAYMENT_CANCELLED' };
+  return map[estadoPago] || 'PAYMENT_PENDING';
+}
+
+/** Whitelist explicito de lo que el CRM puede ver -- nunca RUC, direccion fiscal,
+ * telefono ni ningun otro dato de facturacion. Une la compra (CRMCompras) con el
+ * estado academico/certificado de su Inscripcion. */
+function crmPurchaseParaCliente_(compra) {
+  const inscripcion = sheetToObjects(getSheet('Inscripciones')).find(function (r) { return r.ID === compra.FinanceInscripcionID; }) || {};
+  return {
+    crmOrderId: compra.CRMOrderID || '',
+    crmEnrollmentId: compra.CRMEnrollmentID || '',
+    crmContactId: compra.CRMContactID || '',
+    crmCourseId: compra.CRMCourseID || '',
+    financeInscripcionId: compra.FinanceInscripcionID || '',
+    offerType: compra.OfferType || '',
+    parentCrmOrderId: compra.ParentCRMOrderID || '',
+    amount: Number(compra.Amount) || 0,
+    paymentStatus: crmPaymentStatusLabel_(compra.PaymentStatus),
+    paymentVerifiedAt: compra.PaymentStatus === 'verificado' ? (compra.FechaVerificacionPago || '') : '',
+    requiresExternalAval: esVerdadero(inscripcion.RequiereAvalExterno),
+    avalStatus: inscripcion.EstadoAval || '',
+    certificateStatus: inscripcion.ID ? estadoNormalizadoCertificado(inscripcion) : '',
+    completionStatus: inscripcion.CRMCompletionStatus || '',
+    completedAt: inscripcion.CRMCompletedAt || '',
+  };
+}
+
+/**
+ * Devuelve el ID de la UNICA Inscripcion academica del enrollment, creandola si no
+ * existe todavia (mismo mapeo de campos que importCrmEnrollment: resuelve el
+ * Servicio por nombre, nunca lo crea). Si ya existe (creada por importCrmEnrollment,
+ * o por una compra anterior), la reutiliza -- nunca crea una segunda.
+ */
+function obtenerOCrearInscripcionParaCompra_(p, user) {
+  const sheet = getSheet('Inscripciones');
+  const existente = filasInscripcionesDecoradas(sheet).rows.find(function (r) { return String(r.CRMEnrollmentID || '').trim() === p.crmEnrollmentId; });
+  if (existente) {
+    const cambios = {};
+    if (p.offerType === 'FULL' && !esVerdadero(existente.RequiereAvalExterno)) {
+      cambios.RequiereAvalExterno = true;
+      cambios.EstadoAval = existente.EstadoAval || 'pendiente';
+    }
+    if (!existente.CRMOfferType) cambios.CRMOfferType = p.offerType;
+    if (Object.keys(cambios).length) updateRow(sheet, existente, cambios);
+    return { id: existente.ID, created: false };
+  }
+
+  const participant = p.participant || {};
+  const fullName = String(participant.fullName || [participant.firstName, participant.lastName].filter(Boolean).join(' ')).trim();
+  if (!fullName) throw new Error('participant.fullName (o firstName/lastName) es obligatorio.');
+  const email = String(participant.email || '').trim();
+  if (email && !emailValido(email)) throw new Error('El correo del participante no es válido.');
+  const service = resolverServicioImportacionCrm(p.courseTitle);
+  if (!service) throw new Error('Servicio de Finance no configurado para este curso.');
+  const startDate = p.startDate ? fechaSolo(p.startDate) : '';
+  const endDate = p.endDate ? fechaSolo(p.endDate) : '';
+  const modality = String(p.modality || service.Modalidad || '').trim();
+
+  const id = generateId('INS');
+  const ingresoId = generateId('ING');
+  const now = new Date().toISOString();
+  appendInscripcionPorEncabezados(sheet, {
+    ID: id, ClienteNombre: fullName, ClienteID: String(participant.identification || '').trim(),
+    ClienteEmail: email, ClienteTelefono: String(participant.phone || '').trim(),
+    ServicioID: service.ID, ServicioNombre: service.Nombre, Modalidad: modality,
+    FechaInicio: startDate, FechaFin: endDate, Monto: Number(p.amount) || 0, MetodoPago: '',
+    RazonSocial: '', RUC: '', DireccionFactura: '',
+    EstadoPago: 'pendiente', EstadoCertificado: 'pendiente', IngresoID: ingresoId, Notas: '',
+    CreadoPor: user.Username, FechaCreacion: now, FechaEmisionCertificado: '',
+    RequiereAvalExterno: p.offerType === 'FULL', EstadoAval: p.offerType === 'FULL' ? 'pendiente' : '',
+    AvalReferencia: '', FechaAval: '', ValorAval: 0,
+    NumeroComprobante: '', FechaPago: '', FechaVerificacionPago: '', VerificadoPor: '',
+    InstitucionAval: String(p.institucionAval || '').trim(),
+    CodigoCertificado: '', EmitidoPor: '', EstadoEntrega: 'pendiente', FechaEntregaCertificado: '', EntregadoPor: '',
+    AvalEnlaceExterno: '', AvalCodigoExterno: '',
+    CRMEnrollmentID: p.crmEnrollmentId, CRMContactID: p.crmContactId, CRMCourseID: p.crmCourseId, Origen: 'CRM',
+    CRMOfferType: p.offerType, CRMParentOrderID: '', CRMCompletionStatus: '', CRMCompletedAt: '',
+  });
+  getSheet('Ingresos').appendRow([
+    ingresoId, now.slice(0, 10), tipoIngresoPorModalidad(modality), modality,
+    'Compra CRM (' + p.offerType + '): ' + fullName + ' — ' + service.Nombre,
+    fullName, '', Number(p.amount) || 0, '', 'pendiente_verificacion', '', user.Username, now,
+    String(participant.phone || '').trim(), '',
+  ]);
+  return { id: id, created: true };
+}
+
+/**
+ * Contrato comercial CRM -> Finance. Idempotente por crmOrderId: repetir la misma
+ * compra devuelve el MISMO registro, nunca un duplicado. No deriva offerType del
+ * monto (viene explicito). AVAL_UPGRADE nunca crea Inscripcion: reutiliza la de su
+ * compra INSTITUTIONAL padre -- por eso nunca hay "dos inscripciones falsas" para
+ * el mismo alumno/curso.
+ */
+function importCrmPurchase(user, params) {
+  const p = params || {};
+  requireAdmin(user);
+  if (!p.crmOrderId) throw new Error('crmOrderId es obligatorio.');
+  if (!p.crmEnrollmentId) throw new Error('crmEnrollmentId es obligatorio.');
+  if (!p.crmContactId) throw new Error('crmContactId es obligatorio.');
+  if (!p.crmCourseId) throw new Error('crmCourseId es obligatorio.');
+  if (CRM_OFFER_TYPES.indexOf(p.offerType) === -1) {
+    throw new Error('offerType debe ser uno de: ' + CRM_OFFER_TYPES.join(', ') + '.');
+  }
+  const amountValue = p.amount;
+  const amount = Number(amountValue);
+  if (String(amountValue === undefined || amountValue === null ? '' : amountValue).trim() === '' || !isFinite(amount) || amount < 0) {
+    throw new Error('amount debe ser un número no negativo.');
+  }
+
+  return conBloqueoCertificados(function () {
+    const comprasSheet = getSheet('CRMCompras');
+    const existente = sheetToObjects(comprasSheet).find(function (r) { return r.CRMOrderID === p.crmOrderId; });
+    if (existente) {
+      registrarAuditoriaCrm_({ inscripcionId: existente.FinanceInscripcionID, usuario: user.Username, rol: user.Rol, accion: 'CRM_PURCHASE_REUSED', resultado: 'ok', metadatos: { crmOrderId: p.crmOrderId } });
+      return { success: true, data: crmPurchaseParaCliente_(existente), idempotent: true };
+    }
+
+    let parentCompra = null;
+    if (p.offerType === 'AVAL_UPGRADE') {
+      if (!p.parentCrmOrderId) throw new Error('parentCrmOrderId es obligatorio para AVAL_UPGRADE.');
+      parentCompra = sheetToObjects(comprasSheet).find(function (r) { return r.CRMOrderID === p.parentCrmOrderId; });
+      if (!parentCompra) throw new Error('parentCrmOrderId no corresponde a ninguna compra existente en Finance.');
+      if (parentCompra.OfferType !== 'INSTITUTIONAL') throw new Error('AVAL_UPGRADE solo puede vincularse a una compra INSTITUTIONAL.');
+      if (parentCompra.CRMEnrollmentID !== p.crmEnrollmentId || parentCompra.CRMContactID !== p.crmContactId || parentCompra.CRMCourseID !== p.crmCourseId) {
+        throw new Error('parentCrmOrderId no coincide con el mismo enrollment/contact/course de este upgrade.');
+      }
+    } else if (p.parentCrmOrderId) {
+      throw new Error('parentCrmOrderId debe estar vacío para offerType ' + p.offerType + '.');
+    }
+
+    if (p.offerType === 'FULL' || p.offerType === 'INSTITUTIONAL') {
+      const conflicto = sheetToObjects(comprasSheet).find(function (r) {
+        return r.CRMEnrollmentID === p.crmEnrollmentId && (r.OfferType === 'FULL' || r.OfferType === 'INSTITUTIONAL') && r.OfferType !== p.offerType && r.PaymentStatus === 'verificado';
+      });
+      if (conflicto) throw new Error('El enrollment ya tiene una compra ' + conflicto.OfferType + ' verificada; no se puede registrar ' + p.offerType + ' sin una regla de transición explícita.');
+    }
+
+    let financeInscripcionId, inscripcionCreada;
+    if (p.offerType === 'AVAL_UPGRADE') {
+      financeInscripcionId = parentCompra.FinanceInscripcionID; // SIEMPRE la del padre, nunca otra
+      inscripcionCreada = false;
+      const ingresoId = generateId('ING');
+      const now0 = new Date().toISOString();
+      getSheet('Ingresos').appendRow([
+        ingresoId, now0.slice(0, 10), 'Curso', '', 'Upgrade de aval CRM: orden ' + p.crmOrderId,
+        '', '', amount, '', 'pendiente_verificacion', '', user.Username, now0, '', '',
+      ]);
+    } else {
+      const resultado = obtenerOCrearInscripcionParaCompra_(p, user);
+      financeInscripcionId = resultado.id;
+      inscripcionCreada = resultado.created;
+    }
+
+    const id = generateId('CRC');
+    const now = new Date().toISOString();
+    comprasSheet.appendRow(SHEET_HEADERS.CRMCompras.map(function (header) {
+      const map = {
+        ID: id, CRMOrderID: p.crmOrderId, CRMEnrollmentID: p.crmEnrollmentId,
+        FinanceInscripcionID: financeInscripcionId, CRMContactID: p.crmContactId, CRMCourseID: p.crmCourseId,
+        OfferType: p.offerType, ParentCRMOrderID: p.offerType === 'AVAL_UPGRADE' ? p.parentCrmOrderId : '',
+        Amount: amount, PaymentStatus: 'pendiente',
+        NumeroComprobante: '', FechaPago: '', FechaVerificacionPago: '', VerificadoPor: '',
+        CreatedAt: now, UpdatedAt: now,
+      };
+      return map[header] !== undefined ? map[header] : '';
+    }));
+    const compraCreada = sheetToObjects(comprasSheet).find(function (r) { return r.ID === id; });
+
+    registrarAuditoriaCrm_({
+      inscripcionId: financeInscripcionId, usuario: user.Username, rol: user.Rol,
+      accion: 'CRM_PURCHASE_IMPORTED', resultado: 'ok',
+      metadatos: { crmOrderId: p.crmOrderId, offerType: p.offerType, crmEnrollmentId: p.crmEnrollmentId, parentCrmOrderId: p.parentCrmOrderId || null, inscripcionReutilizada: !inscripcionCreada },
+    });
+
+    return { success: true, data: crmPurchaseParaCliente_(compraCreada), idempotent: false };
+  });
+}
+
+/**
+ * Verifica el pago de UNA compra especifica (identidad CRMOrderID) -- Finance sigue
+ * siendo la unica autoridad de pago. Distinto de verificarPagoInscripcion: una
+ * Inscripcion puede tener mas de una compra (INSTITUTIONAL + AVAL_UPGRADE), cada una
+ * con su propio pago, por lo que el estado de pago vive en CRMCompras, no en
+ * Inscripciones.EstadoPago para el flujo comercial nuevo. Si la compra es la que
+ * otorga el acceso base (FULL/INSTITUTIONAL), sincroniza Inscripciones.EstadoPago;
+ * si es un AVAL_UPGRADE, habilita el aval en la compra/Inscripcion padre.
+ */
+function verificarPagoCompraCrm(user, { crmOrderId, numeroComprobante, fechaPago } = {}) {
+  requireAdmin(user);
+  if (!crmOrderId) throw new Error('crmOrderId es obligatorio.');
+  return conBloqueoCertificados(function () {
+    const comprasSheet = getSheet('CRMCompras');
+    const compra = sheetToObjects(comprasSheet).find(function (r) { return r.CRMOrderID === crmOrderId; });
+    if (!compra) return { success: false, error: 'crmOrderId no encontrado.' };
+    if (compra.PaymentStatus === 'verificado') {
+      return { success: true, data: crmPurchaseParaCliente_(compra), alreadyVerified: true };
+    }
+    const now = new Date().toISOString();
+    updateRow(comprasSheet, compra, {
+      PaymentStatus: 'verificado',
+      NumeroComprobante: String(numeroComprobante || '').trim(),
+      FechaPago: fechaPago ? fechaSolo(fechaPago) : compra.FechaPago,
+      FechaVerificacionPago: now,
+      VerificadoPor: user.Username,
+      UpdatedAt: now,
+    });
+    registrarAuditoriaCrm_({
+      inscripcionId: compra.FinanceInscripcionID, usuario: user.Username, rol: user.Rol,
+      accion: 'PAYMENT_VERIFIED', estadoAnterior: compra.PaymentStatus || 'pendiente', estadoNuevo: 'verificado',
+      resultado: 'ok', metadatos: { crmOrderId: crmOrderId, offerType: compra.OfferType },
+    });
+
+    if (compra.OfferType === 'FULL' || compra.OfferType === 'INSTITUTIONAL') {
+      const insSheet = getSheet('Inscripciones');
+      const inscripcion = sheetToObjects(insSheet).find(function (r) { return r.ID === compra.FinanceInscripcionID; });
+      if (inscripcion && inscripcion.EstadoPago !== 'verificado') {
+        updateRow(insSheet, inscripcion, {
+          EstadoPago: 'verificado',
+          FechaVerificacionPago: inscripcion.FechaVerificacionPago || now,
+          VerificadoPor: inscripcion.VerificadoPor || user.Username,
+        });
+      }
+    } else if (compra.OfferType === 'AVAL_UPGRADE') {
+      aplicarAvalUpgradeAlPadre_(compra, user);
+    }
+
+    const compraActualizada = sheetToObjects(comprasSheet).find(function (r) { return r.CRMOrderID === crmOrderId; });
+    return { success: true, data: crmPurchaseParaCliente_(compraActualizada), alreadyVerified: false };
+  });
+}
+
+/**
+ * Efecto de un AVAL_UPGRADE con pago verificado: habilita el proceso de aval en la
+ * Inscripcion (compartida) de la compra INSTITUTIONAL padre. Idempotente. Nunca
+ * duplica el certificado institucional ni crea una inscripcion nueva.
+ */
+function aplicarAvalUpgradeAlPadre_(compraUpgrade, user) {
+  const insSheet = getSheet('Inscripciones');
+  const padre = sheetToObjects(insSheet).find(function (r) { return r.ID === compraUpgrade.FinanceInscripcionID; });
+  if (!padre) return;
+  if (esVerdadero(padre.RequiereAvalExterno)) return; // ya aplicado, idempotente
+  updateRow(insSheet, padre, {
+    RequiereAvalExterno: true,
+    EstadoAval: padre.EstadoAval || 'pendiente',
+    InstitucionAval: padre.InstitucionAval || '',
+  });
+  registrarAuditoriaCrm_({
+    inscripcionId: padre.ID, usuario: user.Username, rol: user.Rol,
+    accion: 'AVAL_UPGRADE_APPLIED', estadoAnterior: 'sin_aval', estadoNuevo: 'aval_habilitado',
+    resultado: 'ok', metadatos: { crmOrderId: compraUpgrade.ParentCRMOrderID, upgradeCrmOrderId: compraUpgrade.CRMOrderID },
+  });
+}
+
+/**
+ * Enums estables del estado comercial EFECTIVO de un enrollment (no de una compra
+ * individual). FULL PAYMENT_VERIFIED tiene prioridad maxima; una compra CANCELLED
+ * nunca cuenta para entitlement; nunca se infiere offerType por amount -- el estado
+ * sale exclusivamente de OfferType + PaymentStatus, campos explicitos guardados por
+ * importCrmPurchase/verificarPagoCompraCrm.
+ */
+const CRM_COMMERCIAL_STATES = Object.freeze({
+  NO_PURCHASE: 'NO_PURCHASE',
+  FULL_PENDING: 'FULL_PENDING',
+  FULL_VERIFIED: 'FULL_VERIFIED',
+  INSTITUTIONAL_PENDING: 'INSTITUTIONAL_PENDING',
+  INSTITUTIONAL_VERIFIED: 'INSTITUTIONAL_VERIFIED',
+  UPGRADE_PENDING: 'UPGRADE_PENDING',
+  FULL_UPGRADED: 'FULL_UPGRADED',
+  CANCELLED: 'CANCELLED',
+  LEGACY_UNCLASSIFIED: 'LEGACY_UNCLASSIFIED',
+});
+
+/**
+ * Lee CRMCompras + Inscripciones UNA sola vez y arma indices por CRMEnrollmentID --
+ * evita releer las hojas completas por cada enrollment en un batch (con esto, 100
+ * enrollments en un batch cuestan lo mismo en lecturas de Sheets que 1: el costo
+ * fijo son las 2 lecturas completas, el resto es filtrado en memoria).
+ */
+function construirIndiceComercialCrm_() {
+  const comprasPorEnrollment = {};
+  sheetToObjects(getSheet('CRMCompras')).forEach(function (c) {
+    const key = c.CRMEnrollmentID;
+    if (!comprasPorEnrollment[key]) comprasPorEnrollment[key] = [];
+    comprasPorEnrollment[key].push(c);
+  });
+  const inscripcionPorEnrollment = {};
+  sheetToObjects(getSheet('Inscripciones')).forEach(function (r) {
+    if (r.CRMEnrollmentID) inscripcionPorEnrollment[r.CRMEnrollmentID] = r;
+  });
+  return { comprasPorEnrollment: comprasPorEnrollment, inscripcionPorEnrollment: inscripcionPorEnrollment };
+}
+
+function calcularEstadoComercialCrm_(crmEnrollmentId, indice) {
+  const compras = indice.comprasPorEnrollment[crmEnrollmentId] || [];
+  const inscripcion = indice.inscripcionPorEnrollment[crmEnrollmentId] || null;
+
+  // CANCELLED nunca genera derechos: se excluye de la detección de FULL/INSTITUTIONAL/UPGRADE.
+  const activas = compras.filter(function (c) { return c.PaymentStatus !== 'cancelado'; });
+  const fullCompra = activas.find(function (c) { return c.OfferType === 'FULL'; });
+  const instCompra = activas.find(function (c) { return c.OfferType === 'INSTITUTIONAL'; });
+  const upgradeCompra = activas.find(function (c) { return c.OfferType === 'AVAL_UPGRADE'; });
+
+  let commercialState;
+  if (fullCompra && fullCompra.PaymentStatus === 'verificado') {
+    commercialState = CRM_COMMERCIAL_STATES.FULL_VERIFIED;
+  } else if (instCompra && instCompra.PaymentStatus === 'verificado') {
+    if (upgradeCompra && upgradeCompra.PaymentStatus === 'verificado') commercialState = CRM_COMMERCIAL_STATES.FULL_UPGRADED;
+    else if (upgradeCompra) commercialState = CRM_COMMERCIAL_STATES.UPGRADE_PENDING;
+    else commercialState = CRM_COMMERCIAL_STATES.INSTITUTIONAL_VERIFIED;
+  } else if (fullCompra) {
+    commercialState = CRM_COMMERCIAL_STATES.FULL_PENDING;
+  } else if (instCompra) {
+    commercialState = CRM_COMMERCIAL_STATES.INSTITUTIONAL_PENDING;
+  } else if (compras.length > 0) {
+    // Hubo compras para este enrollment, pero ninguna activa (todas canceladas).
+    commercialState = CRM_COMMERCIAL_STATES.CANCELLED;
+  } else if (inscripcion) {
+    // Inscripcion existente (ej. importCrmEnrollment legacy) sin ninguna compra
+    // vinculada -- FAIL CLOSED explicito: nunca se infiere FULL/INSTITUTIONAL por
+    // el monto historico de la Inscripcion.
+    commercialState = CRM_COMMERCIAL_STATES.LEGACY_UNCLASSIFIED;
+  } else {
+    commercialState = CRM_COMMERCIAL_STATES.NO_PURCHASE;
+  }
+
+  const effectiveEntitlement =
+    (commercialState === CRM_COMMERCIAL_STATES.FULL_VERIFIED || commercialState === CRM_COMMERCIAL_STATES.FULL_UPGRADED) ? 'FULL'
+    : (commercialState === CRM_COMMERCIAL_STATES.INSTITUTIONAL_VERIFIED || commercialState === CRM_COMMERCIAL_STATES.UPGRADE_PENDING) ? 'INSTITUTIONAL'
+    : 'NONE';
+
+  return {
+    crmEnrollmentId: crmEnrollmentId,
+    financeInscripcionId: inscripcion ? inscripcion.ID : '',
+    commercialState: commercialState,
+    effectiveEntitlement: effectiveEntitlement,
+    purchases: compras.map(function (c) {
+      return {
+        crmOrderId: c.CRMOrderID || '',
+        offerType: c.OfferType || '',
+        parentCrmOrderId: c.ParentCRMOrderID || '',
+        amount: Number(c.Amount) || 0,
+        paymentStatus: crmPaymentStatusLabel_(c.PaymentStatus),
+        paymentVerifiedAt: c.PaymentStatus === 'verificado' ? (c.FechaVerificacionPago || '') : '',
+      };
+    }),
+    requiresExternalAval: inscripcion ? esVerdadero(inscripcion.RequiereAvalExterno) : false,
+    avalStatus: inscripcion ? (inscripcion.EstadoAval || '') : '',
+    completionStatus: inscripcion ? (inscripcion.CRMCompletionStatus || '') : '',
+    completedAt: inscripcion ? (inscripcion.CRMCompletedAt || '') : '',
+  };
+}
+
+function getCrmEnrollmentCommerceState(user, params) {
+  const p = params || {};
+  if (!p.crmEnrollmentId) throw new Error('crmEnrollmentId es obligatorio.');
+  const indice = construirIndiceComercialCrm_();
+  return { success: true, data: calcularEstadoComercialCrm_(p.crmEnrollmentId, indice) };
+}
+
+// 100 es seguro: construirIndiceComercialCrm_ lee CRMCompras/Inscripciones UNA sola
+// vez para todo el batch (ver comentario ahi); el costo no crece con el tamano del
+// batch salvo el mapeo final, que es filtrado en memoria.
+const CRM_ENROLLMENT_STATE_BATCH_LIMIT = 100;
+
+function getCrmEnrollmentCommerceStates(user, params) {
+  const p = params || {};
+  const ids = Array.isArray(p.crmEnrollmentIds) ? p.crmEnrollmentIds.filter(Boolean).slice(0, CRM_ENROLLMENT_STATE_BATCH_LIMIT) : [];
+  if (ids.length === 0) throw new Error('crmEnrollmentIds debe ser un arreglo no vacío (máximo ' + CRM_ENROLLMENT_STATE_BATCH_LIMIT + ').');
+  const indice = construirIndiceComercialCrm_();
+  return { success: true, data: ids.map(function (id) { return calcularEstadoComercialCrm_(id, indice); }) };
+}
+
+function getCrmPurchaseStatus(user, params) {
+  const p = params || {};
+  if (!p.crmOrderId) throw new Error('crmOrderId es obligatorio.');
+  const compra = sheetToObjects(getSheet('CRMCompras')).find(function (r) { return r.CRMOrderID === p.crmOrderId; });
+  if (!compra) return { success: false, error: 'crmOrderId no encontrado.' };
+  return { success: true, data: crmPurchaseParaCliente_(compra) };
+}
+
+function getCrmPurchaseStatuses(user, params) {
+  const p = params || {};
+  const ids = Array.isArray(p.crmOrderIds) ? p.crmOrderIds.filter(Boolean).slice(0, CRM_STATUS_BATCH_LIMIT) : [];
+  if (ids.length === 0) throw new Error('crmOrderIds debe ser un arreglo no vacío (máximo ' + CRM_STATUS_BATCH_LIMIT + ').');
+  const idsSet = {};
+  ids.forEach(function (i) { idsSet[i] = true; });
+  const compras = sheetToObjects(getSheet('CRMCompras')).filter(function (r) { return idsSet[r.CRMOrderID]; });
+  return { success: true, data: compras.map(crmPurchaseParaCliente_) };
+}
+
+/**
+ * Confirma que el CRM/Moodle marco el curso completado/aprobado para un enrollment.
+ * Actualiza la UNICA Inscripcion academica de ese enrollment. Idempotente.
+ */
+function markCrmCourseCompleted(user, params) {
+  const p = params || {};
+  if (!p.crmEnrollmentId) throw new Error('crmEnrollmentId es obligatorio.');
+  const completionStatus = p.completionStatus || CRM_COMPLETION_STATUS_COMPLETADO;
+  return conBloqueoCertificados(function () {
+    const sheet = getSheet('Inscripciones');
+    const row = sheetToObjects(sheet).find(function (r) { return r.CRMEnrollmentID === p.crmEnrollmentId; });
+    if (!row) throw new Error('crmEnrollmentId no tiene ninguna inscripción registrada en Finance.');
+    if (row.CRMCompletionStatus === completionStatus) {
+      return { success: true, data: { crmEnrollmentId: p.crmEnrollmentId, completionStatus: completionStatus, inscripcionId: row.ID }, idempotent: true };
+    }
+    const now = new Date().toISOString();
+    updateRow(sheet, row, { CRMCompletionStatus: completionStatus, CRMCompletedAt: row.CRMCompletedAt || now });
+    registrarAuditoriaCrm_({
+      inscripcionId: row.ID, usuario: user.Username, rol: user.Rol,
+      accion: 'CRM_COMPLETION_CONFIRMED', estadoAnterior: row.CRMCompletionStatus || '', estadoNuevo: completionStatus,
+      resultado: 'ok', metadatos: { crmEnrollmentId: p.crmEnrollmentId, source: p.source || '' },
+    });
+    return { success: true, data: { crmEnrollmentId: p.crmEnrollmentId, completionStatus: completionStatus, inscripcionId: row.ID }, idempotent: false };
+  });
+}
+
+/**
+ * Tras marcarAval confirmar el aval institucional de una compra FULL comercial,
+ * prepara/actualiza el segundo entregable (certificado avalado) en la hoja
+ * SEPARADA EntregablesAval -- nunca una segunda fila en Certificados. Idempotente.
+ * Deja EstadoEntregaFinal='pendiente_envio' -- el envio automatico real esta
+ * bloqueado por una limitacion arquitectonica real (ver enviarEntregableAvalEmail),
+ * documentada, nunca simulada.
+ */
+function prepararEntregableAvalTrasConfirmacion_(inscripcionRow, user) {
+  const sheet = getSheet('EntregablesAval');
+  const existente = sheetToObjects(sheet).find(function (r) { return r.InscripcionID === inscripcionRow.ID; });
+  const now = new Date().toISOString();
+  if (existente) {
+    updateRow(sheet, existente, {
+      EstadoValidacionExterna: 'avalado',
+      ReferenciaExterna: inscripcionRow.AvalReferencia || '',
+      EnlaceExterno: inscripcionRow.AvalEnlaceExterno || '',
+      CodigoExterno: inscripcionRow.AvalCodigoExterno || '',
+      EstadoEntregaFinal: existente.EstadoEntregaFinal === 'enviado' ? existente.EstadoEntregaFinal : 'pendiente_envio',
+      UpdatedAt: now,
+    });
+  } else {
+    sheet.appendRow(SHEET_HEADERS.EntregablesAval.map(function (header) {
+      const map = {
+        ID: generateId('AVAL'), InscripcionID: inscripcionRow.ID,
+        EstadoValidacionExterna: 'avalado',
+        ReferenciaExterna: inscripcionRow.AvalReferencia || '', EnlaceExterno: inscripcionRow.AvalEnlaceExterno || '', CodigoExterno: inscripcionRow.AvalCodigoExterno || '',
+        PdfHash: '', PdfStorageReference: '', EstadoEntregaFinal: 'pendiente_envio', FechaEntregaFinal: '',
+        CreatedAt: now, UpdatedAt: now,
+      };
+      return map[header] !== undefined ? map[header] : '';
+    }));
+  }
+  registrarAuditoriaCrm_({
+    inscripcionId: inscripcionRow.ID, usuario: user.Username, rol: user.Rol,
+    accion: 'FINAL_DELIVERY_PENDING', resultado: 'ok',
+    metadatos: { motivo: 'aval confirmado; PDF final pendiente de generación/envío (bloqueo arquitectónico documentado)' },
+  });
+}
+
+/**
+ * Punto de reanudacion preparado: identico contrato que enviarCertificadoEmail
+ * (recibe pdfBase64 ya generado/obtenido por el llamador, porque la generacion de
+ * PDF hoy vive en el bundle del navegador -- jsPDF en
+ * src/utils/certificateGenerator.js -- y Apps Script no puede ejecutar ese codigo).
+ * Idempotente: si ya esta 'enviado', no reenvia ni duplica.
+ */
+function enviarEntregableAvalEmail(user, { id, pdfBase64, mimeType, filename, email } = {}) {
+  requireCertificateAdmin(user, 'FINAL_DELIVERY_SEND', { inscripcionId: id, canal: 'email' });
+  const entregablesSheet = getSheet('EntregablesAval');
+  const entregable = sheetToObjects(entregablesSheet).find(function (r) { return r.InscripcionID === id; });
+  if (!entregable) return { success: false, error: 'No hay un entregable de aval preparado para esta inscripción.' };
+  if (entregable.EstadoValidacionExterna !== 'avalado') return { success: false, error: 'El aval externo todavía no está confirmado.' };
+  if (entregable.EstadoEntregaFinal === 'enviado') return { success: true, alreadySent: true };
+
+  const inscSheet = getSheet('Inscripciones');
+  const row = sheetToObjects(inscSheet).find(function (r) { return r.ID === id; });
+  if (!row) return { success: false, error: 'Inscripción no encontrada.' };
+  const destinatario = String(email || row.ClienteEmail || '').trim();
+  if (!emailValido(destinatario)) return { success: false, error: 'La inscripción no tiene un correo electrónico válido.' };
+  if (mimeType !== 'application/pdf') return { success: false, error: 'Solo se aceptan certificados en formato PDF.' };
+  if (!pdfBase64 || typeof pdfBase64 !== 'string') return { success: false, error: 'No se recibió el archivo PDF.' };
+  let bytes;
+  try { bytes = Utilities.base64Decode(pdfBase64); }
+  catch (err) { return { success: false, error: 'El archivo PDF recibido no es válido.' }; }
+  if (bytes.length > 3 * 1024 * 1024) return { success: false, error: 'El PDF supera el límite permitido de 3 MB.' };
+  if (bytes.length < 5 || bytes[0] !== 37 || bytes[1] !== 80 || bytes[2] !== 68 || bytes[3] !== 70 || bytes[4] !== 45) {
+    return { success: false, error: 'El archivo recibido no contiene un PDF válido.' };
+  }
+  const nombreArchivo = String(filename || ('certificado_avalado_' + row.ID + '.pdf')).replace(/[^a-zA-Z0-9._-]/g, '_');
+  const blob = Utilities.newBlob(bytes, 'application/pdf', nombreArchivo);
+  try {
+    MailApp.sendEmail({
+      to: destinatario,
+      subject: 'Certificado avalado - R.A. Training',
+      body: 'Estimado/a ' + row.ClienteNombre + ',\n\nAdjuntamos su certificado avalado del curso ' + row.ServicioNombre + '.\n\nR.A. Training',
+      name: 'R.A. Training',
+      attachments: [blob],
+    });
+  } catch (err) {
+    registrarAuditoriaCrm_({
+      inscripcionId: id, usuario: user.Username, rol: user.Rol,
+      accion: 'FINAL_DELIVERY_FAILED', resultado: 'error', motivo: 'MailApp no pudo completar el envío.',
+    });
+    return { success: false, error: 'No se pudo enviar el correo. Revise la autorización de MailApp y vuelva a intentarlo.' };
+  }
+  const now = new Date().toISOString();
+  updateRow(entregablesSheet, entregable, { EstadoEntregaFinal: 'enviado', FechaEntregaFinal: now, UpdatedAt: now });
+  registrarAuditoriaCrm_({
+    inscripcionId: id, usuario: user.Username, rol: user.Rol,
+    accion: 'FINAL_DELIVERY_SENT', resultado: 'ok', metadatos: { crmOrderId: row.CRMOrderID || '' },
   });
   return { success: true };
 }
