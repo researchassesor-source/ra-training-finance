@@ -167,4 +167,43 @@ describe('estado fiscal en batch en getInscripciones (sin N+1)', () => {
     const result = search(harness, '')
     expect(result.data[0].FacturaReviewFlag).toBe('REQUIRES_REVIEW')
   })
+
+  describe('aislamiento test/production (hotfix: caso Alexander Mosquera Puente)', () => {
+    it('5. production (default, sin fiscalEnvironment): una factura test NO aparece como factura productiva', () => {
+      const harness = baseHarness([inscripcion({ EstadoPago: 'verificado' })], [factura({ Environment: 'test', Status: 'DRAFT', DocumentNumber: '' })])
+      const result = search(harness, '')
+      expect(result.data[0]).toMatchObject({ FacturaID: '', FacturaStatus: '', FacturaNumero: '' })
+    })
+
+    it('6. production: una factura production sí aparece', () => {
+      const harness = baseHarness([inscripcion({ EstadoPago: 'verificado' })], [factura({ Environment: 'production' })])
+      const result = search(harness, '')
+      expect(result.data[0]).toMatchObject({ FacturaID: 'FAC-1', FacturaStatus: 'AUTHORIZED' })
+    })
+
+    it('7. misma InscripcionID con factura test y factura production -> production muestra únicamente la production (nunca se mezclan)', () => {
+      const harness = baseHarness(
+        [inscripcion({ EstadoPago: 'verificado' })],
+        [
+          factura({ ID: 'FAC-TEST', Environment: 'test', Status: 'DRAFT', DocumentNumber: '' }),
+          factura({ ID: 'FAC-PROD', Environment: 'production', Status: 'AUTHORIZED' }),
+        ],
+      )
+      const productionView = search(harness, '')
+      expect(productionView.data[0].FacturaID).toBe('FAC-PROD')
+
+      const testView = search(harness, '', { fiscalEnvironment: 'test' })
+      expect(testView.data[0].FacturaID).toBe('FAC-TEST')
+      expect(testView.data[0].FacturaStatus).toBe('DRAFT')
+    })
+
+    it('el borrador test de Alexander (DRAFT, sin secuencial) nunca contamina la vista productiva de su inscripción', () => {
+      const harness = baseHarness(
+        [inscripcion({ ID: 'INS-ALEXANDER', ClienteNombre: 'Alexander Mosquera Puente', EstadoPago: 'verificado', Monto: 20 })],
+        [factura({ ID: 'FAC-ALEXANDER-TEST', Environment: 'test', InscripcionID: 'INS-ALEXANDER', Status: 'DRAFT', DocumentNumber: '', Sequential: '' })],
+      )
+      const result = search(harness, '')
+      expect(result.data[0]).toMatchObject({ ID: 'INS-ALEXANDER', FacturaID: '', FacturaStatus: '', FacturaNumero: '' })
+    })
+  })
 })

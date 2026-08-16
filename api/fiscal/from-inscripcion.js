@@ -34,6 +34,50 @@ function validationError(message) {
   return error
 }
 
+/**
+ * Fail-closed: en un deployment Vercel Production, getActiveEnvironment() jamás
+ * puede resolver silenciosamente a "test" (su fallback seguro para preview/dev) sin
+ * que esto bloquee la creación de la factura. Sin este guard, un Production con
+ * SRI_ENVIRONMENT mal configurado o ausente crea DRAFTs en test creyendo facturar en
+ * production (bug real de QA: caso Alexander Mosquera Puente). Preview/desarrollo
+ * (VERCEL_ENV !== 'production') no están sujetos a este guard y siguen usando el
+ * fallback seguro existente de getActiveEnvironment().
+ */
+function assertProductionInvoicingEnvironmentIsExplicit(environment) {
+  if (process.env.VERCEL_ENV === 'production' && environment !== 'production') {
+    const error = new Error(
+      'La facturación productiva está bloqueada porque SRI_ENVIRONMENT no está configurado explícitamente como production.'
+    )
+    error.statusCode = 500
+    throw error
+  }
+}
+
+/**
+ * Preflight de serie ANTES de crear un DRAFT nuevo (nunca para el camino
+ * idempotente, que no crea nada). Reutiliza la acción read-only ya existente en
+ * Fiscal.gs (verificarConflictoSerieFiscal) -- no se toca su lógica. El caso crítico
+ * es facturas existentes en la serie sin ningún contador de secuencia en Finance:
+ * eso indica una reconciliación pendiente, no un simple "primer uso", y crear un
+ * DRAFT ahí dejaría avanzar hacia reservarSecuencialFiscal sobre una serie que
+ * Finance no puede numerar con confianza.
+ */
+async function assertSeriesConsistentBeforeDraft(token, environment) {
+  const conflicto = await callGasActionAsUser('verificarConflictoSerieFiscal', {
+    establishment: DEFAULT_ESTABLISHMENT,
+    emissionPoint: DEFAULT_EMISSION_POINT,
+    environment,
+  }, token, { timeoutMs: 45_000 })
+  const facturasEncontradas = Number(conflicto?.facturasEncontradas) || 0
+  const contadoresEncontrados = Number(conflicto?.contadoresEncontrados) || 0
+  if (facturasEncontradas > 0 && contadoresEncontrados === 0) {
+    throw validationError(
+      'La serie 001-002 tiene facturas existentes pero no existe un contador de secuencia en Finance. ' +
+      'Requiere reconciliación administrativa antes de emitir.'
+    )
+  }
+}
+
 function invoicePayloadFromInscripcion(inscripcion, environment) {
   const id = text(inscripcion.ClienteID || inscripcion.RUC)
   const name = text(inscripcion.RazonSocial || inscripcion.ClienteNombre)
@@ -99,6 +143,8 @@ export default async function handler(req, res) {
   let createdFactura = null
 
   try {
+    assertProductionInvoicingEnvironmentIsExplicit(environment)
+
     const existing = await findExistingByInscripcion(token, environment, inscripcionId)
     if (existing) {
       res.status(200).json({ success: true, data: { factura: publicFactura(existing), idempotent: true } })
@@ -110,6 +156,7 @@ export default async function handler(req, res) {
     if (!inscripcion) throw validationError('No se encontró la inscripción para facturar.')
 
     const draftPayload = invoicePayloadFromInscripcion(inscripcion, environment)
+    await assertSeriesConsistentBeforeDraft(token, environment)
     const draft = await callGasActionAsUser('crearBorradorFactura', draftPayload, token, { timeoutMs: 45_000 })
     createdFactura = draft
     if (draft?.Status === 'DRAFT') {

@@ -1599,15 +1599,22 @@ function coincideBusquedaInscripcion_(row, q) {
 /** Índice InscripcionID -> factura mínima, UNA sola lectura de FacturasFiscales
  * para toda la lista de Inscripciones (evita N+1: sin esto, cada fila dispararía
  * su propia lectura de la hoja fiscal). No copia la factura completa, solo lo
- * mínimo que Inscripciones necesita mostrar. */
-function indiceFacturasPorInscripcion_() {
+ * mínimo que Inscripciones necesita mostrar.
+ *
+ * `environment` es OBLIGATORIO y filtra estrictamente por Factura.Environment: sin
+ * esto, un DRAFT de prueba (Environment='test') podía indexarse junto a facturas
+ * production del mismo InscripcionID y hacer aparecer una inscripción productiva
+ * como "ya facturada" cuando en realidad solo existe un borrador de prueba (bug real
+ * de QA). Nunca se une por nombre/cédula/monto, solo InscripcionID + Environment. */
+function indiceFacturasPorInscripcion_(environment) {
   const indice = {};
   sheetToObjects(getSheet('FacturasFiscales')).forEach(function(f) {
     if (!f.InscripcionID) return;
+    if (f.Environment !== environment) return;
     const existente = indice[f.InscripcionID];
-    // from-inscripcion.js es idempotente por InscripcionID (una sola factura por
-    // inscripción); si alguna vez hubiera más de una fila histórica, se conserva
-    // la más reciente por CreatedAt en vez de fallar.
+    // from-inscripcion.js es idempotente por InscripcionID+environment (una sola
+    // factura por inscripción dentro de cada ambiente); si alguna vez hubiera más de
+    // una fila histórica, se conserva la más reciente por CreatedAt en vez de fallar.
     if (!existente || new Date(f.CreatedAt || 0) >= new Date(existente.CreatedAt || 0)) {
       indice[f.InscripcionID] = f;
     }
@@ -1650,7 +1657,11 @@ function getInscripciones(user, { filtros = {} } = {}) {
   data.sort(function(a, b) { return new Date(b.FechaCreacion || 0) - new Date(a.FechaCreacion || 0); });
   const duracionDe = mapaDuracionServicios();
   const usuarios = mapaUsuariosPorUsername();
-  const facturaIndice = indiceFacturasPorInscripcion_();
+  // Default seguro para la vista administrativa productiva: si no se pide
+  // explícitamente 'test', el estado fiscal mostrado en Inscripciones es SIEMPRE de
+  // production, para que un DRAFT de prueba nunca aparente ser una factura real.
+  const fiscalEnvironment = filtros.fiscalEnvironment === 'test' ? 'test' : 'production';
+  const facturaIndice = indiceFacturasPorInscripcion_(fiscalEnvironment);
   data = data.map(function(i) {
     var enriched = Object.assign(
       inscripcionEnriquecida(inscripcionSinMetadatosInternos(i), duracionDe, usuarios),

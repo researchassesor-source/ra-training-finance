@@ -1,0 +1,210 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+const { callGasActionAsUserMock, continuarFlujoFacturaMock, loadSigningKeysMock } = vi.hoisted(() => ({
+  callGasActionAsUserMock: vi.fn(),
+  continuarFlujoFacturaMock: vi.fn(),
+  loadSigningKeysMock: vi.fn(),
+}))
+
+vi.mock('../../lib/fiscal/orchestration/gasClient.js', async importOriginal => {
+  const actual = await importOriginal()
+  return { ...actual, callGasActionAsUser: callGasActionAsUserMock }
+})
+vi.mock('../../lib/fiscal/orchestration/facturaOrchestrator.js', () => ({
+  continuarFlujoFactura: continuarFlujoFacturaMock,
+}))
+vi.mock('../../lib/fiscal/orchestration/loadSigningKeys.js', async importOriginal => {
+  const actual = await importOriginal()
+  return { ...actual, loadSigningKeysFromEnv: loadSigningKeysMock }
+})
+
+const { default: handler } = await import('./from-inscripcion.js')
+const { SigningKeysNotConfiguredError } = await import('../../lib/fiscal/orchestration/loadSigningKeys.js')
+
+function mockRes() {
+  const res = { statusCode: null, body: null }
+  res.status = code => { res.statusCode = code; return res }
+  res.json = payload => { res.body = payload; return res }
+  return res
+}
+
+function validInscripcion(overrides = {}) {
+  return {
+    ID: 'INS-1', ClienteID: '0102030405', ClienteNombre: 'Cliente Válido',
+    EstadoPago: 'verificado', Monto: 20, ServicioNombre: 'Curso Demo',
+    ClienteEmail: 'cliente@example.test', MetodoPago: 'Transferencia',
+    ...overrides,
+  }
+}
+
+const originalEnv = { ...process.env }
+
+/** Rutea cada acción GAS mockeada a su fixture -- las fixtures son reasignables por
+ * test. `facturasPorEnvironment` simula que GAS filtra getFacturasFiscales por el
+ * `environment` recibido en params (igual que el índice real). */
+let facturasPorEnvironment
+let inscripcionesFixture
+let conflictoFixture
+let draftFixture
+let facturaCompletaFixture
+
+function installGasRouter() {
+  callGasActionAsUserMock.mockImplementation(async (action, params) => {
+    if (action === 'getFacturasFiscales') return facturasPorEnvironment[params.environment] || []
+    if (action === 'getInscripciones') return inscripcionesFixture
+    if (action === 'verificarConflictoSerieFiscal') return conflictoFixture
+    if (action === 'crearBorradorFactura') return draftFixture
+    if (action === 'reservarSecuencialFiscal') return {}
+    if (action === 'getFacturaFiscalCompleta') return { factura: facturaCompletaFixture }
+    throw new Error('acción GAS no mockeada en el test: ' + action)
+  })
+}
+
+beforeEach(() => {
+  process.env = { ...originalEnv }
+  callGasActionAsUserMock.mockReset()
+  continuarFlujoFacturaMock.mockReset()
+  loadSigningKeysMock.mockReset()
+  facturasPorEnvironment = { test: [], production: [] }
+  inscripcionesFixture = [validInscripcion()]
+  conflictoFixture = { facturasEncontradas: 0, contadoresEncontrados: 0 }
+  draftFixture = { ID: 'FACT-1', Status: 'DRAFT' }
+  facturaCompletaFixture = { ID: 'FACT-1', Status: 'DRAFT', InscripcionID: 'INS-1', Environment: 'production' }
+  loadSigningKeysMock.mockImplementation(() => { throw new SigningKeysNotConfiguredError('sin certificado configurado en este entorno de prueba') })
+  installGasRouter()
+})
+
+afterEach(() => {
+  process.env = { ...originalEnv }
+})
+
+function callsFor(action) {
+  return callGasActionAsUserMock.mock.calls.filter(call => call[0] === action)
+}
+
+describe('POST /api/fiscal/from-inscripcion — guard de entorno Production (hotfix)', () => {
+  it('1. Production sin SRI_ENVIRONMENT=production (ausente) -> bloquea antes del DRAFT, 0 llamadas GAS', async () => {
+    process.env.VERCEL_ENV = 'production'
+    delete process.env.SRI_ENVIRONMENT
+    const res = mockRes()
+    await handler({ method: 'POST', body: { token: 'tok', inscripcionId: 'INS-1' } }, res)
+
+    expect(res.statusCode).toBe(500)
+    expect(res.body.success).toBe(false)
+    expect(res.body.error).toMatch(/SRI_ENVIRONMENT no está configurado explícitamente como production/)
+    expect(callGasActionAsUserMock).not.toHaveBeenCalled()
+    expect(callsFor('crearBorradorFactura')).toHaveLength(0)
+    expect(callsFor('reservarSecuencialFiscal')).toHaveLength(0)
+  })
+
+  it('2. Production con SRI_ENVIRONMENT=test -> bloquea igual, 0 mutaciones fiscales', async () => {
+    process.env.VERCEL_ENV = 'production'
+    process.env.SRI_ENVIRONMENT = 'test'
+    const res = mockRes()
+    await handler({ method: 'POST', body: { token: 'tok', inscripcionId: 'INS-1' } }, res)
+
+    expect(res.statusCode).toBe(500)
+    expect(res.body.success).toBe(false)
+    expect(callGasActionAsUserMock).not.toHaveBeenCalled()
+    expect(callsFor('crearBorradorFactura')).toHaveLength(0)
+    expect(callsFor('reservarSecuencialFiscal')).toHaveLength(0)
+  })
+
+  it('3. Production con SRI_ENVIRONMENT=production -> el guard NO bloquea, el flujo continúa', async () => {
+    process.env.VERCEL_ENV = 'production'
+    process.env.SRI_ENVIRONMENT = 'production'
+    const res = mockRes()
+    await handler({ method: 'POST', body: { token: 'tok', inscripcionId: 'INS-1' } }, res)
+
+    expect(callsFor('crearBorradorFactura')).toHaveLength(1)
+    expect(callsFor('crearBorradorFactura')[0][1]).toMatchObject({ environment: 'production' })
+    // Sin llaves de firma configuradas (fixture por defecto): éxito con atención, no un bloqueo.
+    expect(res.statusCode).toBe(200)
+    expect(res.body.success).toBe(true)
+    expect(res.body.data.attention).toMatch(/certificado de firma pendiente/)
+  })
+
+  it('4. Preview/desarrollo (VERCEL_ENV != production) sin SRI_ENVIRONMENT -> sigue usando test, sin bloqueo', async () => {
+    delete process.env.VERCEL_ENV
+    delete process.env.SRI_ENVIRONMENT
+    const res = mockRes()
+    await handler({ method: 'POST', body: { token: 'tok', inscripcionId: 'INS-1' } }, res)
+
+    expect(callsFor('crearBorradorFactura')).toHaveLength(1)
+    expect(callsFor('crearBorradorFactura')[0][1]).toMatchObject({ environment: 'test' })
+  })
+})
+
+describe('POST /api/fiscal/from-inscripcion — aislamiento test/production e idempotencia', () => {
+  it('8. un DRAFT test existente NO hace idempotente un intento production (InscripcionID + environment)', async () => {
+    process.env.VERCEL_ENV = 'production'
+    process.env.SRI_ENVIRONMENT = 'production'
+    facturasPorEnvironment.test = [{ ID: 'FAC-ALEXANDER-TEST', InscripcionID: 'INS-1', Environment: 'test', Status: 'DRAFT' }]
+    facturasPorEnvironment.production = []
+    const res = mockRes()
+    await handler({ method: 'POST', body: { token: 'tok', inscripcionId: 'INS-1' } }, res)
+
+    expect(res.body.data?.idempotent).not.toBe(true)
+    expect(callsFor('crearBorradorFactura')).toHaveLength(1)
+  })
+
+  it('9. una factura production existente SÍ activa la idempotencia (0 llamadas a crearBorradorFactura)', async () => {
+    process.env.VERCEL_ENV = 'production'
+    process.env.SRI_ENVIRONMENT = 'production'
+    facturasPorEnvironment.production = [{ ID: 'FAC-PROD-1', InscripcionID: 'INS-1', Environment: 'production', Status: 'AUTHORIZED', DocumentNumber: '001-002-000000005' }]
+    const res = mockRes()
+    await handler({ method: 'POST', body: { token: 'tok', inscripcionId: 'INS-1' } }, res)
+
+    expect(res.statusCode).toBe(200)
+    expect(res.body.data).toMatchObject({ idempotent: true, factura: { id: 'FAC-PROD-1' } })
+    expect(callsFor('crearBorradorFactura')).toHaveLength(0)
+  })
+})
+
+describe('POST /api/fiscal/from-inscripcion — preflight de serie antes del DRAFT', () => {
+  it('10/11/12. serie con facturas existentes y SIN contador -> bloquea antes del DRAFT (0 crearBorradorFactura, 0 reservarSecuencialFiscal)', async () => {
+    conflictoFixture = { facturasEncontradas: 3, contadoresEncontrados: 0 }
+    const res = mockRes()
+    await handler({ method: 'POST', body: { token: 'tok', inscripcionId: 'INS-1' } }, res)
+
+    expect(res.statusCode).toBe(422)
+    expect(res.body.success).toBe(false)
+    expect(res.body.error).toMatch(/tiene facturas existentes pero no existe un contador de secuencia en Finance/)
+    expect(callsFor('crearBorradorFactura')).toHaveLength(0)
+    expect(callsFor('reservarSecuencialFiscal')).toHaveLength(0)
+  })
+
+  it('13. serie consistente (facturas + contador, o ninguno) -> el flujo continúa normalmente', async () => {
+    conflictoFixture = { facturasEncontradas: 5, contadoresEncontrados: 1 }
+    const res = mockRes()
+    await handler({ method: 'POST', body: { token: 'tok', inscripcionId: 'INS-1' } }, res)
+
+    expect(callsFor('crearBorradorFactura')).toHaveLength(1)
+    expect(res.statusCode).toBe(200)
+  })
+
+  it('primer uso de la serie (sin facturas ni contador) no bloquea -- comportamiento seguro existente', async () => {
+    conflictoFixture = { facturasEncontradas: 0, contadoresEncontrados: 0 }
+    const res = mockRes()
+    await handler({ method: 'POST', body: { token: 'tok', inscripcionId: 'INS-1' } }, res)
+
+    expect(callsFor('crearBorradorFactura')).toHaveLength(1)
+  })
+
+  it('el preflight nunca se ejecuta en el camino idempotente (no hay DRAFT nuevo que proteger)', async () => {
+    facturasPorEnvironment.test = [{ ID: 'FAC-TEST-1', InscripcionID: 'INS-1', Environment: 'test', Status: 'DRAFT' }]
+    const res = mockRes()
+    await handler({ method: 'POST', body: { token: 'tok', inscripcionId: 'INS-1' } }, res)
+
+    expect(res.body.data?.idempotent).toBe(true)
+    expect(callsFor('verificarConflictoSerieFiscal')).toHaveLength(0)
+  })
+})
+
+describe('Fiscal.gs / motor SRI', () => {
+  it('no se invoca ninguna acción de firma/SOAP/SRI real (continuarFlujoFactura solo se llama si hay llaves configuradas)', async () => {
+    const res = mockRes()
+    await handler({ method: 'POST', body: { token: 'tok', inscripcionId: 'INS-1' } }, res)
+    expect(continuarFlujoFacturaMock).not.toHaveBeenCalled()
+  })
+})
