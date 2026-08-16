@@ -1576,12 +1576,66 @@ function sincronizarIngresoInscripcion(inscripcion) {
   return { sincronizado: true };
 }
 
+/** Normaliza para búsqueda libre: minúsculas, sin espacios sobrantes. No quita
+ * acentos (no se pidió) para no producir falsos positivos entre nombres distintos. */
+function normalizarBusquedaInscripcion_(value) {
+  return String(value === undefined || value === null ? '' : value).toLowerCase().trim().replace(/\s+/g, ' ');
+}
+
+/** Buscador libre de Inscripciones (filtros.q): case-insensitive y tolerante a
+ * espacios sobre nombre, cédula/RUC, email, comprobante e IDs de CRM. El
+ * comprobante usa el mismo fallback a Notas que NumeroComprobanteMostrado
+ * (ver inscripcionEnriquecida) solo para registros legacy sin comprobante
+ * estructurado -- nunca sustituye NumeroComprobante como fuente principal. */
+function coincideBusquedaInscripcion_(row, q) {
+  const numeroComprobante = row.NumeroComprobante || row.Notas || '';
+  const campos = [
+    row.ClienteNombre, row.ClienteID, row.ClienteEmail, numeroComprobante,
+    row.CRMEnrollmentID, row.CRMContactID, row.RazonSocial,
+  ];
+  return campos.some(function(campo) { return normalizarBusquedaInscripcion_(campo).indexOf(q) !== -1; });
+}
+
+/** Índice InscripcionID -> factura mínima, UNA sola lectura de FacturasFiscales
+ * para toda la lista de Inscripciones (evita N+1: sin esto, cada fila dispararía
+ * su propia lectura de la hoja fiscal). No copia la factura completa, solo lo
+ * mínimo que Inscripciones necesita mostrar. */
+function indiceFacturasPorInscripcion_() {
+  const indice = {};
+  sheetToObjects(getSheet('FacturasFiscales')).forEach(function(f) {
+    if (!f.InscripcionID) return;
+    const existente = indice[f.InscripcionID];
+    // from-inscripcion.js es idempotente por InscripcionID (una sola factura por
+    // inscripción); si alguna vez hubiera más de una fila histórica, se conserva
+    // la más reciente por CreatedAt en vez de fallar.
+    if (!existente || new Date(f.CreatedAt || 0) >= new Date(existente.CreatedAt || 0)) {
+      indice[f.InscripcionID] = f;
+    }
+  });
+  return indice;
+}
+
+function facturaResumenParaInscripcion_(factura) {
+  if (!factura) return { FacturaID: '', FacturaStatus: '', FacturaNumero: '', FacturaReviewFlag: '', FacturaEnvironment: '' };
+  return {
+    FacturaID: factura.ID || '',
+    FacturaStatus: factura.Status || '',
+    FacturaNumero: factura.DocumentNumber || '',
+    FacturaReviewFlag: factura.ReviewFlag || '',
+    FacturaEnvironment: factura.Environment || '',
+  };
+}
+
 function getInscripciones(user, { filtros = {} } = {}) {
   if (!isVendedor(user)) throw new Error('Acceso denegado.');
   const existingSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Inscripciones');
   let data = existingSheet ? filasInscripcionesDecoradas(existingSheet).rows : [];
   if (!isAdmin(user)) data = data.filter(i => i.CreadoPor === user.Username);
   if (filtros.vendedor && isAdmin(user)) data = data.filter(i => i.CreadoPor === filtros.vendedor);
+  if (filtros.q && normalizarBusquedaInscripcion_(filtros.q)) {
+    const q = normalizarBusquedaInscripcion_(filtros.q);
+    data = data.filter(i => coincideBusquedaInscripcion_(i, q));
+  }
   if (filtros.estadoPago)        data = data.filter(i => i.EstadoPago === filtros.estadoPago);
   if (filtros.estadoCertificado) data = data.filter(i => i.EstadoCertificado === filtros.estadoCertificado);
   if (filtros.servicioId)        data = data.filter(i => i.ServicioID === filtros.servicioId);
@@ -1596,8 +1650,12 @@ function getInscripciones(user, { filtros = {} } = {}) {
   data.sort(function(a, b) { return new Date(b.FechaCreacion || 0) - new Date(a.FechaCreacion || 0); });
   const duracionDe = mapaDuracionServicios();
   const usuarios = mapaUsuariosPorUsername();
+  const facturaIndice = indiceFacturasPorInscripcion_();
   data = data.map(function(i) {
-    var enriched = inscripcionEnriquecida(inscripcionSinMetadatosInternos(i), duracionDe, usuarios);
+    var enriched = Object.assign(
+      inscripcionEnriquecida(inscripcionSinMetadatosInternos(i), duracionDe, usuarios),
+      facturaResumenParaInscripcion_(facturaIndice[i.ID]),
+    );
     return isAdmin(user) ? enriched : resumenCertificadoParaVendedor(enriched);
   });
   return { success: true, data };

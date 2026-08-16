@@ -52,6 +52,7 @@ describe('FacturacionView', () => {
     state.items = []
     state.saveAs.mockClear()
     Object.values(apiMock).forEach(mock => mock.mockClear())
+    window.history.replaceState({}, '', '/facturacion')
   })
 
   afterEach(() => cleanup())
@@ -88,6 +89,29 @@ describe('FacturacionView', () => {
     fireEvent.click(screen.getByTitle('Descargar XML'))
     await waitFor(() => expect(apiMock.descargarDocumentoFiscal).toHaveBeenCalledWith('FACT_1786658883540_SUNGG', 'XML_AUTORIZADO'))
     expect(state.saveAs).toHaveBeenCalled()
+  })
+
+  it('14a. sin parámetros, /facturacion funciona exactamente igual que antes', async () => {
+    render(<FacturacionView />)
+    expect(await screen.findByText('No hay facturas para estos filtros.')).toBeInTheDocument()
+    expect(apiMock.getFacturasFiscales).toHaveBeenCalledWith(expect.objectContaining({ q: '' }))
+  })
+
+  it('14b. ?factura=<ID> abre el detalle de esa factura automáticamente sin romper el buscador', async () => {
+    state.items = [deliveredInvoice]
+    window.history.replaceState({}, '', `/facturacion?factura=${deliveredInvoice.id}`)
+    render(<FacturacionView />)
+
+    expect(await screen.findByText(`Factura ${deliveredInvoice.documentNumber}`)).toBeInTheDocument()
+    expect(apiMock.getFacturasFiscales).toHaveBeenCalledWith(expect.objectContaining({ q: deliveredInvoice.id }))
+  })
+
+  it('14c. ?inscripcion=<ID> abre la factura vinculada a esa inscripción', async () => {
+    state.items = [{ ...deliveredInvoice, inscripcionId: 'INS-777' }]
+    window.history.replaceState({}, '', '/facturacion?inscripcion=INS-777')
+    render(<FacturacionView />)
+
+    expect(await screen.findByText(`Factura ${deliveredInvoice.documentNumber}`)).toBeInTheDocument()
   })
 
   it('solo activa polling cuando existen estados activos', async () => {

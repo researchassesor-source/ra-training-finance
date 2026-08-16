@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { saveAs } from 'file-saver'
 import { Download, Eye, FileCode2, FileText, RefreshCw, Search } from 'lucide-react'
 import { api } from '../../services/api'
@@ -51,8 +51,22 @@ function SummaryCard({ label, value, tone = 'text-gray-900' }) {
   )
 }
 
+/** Deep link desde Inscripciones: /facturacion?factura=<ID> o ?inscripcion=<ID>.
+ * Sin parámetros, el comportamiento es exactamente el de antes. */
+function readDeepLinkParams() {
+  if (typeof window === 'undefined') return { factura: '', inscripcion: '' }
+  const params = new URLSearchParams(window.location.search)
+  return {
+    factura: String(params.get('factura') || '').trim(),
+    inscripcion: String(params.get('inscripcion') || '').trim(),
+  }
+}
+
 export default function FacturacionView() {
-  const [filters, setFilters] = useState({ q: '', status: '', desde: '', hasta: '', environment: 'production' })
+  const deepLink = useMemo(readDeepLinkParams, [])
+  const deepLinkTarget = deepLink.factura || deepLink.inscripcion
+  const deepLinkOpened = useRef(false)
+  const [filters, setFilters] = useState({ q: deepLinkTarget, status: '', desde: '', hasta: '', environment: 'production' })
   const [data, setData] = useState([])
   const [summary, setSummary] = useState({ total: 0, autorizadas: 0, procesando: 0, novedad: 0 })
   const [loading, setLoading] = useState(true)
@@ -81,6 +95,17 @@ export default function FacturacionView() {
   }, [filters])
 
   useEffect(() => { load() }, [load])
+
+  useEffect(() => {
+    if (!deepLinkTarget || deepLinkOpened.current || loading) return
+    deepLinkOpened.current = true
+    const match = data.find(item => (
+      (deepLink.factura && item.id === deepLink.factura)
+      || (deepLink.inscripcion && item.inscripcionId === deepLink.inscripcion)
+    ))
+    if (match) setSelected(match)
+    else setError('No se encontró la factura solicitada por el enlace.')
+  }, [data, loading, deepLink, deepLinkTarget])
 
   useEffect(() => {
     if (!hasActive) return undefined

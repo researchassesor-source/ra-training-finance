@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { saveAs } from 'file-saver'
 import {
   Award, Ban, CheckCircle, Download, FileText, History, MailCheck, MessageCircle,
-  Pencil, Plus, QrCode, RefreshCw, ShoppingBag, Trash2,
+  Pencil, Plus, QrCode, Receipt, RefreshCw, Search, ShoppingBag, Trash2, X,
 } from 'lucide-react'
 import { api } from '../../services/api'
+import { fiscalHumanStatus } from '../../utils/fiscalUi'
 import { certificatePublicConfigurationNotice, certificatePublicUrlStatus } from '../../config/brand'
 import { certificateAvalVisualStatus } from '../../config/certificate'
 import {
@@ -39,11 +41,56 @@ import EnvioMasivoCertificadosModal from './EnvioMasivoCertificadosModal'
 import AuditoriaCertificadosModal from './AuditoriaCertificadosModal'
 
 const EMPTY_FILTERS = {
-  servicioId: '', vendedor: '', estadoPago: '', estadoCertificado: '', tipoAval: '', desde: '', hasta: '',
+  q: '', servicioId: '', vendedor: '', estadoPago: '', estadoCertificado: '', tipoAval: '', desde: '', hasta: '',
+}
+
+/** Bucket de estado de factura para la fila de Inscripciones (6 casos pedidos).
+ * Reutiliza fiscalHumanStatus (ver src/utils/fiscalUi.js, ya usado en Facturación)
+ * en vez de reinventar el mapeo de estados fiscales; solo agrega el caso "Sin
+ * factura" y colapsa NOT_AUTHORIZED/RETURNED/ReviewFlag bajo "Con novedad". */
+function facturaEstadoInscripcion(item) {
+  if (!item.FacturaID) return { label: 'Sin factura', css: 'badge-gray', tone: 'neutral' }
+  if (item.FacturaReviewFlag === 'REQUIRES_REVIEW') return { label: 'Con novedad', css: 'badge-red', tone: 'error' }
+  const human = fiscalHumanStatus(item.FacturaStatus)
+  return human.tone === 'error' ? { ...human, label: 'Con novedad' } : human
+}
+
+/** Traduce la respuesta de crearFacturaFiscalDesdeInscripcion (o el fiscalWarning
+ * de api.verificarPagoInscripcion) al aviso verde/ámbar pedido -- nunca presenta
+ * una novedad fiscal como si el pago hubiera fallado. */
+function fiscalNoticeFromResponse(fiscalResponse, { justVerified = false } = {}) {
+  const data = fiscalResponse?.data
+  const factura = data?.factura
+  const prefix = justVerified ? 'Pago verificado. ' : ''
+  if (data?.idempotent) {
+    return {
+      tone: 'green',
+      message: 'Esta inscripción ya tiene una factura asociada.',
+      detail: factura ? [factura.documentNumber, fiscalHumanStatus(factura.status).label].filter(Boolean).join(' · ') : '',
+      factura,
+    }
+  }
+  if (data?.attention) {
+    return { tone: 'amber', message: `${prefix}La factura fue creada pero requiere atención.`, detail: data.reason || data.attention, factura }
+  }
+  return {
+    tone: 'green',
+    message: `${prefix}Factura creada correctamente.`,
+    detail: factura ? [factura.documentNumber, fiscalHumanStatus(factura.status).label].filter(Boolean).join(' · ') : '',
+    factura,
+  }
+}
+
+function fiscalNoticeFromError(err, { justVerified = false } = {}) {
+  const message = justVerified
+    ? 'Pago verificado, pero la factura no pudo generarse. Puede reintentarla sin duplicar el comprobante.'
+    : 'La factura no pudo generarse. Puede reintentarla sin duplicar el comprobante.'
+  return { tone: 'amber', message, detail: err?.message || '' }
 }
 
 export default function InscripcionesList() {
   const { isAdmin, user } = useAuth()
+  const navigate = useNavigate()
   const canManage = canManageCertificates(user)
   const qrConfiguration = useMemo(() => certificatePublicUrlStatus(), [])
   const qrConfigurationNotice = useMemo(() => certificatePublicConfigurationNotice(qrConfiguration), [qrConfiguration])
@@ -80,6 +127,7 @@ export default function InscripcionesList() {
   const [auditRetry, setAuditRetry] = useState(null)
   const [artifactRecovery, setArtifactRecovery] = useState(null)
   const [certificateNotice, setCertificateNotice] = useState('')
+  const [fiscalNotice, setFiscalNotice] = useState(null)
 
   const load = useCallback(() => {
     setLoading(true)
@@ -135,6 +183,8 @@ export default function InscripcionesList() {
       issued: data.filter(item => ['emitido', 'enviado', 'reemitido'].includes(certificateLifecycleStatus(item))).length,
     }
   }, [data])
+
+  const hasActiveFilters = useMemo(() => Object.entries(filtros).some(([, value]) => value), [filtros])
 
   const selectableCertificates = useMemo(() => canManage ? data.filter(item => (
     item.ID && certificateCapabilities(user, item).canDeliver
@@ -234,12 +284,31 @@ export default function InscripcionesList() {
     if (!action) return
     setProcessing(`${action.type}:${action.item.ID}`)
     setError('')
+    setFiscalNotice(null)
     try {
       if (action.type === 'delete') await api.deleteInscripcion(action.item.ID)
-      if (action.type === 'verify') await api.verificarPagoInscripcion(action.item.ID)
+      if (action.type === 'verify') {
+        const result = await api.verificarPagoInscripcion(action.item.ID)
+        setFiscalNotice(result.fiscalWarning
+          ? fiscalNoticeFromError({ message: result.fiscalWarning }, { justVerified: true })
+          : fiscalNoticeFromResponse(result.fiscal, { justVerified: true }))
+      }
+      if (action.type === 'invoice') {
+        // Histórico/nuevo con pago ya verificado: SOLO factura, nunca reverifica el pago.
+        const result = await api.crearFacturaFiscalDesdeInscripcion(action.item.ID)
+        setFiscalNotice(fiscalNoticeFromResponse(result))
+      }
       setConfirm(null)
       load()
-    } catch (err) { setError(err.message) }
+    } catch (err) {
+      if (action.type === 'invoice') {
+        setFiscalNotice(fiscalNoticeFromError(err))
+        setConfirm(null)
+        load()
+      } else {
+        setError(err.message)
+      }
+    }
     finally { setProcessing('') }
   }
 
@@ -433,6 +502,24 @@ export default function InscripcionesList() {
   return (
     <div className="space-y-4">
       <div className="space-y-4">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <label className="relative min-w-0 flex-1">
+            <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              type="search"
+              className="input w-full pl-9 text-sm"
+              placeholder="Buscar nombre, cédula, email, comprobante o ID CRM"
+              value={filtros.q}
+              onChange={e => setFilter('q', e.target.value)}
+              aria-label="Buscar inscripciones"
+            />
+          </label>
+          {hasActiveFilters && (
+            <button type="button" className="btn-secondary shrink-0 text-sm" onClick={() => setFiltros(EMPTY_FILTERS)}>
+              <X size={15} /> Limpiar búsqueda y filtros
+            </button>
+          )}
+        </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-2">
           <select className="input w-full min-w-0 text-sm" value={filtros.servicioId} onChange={e => setFilter('servicioId', e.target.value)}>
             <option value="">Todos los cursos</option>
@@ -520,6 +607,12 @@ export default function InscripcionesList() {
           {certificateNotice}
         </div>
       )}
+      {isAdmin && fiscalNotice && (
+        <div className={`rounded-lg border p-3 text-sm ${fiscalNotice.tone === 'green' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-900'}`}>
+          <p className="font-semibold">{fiscalNotice.message}</p>
+          {fiscalNotice.detail && <p className="mt-1">{fiscalNotice.detail}</p>}
+        </div>
+      )}
 
       {loading ? <Spinner text="Cargando inscripciones..." /> : (
         <div className="card p-0 overflow-hidden">
@@ -536,9 +629,10 @@ export default function InscripcionesList() {
                 <col className="hidden xl:table-column xl:w-[7%]" />
                 <col className="hidden xl:table-column xl:w-[8%]" />
                 <col className="hidden xl:table-column xl:w-[7%]" />
+                <col className="hidden xl:table-column xl:w-[7%]" />
                 <col className={isAdmin ? 'w-[19%] xl:hidden' : 'w-[20%] xl:hidden'} />
                 <col className="w-[14%] xl:hidden" />
-                <col className={isAdmin ? 'w-[15%] xl:w-[14%]' : 'w-[16%] xl:w-[15%]'} />
+                <col className={isAdmin ? 'w-[15%] xl:w-[10%]' : 'w-[16%] xl:w-[11%]'} />
               </colgroup>
               <thead><tr className="bg-gray-50 border-b border-gray-100">
                 {isAdmin && (
@@ -557,12 +651,13 @@ export default function InscripcionesList() {
                 <CompactHead lines={['Pago']} className="hidden xl:table-cell" />
                 <CompactHead lines={['Certificado']} className="hidden xl:table-cell" />
                 <CompactHead lines={['Aval']} className="hidden xl:table-cell" />
+                <CompactHead lines={['Factura']} className="hidden xl:table-cell" />
                 <CompactHead lines={['Venta']} className="xl:hidden" />
                 <CompactHead lines={['Estados']} className="xl:hidden" />
                 <CompactHead lines={['Acciones']} align="center" />
               </tr></thead>
               <tbody>
-                {!data.length ? <tr><td colSpan={isAdmin ? 13 : 12} className="text-center py-10 text-gray-400">Sin inscripciones registradas</td></tr> : data.map(item => {
+                {!data.length ? <tr><td colSpan={isAdmin ? 14 : 13} className="text-center py-10 text-gray-400">Sin inscripciones registradas</td></tr> : data.map(item => {
                   const hasAval = item.RequiereAvalExterno === true || item.RequiereAvalExterno === 'TRUE'
                   const avalReady = !hasAval || item.EstadoAval === 'avalado'
                   const avalVisual = certificateAvalVisualStatus(item)
@@ -609,6 +704,7 @@ export default function InscripcionesList() {
                           : <span title={canManage && item.CodigoCertificado ? `Código: ${item.CodigoCertificado}` : undefined} className={`${ESTADOS_CERTIFICADO[item.EstadoCertificado]?.css || 'badge-gray'} px-1.5 text-[10px] leading-tight`}>{ESTADOS_CERTIFICADO[item.EstadoCertificado]?.label || item.EstadoCertificado}</span>}
                       </td>
                       <td className="hidden px-2 py-2.5 min-w-0 xl:table-cell"><AvalBadge item={item} hasAval={hasAval} /></td>
+                      <td className="hidden px-2 py-2.5 min-w-0 xl:table-cell"><FacturaBadge item={item} /></td>
                       <td className="px-2 py-2.5 min-w-0 xl:hidden">
                         <p className="truncate font-medium leading-tight text-gray-700" title={item.VendedorNombre || item.CreadoPor || 'Sin vendedor'}>{item.VendedorNombre || item.CreadoPor || 'Sin vendedor'}</p>
                         <p className="mt-1 font-semibold text-brand-700">{fmt.usd(item.Monto)}</p>
@@ -622,6 +718,7 @@ export default function InscripcionesList() {
                             ? <span className="badge-yellow px-1.5 text-[10px] leading-tight" title="Pendiente del aval institucional">Pend. aval</span>
                             : <span title={canManage && item.CodigoCertificado ? `Código: ${item.CodigoCertificado}` : undefined} className={`${ESTADOS_CERTIFICADO[item.EstadoCertificado]?.css || 'badge-gray'} px-1.5 text-[10px] leading-tight`}>{ESTADOS_CERTIFICADO[item.EstadoCertificado]?.label || item.EstadoCertificado}</span>}
                           <AvalBadge item={item} hasAval={hasAval} />
+                          <FacturaBadge item={item} />
                         </div>
                       </td>
                       <td className="px-2 py-2.5"><div className="mx-auto grid w-fit grid-cols-4 gap-1">
@@ -629,6 +726,13 @@ export default function InscripcionesList() {
                         <Action icon={Download} label="Descargar comprobante de inscripción" onClick={() => exportInscripcionPDF(item)} disabled={rowBusy} />
                         <Action icon={Pencil} label="Editar inscripción" onClick={() => { setSelected(item); setModal('edit') }} disabled={rowBusy} />
                         {isAdmin && canVerifyPayment && <Action icon={CheckCircle} label="Verificar pago" onClick={() => setConfirm({ type: 'verify', item })} disabled={rowBusy} css="hover:text-emerald-600 hover:bg-emerald-50" />}
+                        {isAdmin && (
+                          item.FacturaID
+                            ? <Action icon={Receipt} label="Ver factura" onClick={() => navigate(`/facturacion?factura=${encodeURIComponent(item.FacturaID)}`)} disabled={rowBusy} css="hover:text-blue-600 hover:bg-blue-50" />
+                            : item.EstadoPago === 'verificado'
+                              ? <Action icon={Receipt} label="Emitir factura" onClick={() => setConfirm({ type: 'invoice', item })} disabled={rowBusy} css="hover:text-emerald-600 hover:bg-emerald-50" />
+                              : <Action icon={Receipt} label="Verifique el pago antes de facturar." disabled css="cursor-not-allowed text-gray-300" />
+                        )}
                         {capabilities.canIssue && <Action icon={Award}
                           label={!qrConfiguration.valid
                             ? qrConfiguration.error
@@ -764,10 +868,14 @@ export default function InscripcionesList() {
       </Modal>
 
       <ConfirmDialog open={Boolean(confirm)} onClose={() => setConfirm(null)} onConfirm={handleConfirmedAction}
-        loading={Boolean(processing)} title={confirm?.type === 'verify' ? 'Verificar pago' : 'Eliminar inscripción'}
+        loading={Boolean(processing)}
+        title={confirm?.type === 'verify' ? 'Verificar pago' : confirm?.type === 'invoice' ? 'Emitir factura electrónica' : 'Eliminar inscripción'}
+        confirmLabel={confirm?.type === 'invoice' ? 'Emitir factura' : undefined}
         message={confirm?.type === 'verify'
           ? `¿Confirma que cotejó el pago de ${confirm?.item.ClienteNombre} y desea marcarlo como verificado?`
-          : `¿Eliminar la inscripción de "${confirm?.item.ClienteNombre}" en "${confirm?.item.ServicioNombre}"? Esta acción no se puede deshacer.`} />
+          : confirm?.type === 'invoice'
+            ? `Se emitirá una factura electrónica para\n${confirm?.item.ClienteNombre}\npor ${fmt.usd(confirm?.item.Monto)}.\n\nEl pago ya está verificado y no será modificado.\nEsta operación puede generar un comprobante tributario real ante el SRI.\n\n¿Desea continuar?`
+            : `¿Eliminar la inscripción de "${confirm?.item.ClienteNombre}" en "${confirm?.item.ServicioNombre}"? Esta acción no se puede deshacer.`} />
 
       <Modal open={Boolean(waIns)} onClose={() => setWaIns(null)} title="Enviar datos de pago por WhatsApp" size="md">
         {waIns && <div className="space-y-4">
@@ -807,6 +915,15 @@ function AvalBadge({ item, hasAval }) {
       </span>
       {item.InstitucionAval && <p className="mt-1 truncate text-[10px] text-gray-500" title={item.InstitucionAval}>{item.InstitucionAval}</p>}
     </div>
+  )
+}
+
+function FacturaBadge({ item }) {
+  const estado = facturaEstadoInscripcion(item)
+  return (
+    <span className={`${estado.css} px-1.5 text-[10px] leading-tight`} title={item.FacturaNumero ? `N.º ${item.FacturaNumero}` : undefined}>
+      {estado.label}
+    </span>
   )
 }
 

@@ -1,6 +1,11 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import InscripcionesList from './InscripcionesList'
+
+function renderList() {
+  return render(<MemoryRouter><InscripcionesList /></MemoryRouter>)
+}
 
 const state = vi.hoisted(() => ({
   user: { rol: 'admin', username: 'admin.demo', nombre: 'Admin Demo' },
@@ -129,7 +134,7 @@ describe('acciones visibles en inscripciones', () => {
 
   it('muestra descargar, QR y entrega al administrador', async () => {
     state.user = { rol: 'admin', username: 'admin.demo', nombre: 'Admin Demo' }
-    render(<InscripcionesList />)
+    renderList()
     await screen.findByText('Participante Demo')
     expect(screen.getByRole('button', { name: 'Ver y descargar certificado académico' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Ver y descargar QR' })).toBeInTheDocument()
@@ -141,7 +146,7 @@ describe('acciones visibles en inscripciones', () => {
 
   it('oculta las acciones oficiales al vendedor y conserva el estado', async () => {
     state.user = { rol: 'vendedor', username: 'vendedor.demo', nombre: 'Vendedor Demo' }
-    render(<InscripcionesList />)
+    renderList()
     await screen.findByText('Participante Demo')
     expect(screen.getAllByText('Emitido').length).toBeGreaterThan(0)
     expect(screen.queryByRole('button', { name: 'Ver y descargar certificado académico' })).not.toBeInTheDocument()
@@ -152,7 +157,7 @@ describe('acciones visibles en inscripciones', () => {
 
   it('mantiene bloqueada la recuperación y descarga para el rol aval', async () => {
     state.user = { rol: 'aval', username: 'aval.demo', nombre: 'Institución Aval' }
-    render(<InscripcionesList />)
+    renderList()
     await screen.findByText('Participante Demo')
     expect(screen.queryByRole('button', { name: 'Ver y descargar certificado académico' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Entregar certificado' })).not.toBeInTheDocument()
@@ -161,7 +166,7 @@ describe('acciones visibles en inscripciones', () => {
 
   it('solicita auditoría antes de descargar y confirma el resultado después', async () => {
     state.user = { rol: 'admin', username: 'admin.demo', nombre: 'Admin Demo' }
-    render(<InscripcionesList />)
+    renderList()
     await screen.findByText('Participante Demo')
 
     fireEvent.click(screen.getByRole('button', { name: 'Ver y descargar certificado académico' }))
@@ -186,7 +191,7 @@ describe('acciones visibles en inscripciones', () => {
       historicalRecovered: true,
       auditAction: 'CERTIFICATE_HISTORICAL_ARTIFACT_RECOVERED',
     })
-    render(<InscripcionesList />)
+    renderList()
     await screen.findByText('Participante Demo')
 
     fireEvent.click(screen.getByRole('button', { name: 'Ver y descargar certificado académico' }))
@@ -199,7 +204,7 @@ describe('acciones visibles en inscripciones', () => {
   it('oculta la franja técnica válida en Production', async () => {
     state.user = { rol: 'admin', username: 'admin.demo', nombre: 'Admin Demo' }
     state.qrEnvironment = 'production'
-    render(<InscripcionesList />)
+    renderList()
     await screen.findByText('Participante Demo')
     expect(screen.queryByText(/QR público/)).not.toBeInTheDocument()
   })
@@ -207,7 +212,7 @@ describe('acciones visibles en inscripciones', () => {
   it('mantiene la franja técnica en Preview', async () => {
     state.user = { rol: 'admin', username: 'admin.demo', nombre: 'Admin Demo' }
     state.qrEnvironment = 'preview'
-    render(<InscripcionesList />)
+    renderList()
     await screen.findByText('Participante Demo')
     expect(screen.getByText(/QR público · preview/)).toBeInTheDocument()
   })
@@ -216,7 +221,7 @@ describe('acciones visibles en inscripciones', () => {
     state.user = { rol: 'admin', username: 'admin.demo', nombre: 'Admin Demo' }
     state.qrEnvironment = 'production'
     state.qrValid = false
-    render(<InscripcionesList />)
+    renderList()
     await screen.findByText('Participante Demo')
     expect(screen.getByText('La verificación pública de certificados requiere revisión administrativa.')).toBeInTheDocument()
     expect(screen.queryByText(/VITE_PUBLIC_APP_URL/)).not.toBeInTheDocument()
@@ -233,7 +238,7 @@ describe('acciones visibles en inscripciones', () => {
       CodigoCertificado: '',
       FechaEmisionCertificado: '',
     }]
-    render(<InscripcionesList />)
+    renderList()
     await screen.findByText('Participante Demo')
     const issue = screen.getByRole('button', { name: 'VITE_PUBLIC_APP_URL es obligatoria para emitir certificados en Preview y Production.' })
     expect(issue).toBeDisabled()
@@ -254,7 +259,7 @@ describe('acciones visibles en inscripciones', () => {
     }]
     window.history.replaceState({}, '', '/inscripciones?open=INS-CRM-001')
 
-    render(<InscripcionesList />)
+    renderList()
 
     expect(await screen.findByText('CRM')).toBeInTheDocument()
     expect(screen.getByText('Pendiente de completar')).toBeInTheDocument()
