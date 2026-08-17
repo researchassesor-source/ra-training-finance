@@ -5,6 +5,7 @@
 
 import { finalizarEntregaFiscal } from '../../lib/fiscal/orchestration/facturaOrchestrator.js'
 import { callGasActionAsUser, GasClientError } from '../../lib/fiscal/orchestration/gasClient.js'
+import { getFiscalUserToken } from '../../lib/fiscal/httpAuth.js'
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -16,7 +17,8 @@ export default async function handler(req, res) {
   if (typeof body === 'string') {
     try { body = JSON.parse(body) } catch { return res.status(400).json({ success: false, error: 'JSON inválido' }) }
   }
-  const { token, facturaId } = body || {}
+  const { facturaId } = body || {}
+  const token = getFiscalUserToken(req, body)
   if (!token || !facturaId) {
     res.status(400).json({ success: false, error: 'token y facturaId son obligatorios.' })
     return

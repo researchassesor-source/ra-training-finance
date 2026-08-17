@@ -41,13 +41,17 @@ function getToken() {
 async function fiscalFetch(path, options = {}) {
   const token = getToken()
   const method = options.method || 'GET'
+  // El token de sesión NUNCA viaja en la query string (quedaba filtrado en los Vercel
+  // Logs y en el historial del navegador, p.ej. /api/fiscal/process?token=...) --
+  // siempre por Authorization: Bearer, tanto en GET/descargas como en POST.
   const query = new URLSearchParams(options.query || {})
-  if (token) query.set('token', token)
   const url = `${path}${query.toString() ? `?${query.toString()}` : ''}`
-  const fetchOptions = { method }
+  const headers = {}
+  if (token) headers.Authorization = `Bearer ${token}`
+  const fetchOptions = { method, headers }
   if (options.body) {
-    fetchOptions.headers = { 'Content-Type': 'application/json' }
-    fetchOptions.body = JSON.stringify({ token, ...options.body })
+    headers['Content-Type'] = 'application/json'
+    fetchOptions.body = JSON.stringify(options.body)
   }
   const res = await fetch(url, fetchOptions)
   if (options.blob) {

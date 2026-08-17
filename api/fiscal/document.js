@@ -5,6 +5,7 @@
  */
 
 import { callGasActionAsUser, GasClientError } from '../../lib/fiscal/orchestration/gasClient.js'
+import { getFiscalUserToken } from '../../lib/fiscal/httpAuth.js'
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -12,7 +13,8 @@ export default async function handler(req, res) {
     return
   }
 
-  const { token, facturaId, tipo = 'RIDE' } = req.query || {}
+  const { facturaId, tipo = 'RIDE' } = req.query || {}
+  const token = getFiscalUserToken(req)
   if (!token || !facturaId) {
     res.status(400).json({ success: false, error: 'token y facturaId son obligatorios.' })
     return

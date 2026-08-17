@@ -2,6 +2,7 @@ import { continuarFlujoFactura } from '../../lib/fiscal/orchestration/facturaOrc
 import { getActiveEnvironment, getEmisorConfig } from '../../lib/fiscal/emisorConfig.js'
 import { callGasActionAsUser } from '../../lib/fiscal/orchestration/gasClient.js'
 import { loadSigningKeysFromEnv, SigningKeysNotConfiguredError } from '../../lib/fiscal/orchestration/loadSigningKeys.js'
+import { getFiscalUserToken } from '../../lib/fiscal/httpAuth.js'
 
 const DEFAULT_ESTABLISHMENT = '001'
 const DEFAULT_EMISSION_POINT = '002'
@@ -250,7 +251,8 @@ export default async function handler(req, res) {
   if (typeof body === 'string') {
     try { body = JSON.parse(body) } catch { return res.status(400).json({ success: false, error: 'JSON inválido' }) }
   }
-  const { token, inscripcionId } = body || {}
+  const { inscripcionId } = body || {}
+  const token = getFiscalUserToken(req, body)
   if (!token || !inscripcionId) {
     res.status(400).json({ success: false, error: 'token e inscripcionId son obligatorios.' })
     return

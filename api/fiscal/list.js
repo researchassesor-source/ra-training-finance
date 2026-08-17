@@ -1,4 +1,5 @@
 import { callGasActionAsUser } from '../../lib/fiscal/orchestration/gasClient.js'
+import { getFiscalUserToken } from '../../lib/fiscal/httpAuth.js'
 
 const DETAIL_LIMIT = 120
 
@@ -115,7 +116,8 @@ export default async function handler(req, res) {
     return
   }
 
-  const { token, environment = 'production', status = '', q = '', desde = '', hasta = '' } = req.query || {}
+  const { environment = 'production', status = '', q = '', desde = '', hasta = '' } = req.query || {}
+  const token = getFiscalUserToken(req)
   if (!token) {
     res.status(400).json({ success: false, error: 'token es obligatorio.' })
     return
