@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import IngresosList from './IngresosList'
+import IngresosList, { matchesQuery, normalizeSearchValue } from './IngresosList'
 
 const navigateMock = vi.hoisted(() => vi.fn())
 vi.mock('react-router-dom', async importOriginal => {
@@ -88,5 +88,41 @@ describe('IngresosList — trazabilidad hacia la inscripción de origen', () => 
     await waitFor(() => expect(screen.getByText('Verificar Pago Pendiente')).toBeInTheDocument())
     expect(apiMock.verificarPagoInscripcion).not.toHaveBeenCalled()
     expect(apiMock.updateIngreso).not.toHaveBeenCalled()
+  })
+
+  it('regresión: ?inscripcion=<ID> con Referencia numérica no rompe la vista (pantalla blanca)', async () => {
+    state.rows = [baseRow({ InscripcionID: 'INS_TEST', Referencia: 123456789 })]
+    window.history.replaceState({}, '', '/ingresos?inscripcion=INS_TEST')
+    renderList()
+
+    await waitFor(() => expect(screen.getByText('Verificar Pago Pendiente')).toBeInTheDocument())
+    expect(screen.getAllByText('Cliente Demo').length).toBeGreaterThan(0)
+    expect(screen.getByPlaceholderText('Buscar cliente, referencia o comprobante').value).toBe('123456789')
+  })
+})
+
+describe('matchesQuery / normalizeSearchValue — normalización defensiva', () => {
+  it('normalizeSearchValue convierte number, null, undefined y boolean a string', () => {
+    expect(normalizeSearchValue(123456789)).toBe('123456789')
+    expect(normalizeSearchValue(null)).toBe('')
+    expect(normalizeSearchValue(undefined)).toBe('')
+    expect(normalizeSearchValue(true)).toBe('true')
+  })
+
+  it('encuentra el registro cuando Referencia es numérica', () => {
+    const ingreso = baseRow({ Referencia: 123456789 })
+    expect(matchesQuery(ingreso, '123456')).toBe(true)
+  })
+
+  it('q numérico no lanza TypeError y filtra correctamente', () => {
+    const ingreso = baseRow({ Referencia: 'TRX-998877' })
+    expect(() => matchesQuery(ingreso, 998877)).not.toThrow()
+    expect(matchesQuery(ingreso, 998877)).toBe(true)
+    expect(matchesQuery(ingreso, 111111)).toBe(false)
+  })
+
+  it('es robusta ante Cliente/Referencia/teléfono null, undefined o boolean', () => {
+    const ingreso = baseRow({ Cliente: null, Referencia: undefined, ClienteTelefono: true })
+    expect(() => matchesQuery(ingreso, 'x')).not.toThrow()
   })
 })

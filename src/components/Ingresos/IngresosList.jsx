@@ -18,14 +18,21 @@ function readDeepLinkInscripcion() {
   return String(new URLSearchParams(window.location.search).get('inscripcion') || '').trim()
 }
 
+/** Normaliza cualquier valor (string, number, null, undefined, boolean) a string
+ * en minúsculas -- Referencia/Cliente/teléfono pueden venir numéricos desde Sheets/API. */
+export function normalizeSearchValue(value) {
+  return String(value ?? '').toLowerCase()
+}
+
 /** Búsqueda libre 100% en memoria (Ingresos ya devuelve todas las filas sin paginar,
  * igual que hoy sin buscador -- no hace falta tocar el backend). Cubre cliente,
  * referencia/comprobante, teléfono y concepto. */
-function matchesQuery(ingreso, q) {
-  if (!q) return true
+export function matchesQuery(ingreso, q) {
+  const query = normalizeSearchValue(q)
+  if (!query) return true
   const haystack = [ingreso.Cliente, ingreso.Referencia, ingreso.Notas, ingreso.ClienteTelefono, ingreso.Concepto]
-    .join(' ').toLowerCase()
-  return haystack.includes(q.toLowerCase())
+    .map(normalizeSearchValue).join(' ')
+  return haystack.includes(query)
 }
 
 export default function IngresosList({ soloMios = false }) {
@@ -66,7 +73,7 @@ export default function IngresosList({ soloMios = false }) {
     if (!deepLinkInscripcion || deepLinkHandled.current || loading) return
     deepLinkHandled.current = true
     const match = data.find(i => i.InscripcionID === deepLinkInscripcion)
-    if (match) { setQ(match.Referencia || match.Cliente || ''); openDetail(match) }
+    if (match) { setQ(String(match.Referencia ?? match.Cliente ?? '')); openDetail(match) }
     else setError('No se encontró el ingreso vinculado a esa inscripción.')
     // eslint-disable-next-line react-hooks/exhaustive-deps -- openDetail se define más abajo pero es estable entre renders
   }, [data, loading, deepLinkInscripcion])
