@@ -676,3 +676,226 @@ describe('verificación de conflicto de serie', () => {
     expect(enTest.data.facturasEncontradas).toBe(1)
   })
 })
+
+// Orden FISICO real de la hoja productiva ConfiguracionFiscal: SriTaxCode fue
+// agregado historicamente al FINAL, no en la posicion que tiene en
+// SHEET_HEADERS.ConfiguracionFiscal (donde aparece justo después de
+// TaxRateBasisPoints). Este es el escenario real que causó el bug de v24.
+const PRODUCTIVE_CONFIGURACION_FISCAL_HEADERS = [
+  'ID', 'CodigoInterno', 'Descripcion', 'TaxRateBasisPoints', 'Activo', 'Version',
+  'ActualizadoPor', 'ActualizadoEn', 'ValidacionTributaria', 'ValidadoPor', 'ValidadoEn',
+  'MotivoValidacion', 'TestOnly', 'SriTaxCode',
+]
+
+// Construye la hoja ConfiguracionFiscal con el orden físico real de producción --
+// sin pasar por harness.seed(), que respeta el orden declarado en Code.gs y por
+// tanto no puede reproducir el desfase real.
+function harnessConOrdenFisicoProductivo() {
+  const harness = seededHarness()
+  const sheet = harness.ensureSheet('ConfiguracionFiscal')
+  sheet.rows = [[...PRODUCTIVE_CONFIGURACION_FISCAL_HEADERS]]
+  sheet.formulas = [PRODUCTIVE_CONFIGURACION_FISCAL_HEADERS.map(() => '')]
+  return harness
+}
+
+// Agrega una fila usando el orden FÍSICO actual de la hoja (nunca SHEET_HEADERS) --
+// simula exactamente lo que el motor de Sheets ve, independientemente de cómo llegó
+// cada valor a su columna.
+function appendRowByHeaders(sheet, valuesByHeader) {
+  const headers = sheet.rows[0]
+  sheet.appendRow(headers.map(h => (valuesByHeader[h] !== undefined ? valuesByHeader[h] : '')))
+}
+
+function filaSanaConOrdenFisico(codigoInterno, overrides = {}) {
+  return {
+    ID: 'FCFG-' + codigoInterno,
+    CodigoInterno: codigoInterno,
+    Descripcion: 'Descripcion ' + codigoInterno,
+    TaxRateBasisPoints: 0,
+    Activo: true,
+    Version: 1,
+    ActualizadoPor: 'admin.test',
+    ActualizadoEn: '2025-01-01T00:00:00.000Z',
+    ValidacionTributaria: 'pendiente',
+    ValidadoPor: '',
+    ValidadoEn: '',
+    MotivoValidacion: '',
+    TestOnly: codigoInterno === 'PRUEBA_TECNICA_SRI',
+    SriTaxCode: '',
+    ...overrides,
+  }
+}
+
+// Firma EXACTA del corrimiento de columnas de v24 (derivada de appendRow escribiendo
+// por posición de SHEET_HEADERS sobre una hoja cuyo orden físico real es distinto):
+// cada valor quedó una columna desplazado. Ver esFilaCapacitacionRaMalformadaPorOrdenV24_.
+function filaCapacitacionRaMalformadaV24() {
+  return {
+    ID: 'FCFG-RA-BAD', CodigoInterno: 'CAPACITACION_RA',
+    Descripcion: 'Curso de formacion R.A. Training sin aval externo',
+    TaxRateBasisPoints: 0,
+    Activo: '2:0', Version: true, ActualizadoPor: 2, ActualizadoEn: 'admin.test',
+    ValidacionTributaria: '2026-01-01T00:00:00.000Z', ValidadoPor: 'confirmado', ValidadoEn: '',
+    MotivoValidacion: '',
+    TestOnly: 'Confirmacion contable interna 2026-08-16: los cursos propios de R.A. Training sin aval externo se facturan con IVA 0%.',
+    SriTaxCode: false,
+  }
+}
+
+function migrarV2(harness) {
+  return harness.context.processRequest({ action: 'migrarCatalogoFiscalV2', token: 'admin-token', confirmacion: 'APLICAR_CATALOGO_FISCAL_V2' })
+}
+
+function seedCatalogoSanoBase(sheet) {
+  appendRowByHeaders(sheet, filaSanaConOrdenFisico('CAPACITACION', { ID: 'FCFG-CAP', ValidacionTributaria: 'confirmado', SriTaxCode: '2:0' }))
+  appendRowByHeaders(sheet, filaSanaConOrdenFisico('CAPACITACION_CERTIFICADO', { ID: 'FCFG-CERT', ValidacionTributaria: 'confirmado', SriTaxCode: '2:0' }))
+  appendRowByHeaders(sheet, filaSanaConOrdenFisico('PRUEBA_TECNICA_SRI', { ID: 'FCFG-TEST', SriTaxCode: '2:0' }))
+}
+
+describe('reparación del catálogo fiscal — bug de orden físico de columnas (v24)', () => {
+  it('1. la hoja productiva simulada tiene SriTaxCode al final, no en la posición de SHEET_HEADERS', () => {
+    const harness = harnessConOrdenFisicoProductivo()
+    const headers = harness.sheets.ConfiguracionFiscal.rows[0]
+    expect(headers[headers.length - 1]).toBe('SriTaxCode')
+    expect(headers.indexOf('SriTaxCode')).not.toBe(4)
+  })
+
+  it('2/3/4/5/6/7. migrarCatalogoFiscalV2 crea CAPACITACION_RA en las columnas físicas correctas', () => {
+    const harness = harnessConOrdenFisicoProductivo()
+    const sheet = harness.ensureSheet('ConfiguracionFiscal')
+    seedCatalogoSanoBase(sheet)
+
+    const result = migrarV2(harness)
+    expect(result.success).toBe(true)
+    expect(result.data.codigosCreados).toContain('CAPACITACION_RA')
+
+    const ra = harness.objects('ConfiguracionFiscal').find(item => item.CodigoInterno === 'CAPACITACION_RA')
+    expect(ra.Activo).toBe(true)
+    expect(Number(ra.Version)).toBe(2)
+    expect(ra.SriTaxCode).toBe('2:0')
+    expect(ra.ValidacionTributaria).toBe('confirmado')
+    expect(ra.TestOnly).toBe(false)
+  })
+
+  it('8/9/10/11/12/13. detecta y repara EN LA MISMA FILA la CAPACITACION_RA malformada por v24, sin duplicar', () => {
+    const harness = harnessConOrdenFisicoProductivo()
+    const sheet = harness.ensureSheet('ConfiguracionFiscal')
+    seedCatalogoSanoBase(sheet)
+    appendRowByHeaders(sheet, filaCapacitacionRaMalformadaV24())
+    const filasAntes = harness.objects('ConfiguracionFiscal').length
+
+    const result = migrarV2(harness)
+
+    expect(result.success).toBe(true)
+    expect(result.data.codigosReparados).toEqual(['CAPACITACION_RA'])
+    expect(harness.objects('ConfiguracionFiscal')).toHaveLength(filasAntes)
+
+    const ra = harness.objects('ConfiguracionFiscal').find(item => item.CodigoInterno === 'CAPACITACION_RA')
+    expect(ra.ID).toBe('FCFG-RA-BAD')
+    expect(ra.Descripcion).toBe('Curso de formacion R.A. Training sin aval externo')
+    expect(ra.Activo).toBe(true)
+    expect(Number(ra.Version)).toBe(2)
+    expect(ra.SriTaxCode).toBe('2:0')
+    expect(ra.ValidacionTributaria).toBe('confirmado')
+    expect(ra.ValidadoPor).toBe('')
+    expect(ra.ValidadoEn).toBe('')
+    expect(ra.MotivoValidacion).toBe('Confirmacion contable interna 2026-08-16: los cursos propios de R.A. Training sin aval externo se facturan con IVA 0%.')
+    expect(ra.TestOnly).toBe(false)
+
+    const auditoria = harness.objects('AuditoriaFiscal')
+    expect(auditoria.map(item => item.Accion)).toContain('FISCAL_CATALOG_ROW_REPAIRED')
+    const evento = auditoria.find(item => item.Accion === 'FISCAL_CATALOG_ROW_REPAIRED')
+    expect(evento.Metadatos).toMatch(/CAPACITACION_RA/)
+    expect(evento.Metadatos).toMatch(/header_order_mismatch_v24/)
+  })
+
+  it('14/15. segunda ejecución es idempotente y no vuelve a reparar una fila ya sana', () => {
+    const harness = harnessConOrdenFisicoProductivo()
+    const sheet = harness.ensureSheet('ConfiguracionFiscal')
+    seedCatalogoSanoBase(sheet)
+    appendRowByHeaders(sheet, filaCapacitacionRaMalformadaV24())
+
+    migrarV2(harness)
+    const second = migrarV2(harness)
+
+    expect(second.success).toBe(true)
+    expect(second.data.codigosReparados).toEqual([])
+    expect(harness.objects('ConfiguracionFiscal').filter(item => item.CodigoInterno === 'CAPACITACION_RA')).toHaveLength(1)
+  })
+
+  it('16. una CAPACITACION_RA ambigua (no sana, no coincide con la firma exacta del bug) -> fail closed', () => {
+    const harness = harnessConOrdenFisicoProductivo()
+    const sheet = harness.ensureSheet('ConfiguracionFiscal')
+    seedCatalogoSanoBase(sheet)
+    appendRowByHeaders(sheet, { ...filaCapacitacionRaMalformadaV24(), ValidadoPor: 'algo-inesperado' })
+
+    const result = migrarV2(harness)
+
+    expect(result.success).toBe(false)
+    expect(result.error).toMatch(/revisión manual/)
+  })
+
+  it('17/18/19. CAPACITACION, CAPACITACION_CERTIFICADO y PRUEBA_TECNICA_SRI quedan intactos durante la reparación', () => {
+    const harness = harnessConOrdenFisicoProductivo()
+    const sheet = harness.ensureSheet('ConfiguracionFiscal')
+    seedCatalogoSanoBase(sheet)
+    appendRowByHeaders(sheet, filaCapacitacionRaMalformadaV24())
+
+    migrarV2(harness)
+
+    const catalogo = harness.objects('ConfiguracionFiscal')
+    expect(catalogo.find(item => item.CodigoInterno === 'CAPACITACION')).toMatchObject({ ID: 'FCFG-CAP' })
+    expect(catalogo.find(item => item.CodigoInterno === 'CAPACITACION_CERTIFICADO')).toMatchObject({ ID: 'FCFG-CERT' })
+    expect(catalogo.find(item => item.CodigoInterno === 'PRUEBA_TECNICA_SRI')).toMatchObject({ ID: 'FCFG-TEST', TestOnly: true })
+  })
+
+  it('20/21. FacturasFiscales y SecuenciaFiscal quedan en 0 cambios durante la reparación', () => {
+    const harness = harnessConOrdenFisicoProductivo()
+    const sheet = harness.ensureSheet('ConfiguracionFiscal')
+    seedCatalogoSanoBase(sheet)
+    appendRowByHeaders(sheet, filaCapacitacionRaMalformadaV24())
+    harness.seed('FacturasFiscales', [{ ID: 'FACT-HIST-1', Status: 'AUTHORIZED', Environment: 'production', Establishment: '001', EmissionPoint: '002', Sequential: '000000001', DocumentNumber: '001-002-000000001' }])
+    harness.seed('SecuenciaFiscal', [{ ID: 'SEQ-1', Environment: 'production', Establishment: '001', EmissionPoint: '002', DocumentType: '01', LastSequential: 1 }])
+    const facturasAntes = JSON.stringify(harness.objects('FacturasFiscales'))
+    const secuenciaAntes = JSON.stringify(harness.objects('SecuenciaFiscal'))
+
+    migrarV2(harness)
+
+    expect(JSON.stringify(harness.objects('FacturasFiscales'))).toBe(facturasAntes)
+    expect(JSON.stringify(harness.objects('SecuenciaFiscal'))).toBe(secuenciaAntes)
+  })
+
+  it('22. ninguna llamada real al SRI: la reparación del catálogo nunca toca FacturasFiscales', () => {
+    const harness = harnessConOrdenFisicoProductivo()
+    const sheet = harness.ensureSheet('ConfiguracionFiscal')
+    appendRowByHeaders(sheet, filaCapacitacionRaMalformadaV24())
+    harness.seed('FacturasFiscales', [])
+
+    const result = migrarV2(harness)
+
+    expect(result.success).toBe(true)
+    expect(harness.objects('FacturasFiscales')).toEqual([])
+  })
+})
+
+describe('migrarModuloFiscal respeta el orden físico real (mismo riesgo que migrarCatalogoFiscalV2)', () => {
+  it('siembra el catálogo inicial en las columnas físicas correctas aunque SriTaxCode esté al final de la hoja', () => {
+    const harness = harnessConOrdenFisicoProductivo()
+    harness.properties.set('SRI_MIGRATION_CONFIRMATION', 'APPLY_SRI_MIGRATION_ONCE')
+
+    const result = harness.context.processRequest({
+      action: 'migrarModuloFiscal', token: 'admin-token', confirmacion: 'APLICAR_MODULO_FISCAL',
+    })
+
+    expect(result.success).toBe(true)
+    const catalogo = harness.objects('ConfiguracionFiscal')
+    const capacitacion = catalogo.find(item => item.CodigoInterno === 'CAPACITACION')
+    const ra = catalogo.find(item => item.CodigoInterno === 'CAPACITACION_RA')
+    expect(capacitacion.SriTaxCode).toBe('2:0')
+    expect(capacitacion.Activo).toBe(true)
+    expect(ra.SriTaxCode).toBe('2:0')
+    expect(ra.Activo).toBe(true)
+    expect(Number(ra.Version)).toBe(2)
+    expect(ra.ValidacionTributaria).toBe('confirmado')
+  })
+})

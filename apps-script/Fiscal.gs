@@ -275,10 +275,19 @@ function migrarModuloFiscal(user, params) {
 
   const catalogoActual = sheetToObjects(getSheet('ConfiguracionFiscal'));
   const codigosExistentes = catalogoActual.map(function (item) { return item.CodigoInterno; });
+  // Orden FISICO real de columnas -- getSheet ya aseguro que existan todas las de
+  // SHEET_HEADERS arriba, pero su POSICION real puede diferir (ej. SriTaxCode fue
+  // agregado historicamente al final de la hoja productiva, no en la posicion que
+  // tiene en SHEET_HEADERS). appendRow escribe por posicion de array, asi que debe
+  // usar el orden fisico, nunca SHEET_HEADERS directamente.
+  const configuracionFiscalSheet = getSheet('ConfiguracionFiscal');
+  const headersFisicosConfiguracionFiscal = configuracionFiscalSheet.getLastColumn() > 0
+    ? configuracionFiscalSheet.getRange(1, 1, 1, configuracionFiscalSheet.getLastColumn()).getValues()[0]
+    : SHEET_HEADERS.ConfiguracionFiscal;
   let catalogoSembrado = false;
   FISCAL_CATALOG_INICIAL.forEach(function (item) {
     if (codigosExistentes.indexOf(item.CodigoInterno) !== -1) return;
-    getSheet('ConfiguracionFiscal').appendRow(SHEET_HEADERS.ConfiguracionFiscal.map(function (header) {
+    configuracionFiscalSheet.appendRow(headersFisicosConfiguracionFiscal.map(function (header) {
       const map = {
         ID: generateId('FCFG'),
         CodigoInterno: item.CodigoInterno,
@@ -356,9 +365,17 @@ function migrarCatalogoFiscalV2(user, params) {
       cell.setFontWeight('bold').setBackground('#3730a3').setFontColor('#ffffff');
     });
 
+    // Releer el orden FISICO real despues de asegurar encabezados (puede haber
+    // cambiado arriba, y en general puede no coincidir con SHEET_HEADERS -- ej.
+    // SriTaxCode fue agregado historicamente al final de la hoja productiva).
+    // appendRow escribe por POSICION de array: usar el nombre semantico de
+    // SHEET_HEADERS para eso produce el corrimiento real de v24 (bug confirmado).
+    const headersFisicos = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+
     let catalogo = sheetToObjects(sheet);
     const cambios = [];
     const creados = [];
+    const reparados = [];
     const ahora = new Date().toISOString();
 
     FISCAL_CATALOG_INICIAL.forEach(function (item) {
@@ -389,11 +406,34 @@ function migrarCatalogoFiscalV2(user, params) {
           MotivoValidacion: objetivo.MotivoValidacion || '',
           TestOnly: objetivo.TestOnly,
         };
-        sheet.appendRow(SHEET_HEADERS.ConfiguracionFiscal.map(function (header) {
+        sheet.appendRow(headersFisicos.map(function (header) {
           return nuevo[header] !== undefined ? nuevo[header] : '';
         }));
         creados.push(item.CodigoInterno);
         return;
+      }
+
+      // Reparacion controlada, SOLO para CAPACITACION_RA y SOLO si la fila coincide
+      // EXACTAMENTE con la firma conocida del corrimiento v24 (ver
+      // esFilaCapacitacionRaMalformadaPorOrdenV24_). Nunca se adivina: si
+      // CAPACITACION_RA existe pero no coincide ni con el objetivo sano ni con esa
+      // firma exacta, se corta la migracion completa (fail closed) para revision
+      // manual -- no se reescribe destructivamente un estado desconocido.
+      if (item.CodigoInterno === 'CAPACITACION_RA') {
+        if (esFilaCapacitacionRaMalformadaPorOrdenV24_(existente, item)) {
+          repararFilaCapacitacionRaOrdenV24_(sheet, existente, item, user, ahora);
+          reparados.push(item.CodigoInterno);
+          return;
+        }
+        const coincideConObjetivo = Object.keys(objetivo).every(function (key) {
+          return String(existente[key]) === String(objetivo[key]);
+        });
+        if (!coincideConObjetivo) {
+          throw new Error(
+            'CAPACITACION_RA existe en ConfiguracionFiscal pero no coincide ni con el estado esperado ni con la ' +
+            'firma conocida del bug de orden de columnas (v24). Requiere revisión manual antes de continuar la migración.'
+          );
+        }
       }
 
       const campos = {};
@@ -414,11 +454,12 @@ function migrarCatalogoFiscalV2(user, params) {
       accion: 'FISCAL_CATALOG_V2_MIGRATED',
       canal: 'api',
       resultado: 'ok',
-      motivo: cambios.length || creados.length ? 'Cat?logo fiscal v2 aplicado.' : 'Cat?logo fiscal v2 ya estaba aplicado.',
+      motivo: cambios.length || creados.length || reparados.length ? 'Cat?logo fiscal v2 aplicado.' : 'Cat?logo fiscal v2 ya estaba aplicado.',
       metadatos: {
         versionObjetivo: FISCAL_CATALOG_VERSION,
         codigosActualizados: cambios,
         codigosCreados: creados,
+        codigosReparados: reparados,
         facturasAlteradas: 0,
       },
     });
@@ -430,9 +471,57 @@ function migrarCatalogoFiscalV2(user, params) {
         versionObjetivo: FISCAL_CATALOG_VERSION,
         cambiosAplicados: cambios.length,
         codigosCreados: creados,
+        codigosReparados: reparados,
         catalogo: catalogo.filter(function (item) { return esVerdadero(item.Activo); }),
       },
     };
+  });
+}
+
+/**
+ * Firma EXACTA del corrimiento de columnas del bug v24 en migrarCatalogoFiscalV2:
+ * SriTaxCode fue agregado historicamente al FINAL de la hoja productiva
+ * ConfiguracionFiscal, pero un appendRow anterior escribio por POSICION usando el
+ * orden declarado en SHEET_HEADERS (no el orden fisico real), desplazando cada
+ * valor una columna. Deteccion MUY estricta y exclusiva de CAPACITACION_RA: las 4
+ * marcas deben coincidir exactamente, nunca se adivina ni se aplica a otro codigo.
+ */
+function esFilaCapacitacionRaMalformadaPorOrdenV24_(row, item) {
+  if (!row || row.CodigoInterno !== 'CAPACITACION_RA') return false;
+  return String(row.Activo) === String(item.SriTaxCode)
+    && String(row.SriTaxCode).toUpperCase() === 'FALSE'
+    && row.ValidadoPor === FISCAL_VALIDACION_CONFIRMADA
+    && row.TestOnly === item.MotivoValidacion;
+}
+
+/**
+ * Repara EN LA MISMA FILA (updateRow, nunca appendRow ni delete) la fila
+ * CAPACITACION_RA malformada por el corrimiento de columnas de v24. Deja el estado
+ * canonico exacto -- incluyendo limpiar ValidadoPor/ValidadoEn, que quedaron con
+ * valores desplazados y no forman parte del "objetivo" normal de sincronizacion.
+ */
+function repararFilaCapacitacionRaOrdenV24_(sheet, existente, item, user, ahora) {
+  updateRow(sheet, existente, {
+    Descripcion: item.Descripcion,
+    TaxRateBasisPoints: item.TaxRateBasisPoints,
+    SriTaxCode: item.SriTaxCode,
+    Activo: true,
+    Version: FISCAL_CATALOG_VERSION,
+    ActualizadoPor: user.Username,
+    ActualizadoEn: ahora,
+    ValidacionTributaria: item.ValidacionTributaria || FISCAL_VALIDACION_CONFIRMADA,
+    ValidadoPor: '',
+    ValidadoEn: '',
+    MotivoValidacion: item.MotivoValidacion || '',
+    TestOnly: false,
+  });
+  registrarAuditoriaFiscal({
+    usuario: user.Username,
+    rol: user.Rol,
+    accion: 'FISCAL_CATALOG_ROW_REPAIRED',
+    canal: 'api',
+    resultado: 'ok',
+    metadatos: { codigoInterno: item.CodigoInterno, causa: 'header_order_mismatch_v24' },
   });
 }
 
