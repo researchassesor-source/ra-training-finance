@@ -187,6 +187,16 @@ describe('POST /api/fiscal/from-inscripcion — preflight de serie antes del DRA
     expect(res.statusCode).toBe(200)
   })
 
+  it('15. el preflight envía documentType "01" explícito a verificarConflictoSerieFiscal (nunca implícito)', async () => {
+    const res = mockRes()
+    await handler({ method: 'POST', body: { token: 'tok', inscripcionId: 'INS-1' } }, res)
+
+    expect(callsFor('verificarConflictoSerieFiscal')).toHaveLength(1)
+    expect(callsFor('verificarConflictoSerieFiscal')[0][1]).toMatchObject({
+      establishment: '001', emissionPoint: '002', documentType: '01',
+    })
+  })
+
   it('primer uso de la serie (sin facturas ni contador) no bloquea -- comportamiento seguro existente', async () => {
     conflictoFixture = { facturasEncontradas: 0, contadoresEncontrados: 0 }
     const res = mockRes()

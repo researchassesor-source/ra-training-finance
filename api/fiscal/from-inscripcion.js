@@ -5,6 +5,7 @@ import { loadSigningKeysFromEnv, SigningKeysNotConfiguredError } from '../../lib
 
 const DEFAULT_ESTABLISHMENT = '001'
 const DEFAULT_EMISSION_POINT = '002'
+const DEFAULT_DOCUMENT_TYPE = '01'
 
 function text(value) {
   return value === null || value === undefined ? '' : String(value).trim()
@@ -84,7 +85,7 @@ function maxSequentialPersistidoParaSerie_(facturas, environment) {
     if (String(row?.Environment || '') !== environment) return max
     if (normalizarCodigoFiscalJs_(row?.Establishment, 3) !== DEFAULT_ESTABLISHMENT) return max
     if (normalizarCodigoFiscalJs_(row?.EmissionPoint, 3) !== DEFAULT_EMISSION_POINT) return max
-    if (normalizarCodigoFiscalJs_(row?.DocumentType, 2) !== '01') return max
+    if (normalizarCodigoFiscalJs_(row?.DocumentType, 2) !== DEFAULT_DOCUMENT_TYPE) return max
     const sequential = strictSequentialNumber_(row?.Sequential)
     if (sequential === null) return max
     return Math.max(max, sequential)
@@ -116,6 +117,7 @@ async function assertSeriesConsistentBeforeDraft(token, environment) {
   const conflicto = await callGasActionAsUser('verificarConflictoSerieFiscal', {
     establishment: DEFAULT_ESTABLISHMENT,
     emissionPoint: DEFAULT_EMISSION_POINT,
+    documentType: DEFAULT_DOCUMENT_TYPE,
     environment,
   }, token, { timeoutMs: 45_000 })
   const facturasEncontradas = Number(conflicto?.facturasEncontradas) || 0

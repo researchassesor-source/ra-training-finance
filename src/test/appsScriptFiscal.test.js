@@ -559,7 +559,7 @@ describe('reserva atómica de secuencial', () => {
     const harness = seededHarness()
     migrar(harness)
     // Simula una factura preexistente en 001-002 que no pasó por el contador (p.ej. dato heredado).
-    harness.seed('FacturasFiscales', [{ ID: 'FACT-LEGADO', Environment: 'test', Status: 'AUTHORIZED', Establishment: '001', EmissionPoint: '002' }])
+    harness.seed('FacturasFiscales', [{ ID: 'FACT-LEGADO', Environment: 'test', Status: 'AUTHORIZED', Establishment: '001', EmissionPoint: '002', DocumentType: '01' }])
 
     const factura = crearBorrador(harness, 'idem-seq-conflict')
     const result = harness.context.processRequest({ action: 'reservarSecuencialFiscal', token: 'admin-token', facturaId: factura.ID, establishment: '001', emissionPoint: '002' })
@@ -650,7 +650,7 @@ describe('verificación de conflicto de serie', () => {
   it('reporta conflicto si ya hay una factura en esa serie, en ese mismo environment', () => {
     const harness = seededHarness()
     migrar(harness)
-    harness.seed('FacturasFiscales', [{ ID: 'FACT-X', Environment: 'production', Status: 'AUTHORIZED', Establishment: '001', EmissionPoint: '002' }])
+    harness.seed('FacturasFiscales', [{ ID: 'FACT-X', Environment: 'production', Status: 'AUTHORIZED', Establishment: '001', EmissionPoint: '002', DocumentType: '01' }])
     const result = harness.context.processRequest({ action: 'verificarConflictoSerieFiscal', token: 'admin-token', establishment: '001', emissionPoint: '002', environment: 'production' })
     expect(result.data.conflict).toBe(true)
   })
@@ -665,7 +665,7 @@ describe('verificación de conflicto de serie', () => {
   it('regresión: una factura TEST_ONLY en 001-002 (test) NO contamina la lectura de conflicto en production sobre la MISMA serie -- bug real que causaba el falso "conflicto de lectura" al previsualizar la primera factura productiva', () => {
     const harness = seededHarness()
     migrar(harness)
-    harness.seed('FacturasFiscales', [{ ID: 'FACT_TEST_ONLY', Environment: 'test', Status: 'AUTHORIZED', Establishment: '001', EmissionPoint: '002' }])
+    harness.seed('FacturasFiscales', [{ ID: 'FACT_TEST_ONLY', Environment: 'test', Status: 'AUTHORIZED', Establishment: '001', EmissionPoint: '002', DocumentType: '01' }])
 
     const enProduction = harness.context.processRequest({ action: 'verificarConflictoSerieFiscal', token: 'admin-token', establishment: '001', emissionPoint: '002', environment: 'production' })
     expect(enProduction.data.conflict).toBe(false)
@@ -897,5 +897,218 @@ describe('migrarModuloFiscal respeta el orden físico real (mismo riesgo que mig
     expect(ra.Activo).toBe(true)
     expect(Number(ra.Version)).toBe(2)
     expect(ra.ValidacionTributaria).toBe('confirmado')
+  })
+})
+
+// Helper module-scope (draftParams/ITEM_CAPACITACION ya están definidos arriba) --
+// crearBorrador() dentro de 'reserva atómica de secuencial' es local a ese describe,
+// así que se define uno propio aquí con environment variable.
+function crearBorradorEnv(harness, idempotencyKey, environment, overrides = {}) {
+  return harness.context.processRequest(draftParams({ idempotencyKey, environment, ...overrides })).data
+}
+
+describe('idempotencia cruzada entre ambientes (crearBorradorFactura) — causa raíz #1', () => {
+  it('1. una IdempotencyKey usada en TEST no satisface un request PRODUCTION (no es idempotente)', () => {
+    const harness = seededHarness()
+    migrar(harness)
+    harness.seed('FacturasFiscales', [{
+      ID: 'FACT-TEST-DRAFT', Environment: 'test', Status: 'DRAFT', InscripcionID: 'INS_X',
+      IdempotencyKey: 'inscripcion:INS_X:pago-verificado:v1',
+    }])
+
+    const result = harness.context.processRequest(draftParams({
+      environment: 'production', idempotencyKey: 'inscripcion:INS_X:pago-verificado:v1', inscripcionId: 'INS_X',
+    }))
+
+    expect(result.success).toBe(true)
+    expect(result.idempotent).toBe(false)
+    expect(result.data.ID).not.toBe('FACT-TEST-DRAFT')
+    expect(result.data.Environment).toBe('production')
+    expect(harness.objects('AuditoriaFiscal').some(item => item.Accion === 'IDEMPOTENCY_KEY_CROSS_ENVIRONMENT_IGNORED')).toBe(true)
+  })
+
+  it('2. misma IdempotencyKey + mismo environment production -> sí idempotente', () => {
+    const harness = seededHarness()
+    migrar(harness)
+    const first = crearBorradorEnv(harness, 'idem-prod-1', 'production')
+    const second = harness.context.processRequest(draftParams({ environment: 'production', idempotencyKey: 'idem-prod-1' }))
+    expect(second.idempotent).toBe(true)
+    expect(second.data.ID).toBe(first.ID)
+  })
+
+  it('3. misma IdempotencyKey + mismo environment test -> sí idempotente', () => {
+    const harness = seededHarness()
+    migrar(harness)
+    const first = crearBorradorEnv(harness, 'idem-test-1', 'test')
+    const second = harness.context.processRequest(draftParams({ environment: 'test', idempotencyKey: 'idem-test-1' }))
+    expect(second.idempotent).toBe(true)
+    expect(second.data.ID).toBe(first.ID)
+  })
+
+  it('4. el request production no modifica el DRAFT test existente con la misma IdempotencyKey', () => {
+    const harness = seededHarness()
+    migrar(harness)
+    harness.seed('FacturasFiscales', [{
+      ID: 'FACT-TEST-DRAFT', Environment: 'test', Status: 'DRAFT', InscripcionID: 'INS_X',
+      IdempotencyKey: 'inscripcion:INS_X:pago-verificado:v1',
+    }])
+    const antes = JSON.stringify(harness.objects('FacturasFiscales').find(f => f.ID === 'FACT-TEST-DRAFT'))
+
+    harness.context.processRequest(draftParams({
+      environment: 'production', idempotencyKey: 'inscripcion:INS_X:pago-verificado:v1', inscripcionId: 'INS_X',
+    }))
+
+    const despues = JSON.stringify(harness.objects('FacturasFiscales').find(f => f.ID === 'FACT-TEST-DRAFT'))
+    expect(despues).toBe(antes)
+  })
+})
+
+describe('DocumentType numérico en Sheets (reservarSecuencialFiscal / verificarConflictoSerieFiscal) — causa raíz #2', () => {
+  it('5. contador con DocumentType físico número 1 se encuentra al reservar tipo "01"', () => {
+    const harness = seededHarness()
+    migrar(harness)
+    harness.seed('SecuenciaFiscal', [{ ID: 'SEQ-1', Environment: 'production', Establishment: '001', EmissionPoint: '002', DocumentType: 1, LastSequential: 1 }])
+    const draft = crearBorradorEnv(harness, 'idem-doc-numero', 'production')
+    const result = harness.context.processRequest({ action: 'reservarSecuencialFiscal', token: 'admin-token', facturaId: draft.ID, establishment: '001', emissionPoint: '002', documentType: '01' })
+    expect(result.success).toBe(true)
+    expect(result.data.sequential).toBe('000000002')
+  })
+
+  it('6. contador con DocumentType string "1" se encuentra al reservar tipo "01"', () => {
+    const harness = seededHarness()
+    migrar(harness)
+    harness.seed('SecuenciaFiscal', [{ ID: 'SEQ-1', Environment: 'production', Establishment: '001', EmissionPoint: '002', DocumentType: '1', LastSequential: 1 }])
+    const draft = crearBorradorEnv(harness, 'idem-doc-string-1', 'production')
+    const result = harness.context.processRequest({ action: 'reservarSecuencialFiscal', token: 'admin-token', facturaId: draft.ID, establishment: '001', emissionPoint: '002', documentType: '01' })
+    expect(result.success).toBe(true)
+    expect(result.data.sequential).toBe('000000002')
+  })
+
+  it('7. contador con DocumentType string "01" se encuentra (caso ya sano, sigue funcionando)', () => {
+    const harness = seededHarness()
+    migrar(harness)
+    harness.seed('SecuenciaFiscal', [{ ID: 'SEQ-1', Environment: 'production', Establishment: '001', EmissionPoint: '002', DocumentType: '01', LastSequential: 1 }])
+    const draft = crearBorradorEnv(harness, 'idem-doc-string-01', 'production')
+    const result = harness.context.processRequest({ action: 'reservarSecuencialFiscal', token: 'admin-token', facturaId: draft.ID, establishment: '001', emissionPoint: '002', documentType: '01' })
+    expect(result.success).toBe(true)
+    expect(result.data.sequential).toBe('000000002')
+  })
+
+  it('8/9. reservar sobre production con LastSequential=1 devuelve 000000002 y actualiza el contador production a 2', () => {
+    const harness = seededHarness()
+    migrar(harness)
+    harness.seed('SecuenciaFiscal', [{ ID: 'SEQ-1', Environment: 'production', Establishment: '001', EmissionPoint: '002', DocumentType: 1, LastSequential: 1 }])
+    const draft = crearBorradorEnv(harness, 'idem-lastseq', 'production')
+    const result = harness.context.processRequest({ action: 'reservarSecuencialFiscal', token: 'admin-token', facturaId: draft.ID, establishment: '001', emissionPoint: '002', documentType: '01' })
+    expect(result.data.sequential).toBe('000000002')
+    const contador = harness.objects('SecuenciaFiscal').find(item => item.ID === 'SEQ-1')
+    expect(Number(contador.LastSequential)).toBe(2)
+  })
+
+  it('10. reservar en production no modifica el contador test', () => {
+    const harness = seededHarness()
+    migrar(harness)
+    harness.seed('SecuenciaFiscal', [
+      { ID: 'SEQ-TEST', Environment: 'test', Establishment: '001', EmissionPoint: '002', DocumentType: '01', LastSequential: 5 },
+      { ID: 'SEQ-PROD', Environment: 'production', Establishment: '001', EmissionPoint: '002', DocumentType: 1, LastSequential: 1 },
+    ])
+    const draft = crearBorradorEnv(harness, 'idem-iso-env', 'production')
+    harness.context.processRequest({ action: 'reservarSecuencialFiscal', token: 'admin-token', facturaId: draft.ID, establishment: '001', emissionPoint: '002', documentType: '01' })
+    const contadorTest = harness.objects('SecuenciaFiscal').find(item => item.ID === 'SEQ-TEST')
+    expect(Number(contadorTest.LastSequential)).toBe(5)
+  })
+
+  it('11. un contador de DocumentType 04 no participa en la reserva de tipo 01 (primer uso real de 01, no continúa el contador 04)', () => {
+    const harness = seededHarness()
+    migrar(harness)
+    harness.seed('SecuenciaFiscal', [{ ID: 'SEQ-04', Environment: 'production', Establishment: '001', EmissionPoint: '002', DocumentType: '04', LastSequential: 9 }])
+    const draft = crearBorradorEnv(harness, 'idem-tipo01-vs-04', 'production')
+    const result = harness.context.processRequest({ action: 'reservarSecuencialFiscal', token: 'admin-token', facturaId: draft.ID, establishment: '001', emissionPoint: '002', documentType: '01' })
+    expect(result.success).toBe(true)
+    expect(result.data.sequential).toBe('000000001')
+  })
+
+  it('12. una factura previa de DocumentType 04 en la misma serie NO produce conflicto al reservar tipo 01 (primer uso)', () => {
+    const harness = seededHarness()
+    migrar(harness)
+    harness.seed('FacturasFiscales', [{ ID: 'FACT-04', Environment: 'production', Status: 'AUTHORIZED', Establishment: '001', EmissionPoint: '002', DocumentType: '04' }])
+    const draft = crearBorradorEnv(harness, 'idem-sin-conflicto-04', 'production')
+    const result = harness.context.processRequest({ action: 'reservarSecuencialFiscal', token: 'admin-token', facturaId: draft.ID, establishment: '001', emissionPoint: '002', documentType: '01' })
+    expect(result.success).toBe(true)
+    expect(result.data.sequential).toBe('000000001')
+  })
+
+  it('13. verificarConflictoSerieFiscal filtra por DocumentType: una factura tipo 04 no genera conflicto para tipo 01', () => {
+    const harness = seededHarness()
+    migrar(harness)
+    harness.seed('FacturasFiscales', [{ ID: 'FACT-04', Environment: 'production', Status: 'AUTHORIZED', Establishment: '001', EmissionPoint: '002', DocumentType: '04' }])
+
+    const para01 = harness.context.processRequest({ action: 'verificarConflictoSerieFiscal', token: 'admin-token', establishment: '001', emissionPoint: '002', documentType: '01', environment: 'production' })
+    expect(para01.data.conflict).toBe(false)
+    expect(para01.data.facturasEncontradas).toBe(0)
+
+    const para04 = harness.context.processRequest({ action: 'verificarConflictoSerieFiscal', token: 'admin-token', establishment: '001', emissionPoint: '002', documentType: '04', environment: 'production' })
+    expect(para04.data.conflict).toBe(true)
+    expect(para04.data.facturasEncontradas).toBe(1)
+  })
+
+  it('14. verificarConflictoSerieFiscal reconoce un contador físicamente guardado como número 1 al pedir documentType "01"', () => {
+    const harness = seededHarness()
+    migrar(harness)
+    harness.seed('SecuenciaFiscal', [{ ID: 'SEQ-1', Environment: 'production', Establishment: '001', EmissionPoint: '002', DocumentType: 1, LastSequential: 1 }])
+    const result = harness.context.processRequest({ action: 'verificarConflictoSerieFiscal', token: 'admin-token', establishment: '001', emissionPoint: '002', documentType: '01', environment: 'production' })
+    expect(result.data.contadoresEncontrados).toBe(1)
+    expect(result.data.ultimoSecuencialEnFinance).toBe(1)
+  })
+})
+
+describe('H. regresión del error exacto reportado ("Conflicto de serie" con contador físico 001/002/tipo 1)', () => {
+  it('un contador Establishment=1/EmissionPoint=2/DocumentType=1/LastSequential=1 ya NO produce "Conflicto de serie" y reserva 000000002', () => {
+    const harness = seededHarness()
+    migrar(harness)
+    harness.seed('SecuenciaFiscal', [{ ID: 'SEQ-1', Environment: 'production', Establishment: 1, EmissionPoint: 2, DocumentType: 1, LastSequential: 1 }])
+    const draft = crearBorradorEnv(harness, 'idem-regresion-real', 'production')
+
+    const result = harness.context.processRequest({ action: 'reservarSecuencialFiscal', token: 'admin-token', facturaId: draft.ID, establishment: '001', emissionPoint: '002', documentType: '01' })
+
+    expect(result.success).toBe(true)
+    expect(result.error).toBeUndefined()
+    expect(result.data.sequential).toBe('000000002')
+  })
+})
+
+describe('F. caso real reproducido: DRAFT test + contadores/facturas físicamente desalineados en test y production', () => {
+  it('production crea un NUEVO DRAFT (no continúa el test) y reserva 000000002 sin tocar el DRAFT test', () => {
+    const harness = seededHarness()
+    migrar(harness)
+    harness.seed('FacturasFiscales', [
+      { ID: 'FACT-TEST-DRAFT', Environment: 'test', Status: 'DRAFT', InscripcionID: 'INS_X', IdempotencyKey: 'inscripcion:INS_X:pago-verificado:v1' },
+      { ID: 'FACT-TEST-PREVIA', Environment: 'test', Status: 'AUTHORIZED', Establishment: 1, EmissionPoint: 2, DocumentType: 1, Sequential: '000000001' },
+      { ID: 'FACT-PROD-PREVIA', Environment: 'production', Status: 'DELIVERED', Establishment: 1, EmissionPoint: 2, DocumentType: 1, Sequential: '000000001' },
+    ])
+    harness.seed('SecuenciaFiscal', [
+      { ID: 'SEQ-TEST', Environment: 'test', Establishment: 1, EmissionPoint: 2, DocumentType: 1, LastSequential: 1 },
+      { ID: 'SEQ-PROD', Environment: 'production', Establishment: 1, EmissionPoint: 2, DocumentType: 1, LastSequential: 1 },
+    ])
+    const antesTestDraft = JSON.stringify(harness.objects('FacturasFiscales').find(f => f.ID === 'FACT-TEST-DRAFT'))
+
+    const draft = harness.context.processRequest(draftParams({
+      environment: 'production', idempotencyKey: 'inscripcion:INS_X:pago-verificado:v1', inscripcionId: 'INS_X',
+    }))
+    expect(draft.success).toBe(true)
+    expect(draft.idempotent).toBe(false)
+    expect(draft.data.ID).not.toBe('FACT-TEST-DRAFT')
+    expect(draft.data.Environment).toBe('production')
+
+    const reserva = harness.context.processRequest({
+      action: 'reservarSecuencialFiscal', token: 'admin-token', facturaId: draft.data.ID,
+      establishment: '001', emissionPoint: '002', documentType: '01',
+    })
+    expect(reserva.success).toBe(true)
+    expect(reserva.error).toBeUndefined()
+    expect(reserva.data.sequential).toBe('000000002')
+
+    const despuesTestDraft = JSON.stringify(harness.objects('FacturasFiscales').find(f => f.ID === 'FACT-TEST-DRAFT'))
+    expect(despuesTestDraft).toBe(antesTestDraft)
   })
 })
