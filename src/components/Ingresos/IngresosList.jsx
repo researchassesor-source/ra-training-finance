@@ -1,4 +1,5 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { api } from '../../services/api'
 import { fmt, ESTADOS_INGRESO, TIPOS_INGRESO } from '../../utils/formatters'
 import { exportIngresosPDF } from '../../utils/exporters'
@@ -7,9 +8,30 @@ import ConfirmDialog from '../UI/ConfirmDialog'
 import TableSkeleton from '../UI/TableSkeleton'
 import IngresosForm from './IngresosForm'
 import { useAuth } from '../../context/AuthContext'
-import { Plus, Pencil, Trash2, Download, CheckCircle, Eye, MessageCircle } from 'lucide-react'
+import { Plus, Pencil, Trash2, Download, CheckCircle, Eye, MessageCircle, Search, UserSearch } from 'lucide-react'
+
+/** Deep link desde Inscripciones: /ingresos?inscripcion=<InscripcionID> -- mismo
+ * patrón que FacturacionView.jsx (readDeepLinkParams). Sin parámetro, comportamiento
+ * idéntico al anterior. */
+function readDeepLinkInscripcion() {
+  if (typeof window === 'undefined') return ''
+  return String(new URLSearchParams(window.location.search).get('inscripcion') || '').trim()
+}
+
+/** Búsqueda libre 100% en memoria (Ingresos ya devuelve todas las filas sin paginar,
+ * igual que hoy sin buscador -- no hace falta tocar el backend). Cubre cliente,
+ * referencia/comprobante, teléfono y concepto. */
+function matchesQuery(ingreso, q) {
+  if (!q) return true
+  const haystack = [ingreso.Cliente, ingreso.Referencia, ingreso.Notas, ingreso.ClienteTelefono, ingreso.Concepto]
+    .join(' ').toLowerCase()
+  return haystack.includes(q.toLowerCase())
+}
 
 export default function IngresosList({ soloMios = false }) {
+  const navigate = useNavigate()
+  const deepLinkInscripcion = useMemo(readDeepLinkInscripcion, [])
+  const deepLinkHandled = useRef(false)
   const [data, setData]         = useState([])
   const [loading, setLoading]   = useState(true)
   const [error, setError]       = useState('')
@@ -19,6 +41,7 @@ export default function IngresosList({ soloMios = false }) {
   const [deleting, setDeleting] = useState(false)
   const { user, isAdmin, isVendedor } = useAuth()
   const [filtros, setFiltros]   = useState({ tipo: '', estado: '', desde: '', hasta: '' })
+  const [q, setQ]               = useState('')
   const [detail, setDetail]         = useState(null)
   const [detailCuentas, setDetailCuentas] = useState([])
   const [confirming, setConfirming] = useState(false)
@@ -36,6 +59,17 @@ export default function IngresosList({ soloMios = false }) {
   }, [filtros])
 
   useEffect(() => { load() }, [load])
+
+  const visibleData = useMemo(() => data.filter(i => matchesQuery(i, q)), [data, q])
+
+  useEffect(() => {
+    if (!deepLinkInscripcion || deepLinkHandled.current || loading) return
+    deepLinkHandled.current = true
+    const match = data.find(i => i.InscripcionID === deepLinkInscripcion)
+    if (match) { setQ(match.Referencia || match.Cliente || ''); openDetail(match) }
+    else setError('No se encontró el ingreso vinculado a esa inscripción.')
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- openDetail se define más abajo pero es estable entre renders
+  }, [data, loading, deepLinkInscripcion])
 
   async function handleDelete() {
     setDeleting(true)
@@ -121,6 +155,11 @@ export default function IngresosList({ soloMios = false }) {
       {/* Toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap gap-2">
+          <label className="relative">
+            <Search size={15} className="absolute left-2.5 top-2.5 text-gray-400" />
+            <input className="input w-56 pl-8 text-sm" placeholder="Buscar cliente, referencia o comprobante"
+              value={q} onChange={e => setQ(e.target.value)} />
+          </label>
           <select className="input w-auto text-sm" value={filtros.tipo}
             onChange={e => setFiltros(f => ({ ...f, tipo: e.target.value }))}>
             <option value="">Todos los tipos</option>
@@ -182,13 +221,13 @@ export default function IngresosList({ soloMios = false }) {
                 </tr>
               </thead>
               <tbody>
-                {data.length === 0 ? (
+                {visibleData.length === 0 ? (
                   <tr>
                     <td colSpan={isAdmin ? 11 : 10} className="text-center py-10 text-gray-400">
-                      Sin ingresos registrados
+                      {data.length === 0 ? 'Sin ingresos registrados' : 'Ningún ingreso coincide con la búsqueda.'}
                     </td>
                   </tr>
-                ) : data.map(i => (
+                ) : visibleData.map(i => (
                   <tr key={i.ID} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
                     <td className="px-4 py-3 whitespace-nowrap">{fmt.date(i.Fecha)}</td>
                     <td className="px-4 py-3 whitespace-nowrap">{i.Tipo}</td>
@@ -221,6 +260,13 @@ export default function IngresosList({ soloMios = false }) {
                             title="Verificar pago pendiente"
                             className="p-1.5 hover:bg-amber-50 rounded text-gray-400 hover:text-amber-600 transition-colors">
                             <Eye size={14} />
+                          </button>
+                        )}
+                        {i.InscripcionID && (
+                          <button onClick={() => navigate(`/inscripciones?open=${encodeURIComponent(i.InscripcionID)}`)}
+                            title="Ver inscripción de origen"
+                            className="p-1.5 hover:bg-blue-50 rounded text-gray-400 hover:text-blue-600 transition-colors">
+                            <UserSearch size={14} />
                           </button>
                         )}
                         {!i.InscripcionID && (isAdmin || i.Estado === 'pendiente' || i.Estado === 'pendiente_verificacion') && (

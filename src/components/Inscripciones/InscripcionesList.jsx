@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { saveAs } from 'file-saver'
 import {
-  Award, Ban, CheckCircle, Download, FileText, History, MailCheck, MessageCircle,
+  Award, Ban, CheckCircle, DollarSign, Download, FileText, History, MailCheck, MessageCircle,
   Pencil, Plus, QrCode, Receipt, RefreshCw, Search, ShoppingBag, Trash2, X,
 } from 'lucide-react'
 import { api } from '../../services/api'
@@ -732,6 +732,9 @@ export default function InscripcionesList() {
                             : item.EstadoPago === 'verificado'
                               ? <Action icon={Receipt} label="Emitir factura" onClick={() => setConfirm({ type: 'invoice', item })} disabled={rowBusy} css="hover:text-emerald-600 hover:bg-emerald-50" />
                               : <Action icon={Receipt} label="Verifique el pago antes de facturar." disabled css="cursor-not-allowed text-gray-300" />
+                        )}
+                        {isAdmin && item.IngresoID && (
+                          <Action icon={DollarSign} label="Ver pago (ingreso)" onClick={() => navigate(`/ingresos?inscripcion=${encodeURIComponent(item.ID)}`)} disabled={rowBusy} css="hover:text-emerald-600 hover:bg-emerald-50" />
                         )}
                         {capabilities.canIssue && <Action icon={Award}
                           label={!qrConfiguration.valid

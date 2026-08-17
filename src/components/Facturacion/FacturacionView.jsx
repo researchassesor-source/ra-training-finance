@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { saveAs } from 'file-saver'
-import { Download, Eye, FileCode2, FileText, RefreshCw, Search } from 'lucide-react'
+import { Download, Eye, FileCode2, FileText, RefreshCw, Search, UserSearch } from 'lucide-react'
 import { api } from '../../services/api'
 import Modal from '../UI/Modal'
 import TableSkeleton from '../UI/TableSkeleton'
@@ -72,6 +73,7 @@ function readDeepLinkParams() {
 }
 
 export default function FacturacionView() {
+  const navigate = useNavigate()
   const deepLink = useMemo(readDeepLinkParams, [])
   const deepLinkTarget = deepLink.factura || deepLink.inscripcion
   const deepLinkOpened = useRef(false)
@@ -251,6 +253,9 @@ export default function FacturacionView() {
                         <td className="px-4 py-3">
                           <div className="flex justify-end gap-1">
                             <button className="btn-secondary px-2 py-1.5" title="Ver detalle" onClick={() => setSelected(factura)}><Eye size={16} /></button>
+                            {factura.inscripcionId && (
+                              <button className="btn-secondary px-2 py-1.5" title="Ver inscripción de origen" onClick={() => navigate(`/inscripciones?open=${encodeURIComponent(factura.inscripcionId)}`)}><UserSearch size={16} /></button>
+                            )}
                             <button className="btn-secondary px-2 py-1.5" title="Descargar XML" disabled={!factura.xmlAvailable || busy === `XML_AUTORIZADO:${factura.id}`} onClick={() => downloadDocument(factura, 'XML_AUTORIZADO')}><FileCode2 size={16} /></button>
                             <button className="btn-secondary px-2 py-1.5" title="Descargar RIDE" disabled={!factura.rideAvailable || busy === `RIDE:${factura.id}`} onClick={() => downloadDocument(factura, 'RIDE')}><Download size={16} /></button>
                             {showAdvanceAction && (
@@ -285,6 +290,25 @@ export default function FacturacionView() {
                 <InfoItem label="Razón social / participante" value={selected.buyerName} />
                 <InfoItem label="Identificación" value={selected.buyerIdentification} />
                 <InfoItem label="Correo" value={selected.buyerEmail || 'No registrado'} />
+              </div>
+            </section>
+            <section>
+              <div className="mb-2 flex items-center justify-between">
+                <h3 className="font-semibold text-gray-900">Origen comercial</h3>
+                {selected.inscripcionId && (
+                  <button
+                    type="button"
+                    className="btn-secondary text-xs"
+                    onClick={() => navigate(`/inscripciones?open=${encodeURIComponent(selected.inscripcionId)}`)}
+                  >
+                    <UserSearch size={14} /> Ver inscripción
+                  </button>
+                )}
+              </div>
+              <div className="grid gap-3 md:grid-cols-3">
+                <InfoItem label="Curso / servicio" value={selected.originInscripcion?.servicioNombre} />
+                <InfoItem label="N.º comprobante / referencia" value={selected.originInscripcion?.numeroComprobante || 'No disponible'} />
+                <InfoItem label="Fecha de pago" value={selected.originInscripcion?.fechaPago ? fmt.date(selected.originInscripcion.fechaPago) : 'No disponible'} />
               </div>
             </section>
             <section>

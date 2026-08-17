@@ -287,4 +287,21 @@ describe('protección histórica de facturación (confirmación obligatoria)', (
     await screen.findByText('Participante Demo')
     expect(screen.getByRole('button', { name: 'Verifique el pago antes de facturar.' })).toBeDisabled()
   })
+
+  it('inscripción con ingreso vinculado -> "Ver pago (ingreso)" navega a /ingresos?inscripcion=<ID>, sin llamar a la API', async () => {
+    state.rows = [baseRow({ IngresoID: 'ING-1' })]
+    renderList()
+    await screen.findByText('Participante Demo')
+    fireEvent.click(screen.getByRole('button', { name: 'Ver pago (ingreso)' }))
+    expect(navigateMock).toHaveBeenCalledWith('/ingresos?inscripcion=INS-1')
+    expect(apiMock.crearFacturaFiscalDesdeInscripcion).not.toHaveBeenCalled()
+    expect(apiMock.verificarPagoInscripcion).not.toHaveBeenCalled()
+  })
+
+  it('inscripción legacy sin IngresoID -> no muestra "Ver pago (ingreso)"', async () => {
+    state.rows = [baseRow({ IngresoID: '' })]
+    renderList()
+    await screen.findByText('Participante Demo')
+    expect(screen.queryByRole('button', { name: 'Ver pago (ingreso)' })).not.toBeInTheDocument()
+  })
 })

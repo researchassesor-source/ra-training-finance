@@ -36,12 +36,31 @@ function sanitizeItem(item = {}) {
   }
 }
 
-function sanitizeFactura(row = {}, items = []) {
+/**
+ * Trazabilidad de origen (solo lectura, no fiscal): a partir de InscripcionID ya
+ * persistido en FacturasFiscales, adjunta el comprobante de pago/curso que originó
+ * la factura -- SOLO si existe un match real por ID (nunca se infiere por nombre o
+ * monto). Degrada a null si la inscripción no existe o no tiene InscripcionID
+ * (facturas legacy/manuales) -- la UI debe mostrar "No disponible" en ese caso.
+ */
+function sanitizeOrigin(inscripcion) {
+  if (!inscripcion) return null
+  return {
+    id: inscripcion.ID || '',
+    servicioNombre: inscripcion.ServicioNombre || '',
+    numeroComprobante: inscripcion.NumeroComprobante || '',
+    fechaPago: inscripcion.FechaPago || '',
+    metodoPago: inscripcion.MetodoPago || '',
+  }
+}
+
+function sanitizeFactura(row = {}, items = [], inscripcionPorId = {}) {
   return {
     id: row.ID || '',
     environment: row.Environment || '',
     status: row.Status || '',
     inscripcionId: row.InscripcionID || '',
+    originInscripcion: sanitizeOrigin(inscripcionPorId[row.InscripcionID]),
     documentType: row.DocumentType || '',
     issueDate: row.IssueDate || row.CreatedAt || '',
     documentNumber: documentNumberOf(row),
@@ -89,6 +108,8 @@ function matchesSearch(factura, q) {
     factura.buyerIdentification,
     factura.buyerEmail,
     factura.inscripcionId,
+    factura.originInscripcion?.numeroComprobante,
+    factura.originInscripcion?.servicioNombre,
     ...factura.items.map(item => item.descripcion),
   ].join(' ').toLowerCase()
   return haystack.includes(q.toLowerCase())
@@ -128,15 +149,30 @@ export default async function handler(req, res) {
     if (status) params.status = status
     const rows = await callGasActionAsUser('getFacturasFiscales', params, token, { timeoutMs: 45_000 })
     const baseRows = Array.isArray(rows) ? rows : []
+
+    // Trazabilidad de origen (solo lectura): un único fetch adicional de Inscripciones
+    // para poder mostrar el comprobante/curso que originó cada factura. Si falla, se
+    // degrada a "sin origen" para cada factura -- nunca rompe el listado completo.
+    let inscripcionPorId = {}
+    try {
+      const inscripciones = await callGasActionAsUser('getInscripciones', { filtros: {} }, token, { timeoutMs: 45_000 })
+      inscripcionPorId = (Array.isArray(inscripciones) ? inscripciones : []).reduce((map, ins) => {
+        if (ins?.ID) map[ins.ID] = ins
+        return map
+      }, {})
+    } catch {
+      inscripcionPorId = {}
+    }
+
     const enriched = await Promise.all(baseRows.slice(0, DETAIL_LIMIT).map(async row => {
       try {
         const detail = await callGasActionAsUser('getFacturaFiscalCompleta', { facturaId: row.ID }, token, { timeoutMs: 45_000 })
-        return sanitizeFactura(detail.factura || row, Array.isArray(detail.items) ? detail.items : [])
+        return sanitizeFactura(detail.factura || row, Array.isArray(detail.items) ? detail.items : [], inscripcionPorId)
       } catch {
-        return sanitizeFactura(row, [])
+        return sanitizeFactura(row, [], inscripcionPorId)
       }
     }))
-    const remaining = baseRows.slice(DETAIL_LIMIT).map(row => sanitizeFactura(row, []))
+    const remaining = baseRows.slice(DETAIL_LIMIT).map(row => sanitizeFactura(row, [], inscripcionPorId))
     const items = [...enriched, ...remaining]
       .filter(item => matchesSearch(item, q))
       .filter(item => inDateRange(item, desde, hasta))
