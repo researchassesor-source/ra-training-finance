@@ -140,6 +140,56 @@ async function assertSeriesConsistentBeforeDraft(token, environment) {
   }
 }
 
+/**
+ * Booleano estricto de un campo de Sheets: acepta el JS boolean nativo, y las
+ * representaciones de texto/número que Sheets produce (TRUE/FALSE, 1/0, "1"/"0").
+ * Cualquier otra cosa (vacío, undefined, null, un texto no reconocido) es ambigua y
+ * devuelve null -- NUNCA se asume false ni true por defecto. Distingue
+ * explícitamente "false real" de "no sé".
+ */
+function parseBooleanoFiscalEstricto(value) {
+  if (value === true || value === false) return value
+  const normalized = String(value === null || value === undefined ? '' : value).trim().toUpperCase()
+  if (normalized === 'TRUE' || normalized === '1') return true
+  if (normalized === 'FALSE' || normalized === '0') return false
+  return null
+}
+
+/**
+ * Clasificación fiscal del curso: decide el código interno del catálogo y el sufijo
+ * de la descripción. El aval NUNCA decide si se factura (ambos casos se facturan) --
+ * solo decide el código/descripción, y ambos son IVA 0% (SriTaxCode 2:0).
+ *
+ * Fuente de verdad, en orden estricto de prioridad:
+ *   1) RequiereAvalExterno explícito (true/false real, nunca inferido del monto ni
+ *      del EstadoAval: RequiereAvalExterno=true + EstadoAval='pendiente' sigue
+ *      siendo "compró con aval", el documento de aval solo está en trámite).
+ *   2) CRMOfferType, SOLO si es inequívoco: FULL=con aval, INSTITUTIONAL=sin aval.
+ *      AVAL_UPGRADE NUNCA se usa aquí -- representa una compra adicional sobre una
+ *      inscripción que ya tiene su propia clasificación base, no la clasificación de
+ *      esta factura.
+ *   3) Fail closed: si ninguna de las dos anteriores es inequívoca, no se inventa
+ *      una clasificación -- se rechaza antes de crear cualquier borrador.
+ */
+function resolverClasificacionFiscalCurso(inscripcion) {
+  const requiereAval = parseBooleanoFiscalEstricto(inscripcion && inscripcion.RequiereAvalExterno)
+  let conAval
+  if (requiereAval !== null) {
+    conAval = requiereAval
+  } else if (inscripcion && inscripcion.CRMOfferType === 'FULL') {
+    conAval = true
+  } else if (inscripcion && inscripcion.CRMOfferType === 'INSTITUTIONAL') {
+    conAval = false
+  } else {
+    throw validationError(
+      'No se puede determinar si esta inscripción incluye aval externo. Clasifique la inscripción antes de facturar.'
+    )
+  }
+  return conAval
+    ? { codigo: 'CAPACITACION', descripcionSufijo: 'Curso de formación avalado por ITSAL' }
+    : { codigo: 'CAPACITACION_RA', descripcionSufijo: 'Curso R.A. Training' }
+}
+
 function invoicePayloadFromInscripcion(inscripcion, environment) {
   const id = text(inscripcion.ClienteID || inscripcion.RUC)
   const name = text(inscripcion.RazonSocial || inscripcion.ClienteNombre)
@@ -151,8 +201,9 @@ function invoicePayloadFromInscripcion(inscripcion, environment) {
   if (!/^\d{10}$|^\d{13}$/.test(id)) throw validationError('Falta cédula/RUC válido del cliente para facturar.')
   if (amount <= 0) throw validationError('El monto de la inscripción no es válido para facturar.')
 
+  const clasificacion = resolverClasificacionFiscalCurso(inscripcion)
   const serviceName = text(inscripcion.ServicioNombre || 'Curso R.A. Training avalado por ITSAL')
-  const description = `${serviceName} - Curso R.A. Training avalado por ITSAL`
+  const description = `${serviceName} - ${clasificacion.descripcionSufijo}`
   return {
     environment,
     idempotencyKey: `inscripcion:${text(inscripcion.ID)}:pago-verificado:v1`,
@@ -169,7 +220,7 @@ function invoicePayloadFromInscripcion(inscripcion, environment) {
     grandTotal: amount,
     discountCents: 0,
     items: [{
-      codigo: 'CAPACITACION',
+      codigo: clasificacion.codigo,
       descripcion: description,
       cantidad: 1,
       precioUnitarioCents: amount,
@@ -185,6 +236,8 @@ async function findExistingByInscripcion(token, environment, inscripcionId) {
   const rows = await callGasActionAsUser('getFacturasFiscales', { environment }, token, { timeoutMs: 45_000 })
   return (Array.isArray(rows) ? rows : []).find(row => text(row.InscripcionID) === text(inscripcionId))
 }
+
+export { resolverClasificacionFiscalCurso }
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {

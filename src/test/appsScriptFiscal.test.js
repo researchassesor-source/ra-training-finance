@@ -88,7 +88,7 @@ describe('migración del módulo fiscal', () => {
     expect(result.data.catalogoSembrado).toBe(true)
 
     const catalogo = harness.objects('ConfiguracionFiscal')
-    expect(catalogo.map(item => item.CodigoInterno).sort()).toEqual(['CAPACITACION', 'CAPACITACION_CERTIFICADO', 'PRUEBA_TECNICA_SRI'])
+    expect(catalogo.map(item => item.CodigoInterno).sort()).toEqual(['CAPACITACION', 'CAPACITACION_CERTIFICADO', 'CAPACITACION_RA', 'PRUEBA_TECNICA_SRI'])
     expect(catalogo.every(item => Number(item.TaxRateBasisPoints) === 0)).toBe(true)
 
     expect(harness.objects('AuditoriaFiscal').map(item => item.Accion)).toContain('FISCAL_MODULE_MIGRATED')
@@ -101,7 +101,7 @@ describe('migración del módulo fiscal', () => {
     harness.properties.set('SRI_MIGRATION_CONFIRMATION', 'APPLY_SRI_MIGRATION_ONCE')
     const second = migrar(harness)
     expect(second.data.catalogoSembrado).toBe(false)
-    expect(harness.objects('ConfiguracionFiscal')).toHaveLength(3)
+    expect(harness.objects('ConfiguracionFiscal')).toHaveLength(4)
   })
 
 
@@ -138,7 +138,7 @@ describe('migración del módulo fiscal', () => {
     expect(first.success).toBe(true)
     expect(second.success).toBe(true)
     expect(second.data.cambiosAplicados).toBe(0)
-    expect(harness.objects('ConfiguracionFiscal')).toHaveLength(3)
+    expect(harness.objects('ConfiguracionFiscal')).toHaveLength(4)
   })
 })
 
@@ -148,8 +148,8 @@ describe('catálogo fiscal', () => {
     migrar(harness)
     const result = harness.context.processRequest({ action: 'getConfiguracionFiscal', token: 'admin-token' })
     expect(result.success).toBe(true)
-    expect(result.data).toHaveLength(3)
-    expect(result.data.map(item => item.CodigoInterno).sort()).toEqual(['CAPACITACION', 'CAPACITACION_CERTIFICADO', 'PRUEBA_TECNICA_SRI'])
+    expect(result.data).toHaveLength(4)
+    expect(result.data.map(item => item.CodigoInterno).sort()).toEqual(['CAPACITACION', 'CAPACITACION_CERTIFICADO', 'CAPACITACION_RA', 'PRUEBA_TECNICA_SRI'])
   })
 
   it('los cursos R.A. Training avalados por ITSAL nacen confirmados con IVA 0% por producto', () => {
@@ -171,6 +171,77 @@ describe('catálogo fiscal', () => {
     const result = harness.context.processRequest({ action: 'getConfiguracionFiscal', token: 'admin-token' })
     const testOnly = result.data.filter(item => item.TestOnly === true)
     expect(testOnly.map(item => item.CodigoInterno)).toEqual(['PRUEBA_TECNICA_SRI'])
+  })
+})
+
+describe('catálogo fiscal — CAPACITACION_RA (curso R.A. Training sin aval externo)', () => {
+  it('23. nace confirmado con IVA 0% y SriTaxCode 2:0 (mismo tratamiento tributario que CAPACITACION, código separado)', () => {
+    const harness = seededHarness()
+    migrar(harness)
+    const ra = harness.objects('ConfiguracionFiscal').find(item => item.CodigoInterno === 'CAPACITACION_RA')
+    expect(ra).toBeTruthy()
+    expect(Number(ra.TaxRateBasisPoints)).toBe(0)
+    expect(ra.SriTaxCode).toBe('2:0')
+    expect(ra.ValidacionTributaria).toBe('confirmado')
+    expect(ra.TestOnly).toBe(false)
+  })
+
+  it('24. CAPACITACION original sigue existiendo, sin renombrar ni eliminar', () => {
+    const harness = seededHarness()
+    migrar(harness)
+    const capacitacion = harness.objects('ConfiguracionFiscal').find(item => item.CodigoInterno === 'CAPACITACION')
+    expect(capacitacion).toBeTruthy()
+    expect(capacitacion.Descripcion).toBe('Curso de formacion avalado por ITSAL')
+  })
+
+  it('25. la migración es idempotente: una segunda ejecución no duplica CAPACITACION_RA', () => {
+    const harness = seededHarness()
+    migrar(harness)
+    harness.properties.set('SRI_MIGRATION_CONFIRMATION', 'APPLY_SRI_MIGRATION_ONCE')
+    const second = migrar(harness)
+    expect(second.data.catalogoSembrado).toBe(false)
+    const coincidencias = harness.objects('ConfiguracionFiscal').filter(item => item.CodigoInterno === 'CAPACITACION_RA')
+    expect(coincidencias).toHaveLength(1)
+  })
+
+  it('migrarCatalogoFiscalV2 puede sembrar CAPACITACION_RA de forma aditiva sin tocar CAPACITACION/CAPACITACION_CERTIFICADO/PRUEBA_TECNICA_SRI ni facturas históricas (26)', () => {
+    const harness = seededHarness()
+    harness.seed('ConfiguracionFiscal', [
+      { ID: 'FCFG-1', CodigoInterno: 'CAPACITACION', Descripcion: 'Curso de formacion avalado por ITSAL', TaxRateBasisPoints: 0, SriTaxCode: '2:0', Activo: true, Version: 2, ValidacionTributaria: 'confirmado', TestOnly: false },
+      { ID: 'FCFG-2', CodigoInterno: 'CAPACITACION_CERTIFICADO', Descripcion: 'Curso de formacion avalado por ITSAL con certificado incluido', TaxRateBasisPoints: 0, SriTaxCode: '2:0', Activo: true, Version: 2, ValidacionTributaria: 'confirmado', TestOnly: false },
+      { ID: 'FCFG-3', CodigoInterno: 'PRUEBA_TECNICA_SRI', Descripcion: 'Prueba tecnica', TaxRateBasisPoints: 0, SriTaxCode: '2:0', Activo: true, Version: 2, ValidacionTributaria: 'pendiente', TestOnly: true },
+    ])
+    // Factura production productiva real, ya autorizada -- 001-002-000000001.
+    harness.seed('FacturasFiscales', [{
+      ID: 'FACT-HIST-1', Status: 'AUTHORIZED', Environment: 'production',
+      Establishment: '001', EmissionPoint: '002', Sequential: '000000001', DocumentNumber: '001-002-000000001',
+      AccessKey: 'clave-historica-real', XmlAuthorizedReference: 'xml-ref', RideReference: 'ride-ref',
+    }])
+    const facturaAntes = JSON.stringify(harness.objects('FacturasFiscales'))
+
+    const result = harness.context.processRequest({ action: 'migrarCatalogoFiscalV2', token: 'admin-token', confirmacion: 'APLICAR_CATALOGO_FISCAL_V2' })
+
+    expect(result.success).toBe(true)
+    expect(result.data.codigosCreados).toEqual(['CAPACITACION_RA'])
+    const catalogo = harness.objects('ConfiguracionFiscal')
+    expect(catalogo.map(item => item.CodigoInterno).sort()).toEqual(['CAPACITACION', 'CAPACITACION_CERTIFICADO', 'CAPACITACION_RA', 'PRUEBA_TECNICA_SRI'])
+    // Las filas preexistentes conservan su ID -- no fueron recreadas ni eliminadas.
+    expect(catalogo.find(item => item.CodigoInterno === 'CAPACITACION')).toMatchObject({ ID: 'FCFG-1' })
+    expect(catalogo.find(item => item.CodigoInterno === 'CAPACITACION_CERTIFICADO')).toMatchObject({ ID: 'FCFG-2' })
+    expect(catalogo.find(item => item.CodigoInterno === 'PRUEBA_TECNICA_SRI')).toMatchObject({ ID: 'FCFG-3', TestOnly: true })
+    // La factura histórica autorizada 001-002-000000001 queda exactamente igual.
+    expect(JSON.stringify(harness.objects('FacturasFiscales'))).toBe(facturaAntes)
+  })
+
+  it('migrarCatalogoFiscalV2 ejecutado dos veces no duplica CAPACITACION_RA', () => {
+    const harness = seededHarness()
+    migrar(harness)
+    const first = harness.context.processRequest({ action: 'migrarCatalogoFiscalV2', token: 'admin-token', confirmacion: 'APLICAR_CATALOGO_FISCAL_V2' })
+    const second = harness.context.processRequest({ action: 'migrarCatalogoFiscalV2', token: 'admin-token', confirmacion: 'APLICAR_CATALOGO_FISCAL_V2' })
+    expect(first.data.codigosCreados).toEqual([])
+    expect(second.data.codigosCreados).toEqual([])
+    const coincidencias = harness.objects('ConfiguracionFiscal').filter(item => item.CodigoInterno === 'CAPACITACION_RA')
+    expect(coincidencias).toHaveLength(1)
   })
 })
 

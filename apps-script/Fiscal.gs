@@ -33,6 +33,12 @@ const FISCAL_VALIDACION_CONFIRMADA = 'confirmado';
 const FISCAL_CATALOG_INICIAL = [
   { CodigoInterno: 'CAPACITACION', Descripcion: 'Curso de formacion avalado por ITSAL', TaxRateBasisPoints: 0, SriTaxCode: '2:0', ValidacionTributaria: FISCAL_VALIDACION_CONFIRMADA, MotivoValidacion: 'Decision tributaria aprobada: cursos de formacion avalados por ITSAL -> IVA 0%.' },
   { CodigoInterno: 'CAPACITACION_CERTIFICADO', Descripcion: 'Curso de formacion avalado por ITSAL con certificado incluido', TaxRateBasisPoints: 0, SriTaxCode: '2:0', ValidacionTributaria: FISCAL_VALIDACION_CONFIRMADA, MotivoValidacion: 'Decision tributaria aprobada: cursos de formacion avalados por ITSAL -> IVA 0%.' },
+  // Curso propio de R.A. Training SIN aval externo. Aditivo: no reemplaza ni renombra
+  // CAPACITACION (que sigue siendo exclusivamente el curso CON aval ITSAL). Ver
+  // resolverClasificacionFiscalCurso en api/fiscal/from-inscripcion.js -- el aval
+  // nunca determina SI se factura (ambos casos se facturan), solo el codigo interno
+  // y la descripcion.
+  { CodigoInterno: 'CAPACITACION_RA', Descripcion: 'Curso de formacion R.A. Training sin aval externo', TaxRateBasisPoints: 0, SriTaxCode: '2:0', ValidacionTributaria: FISCAL_VALIDACION_CONFIRMADA, MotivoValidacion: 'Confirmacion contable interna 2026-08-16: los cursos propios de R.A. Training sin aval externo se facturan con IVA 0%.' },
   // Item exclusivo para pruebas tecnicas SRI. TEST_ONLY: nunca facturable en produccion.
   { CodigoInterno: 'PRUEBA_TECNICA_SRI', Descripcion: 'Prueba tecnica de certificacion - Ambiente de Pruebas SRI', TaxRateBasisPoints: 0, SriTaxCode: '2:0', TestOnly: true },
 ];
