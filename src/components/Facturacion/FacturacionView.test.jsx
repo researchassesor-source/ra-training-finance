@@ -47,6 +47,26 @@ const deliveredInvoice = {
   items: [{ id: 'IT-1', codigo: 'CAPACITACION', descripcion: 'Habilidades blandas para profesionales', totalCents: 800, taxRateBasisPoints: 0, sriTaxCode: '2:0' }],
 }
 
+const authorizedInvoice = {
+  id: 'FACT_1786700000000_AUTHZ',
+  environment: 'production',
+  status: 'DELIVERY_PENDING',
+  issueDate: '2026-08-15T10:00:00.000Z',
+  documentNumber: '001-002-000000002',
+  buyerName: 'Angel David Espinoza Ureta',
+  buyerIdentification: '0804655462',
+  buyerEmail: '',
+  grandTotal: 100,
+  taxTotal: 0,
+  paymentMethodInternal: '',
+  sriPaymentCode: '',
+  sriAuthorizationStatus: 'AUTORIZADO',
+  authorizationNumber: '1308202601069178737300120010020000000029473817619',
+  xmlAvailable: true,
+  rideAvailable: false,
+  items: [{ id: 'IT-2', codigo: 'CAPACITACION_RA', descripcion: 'Curso de prueba', totalCents: 100, taxRateBasisPoints: 0, sriTaxCode: '2:0' }],
+}
+
 describe('FacturacionView', () => {
   beforeEach(() => {
     state.items = []
@@ -120,5 +140,84 @@ describe('FacturacionView', () => {
     render(<FacturacionView />)
     await screen.findByText('Procesando en SRI')
     expect(intervalSpy).toHaveBeenCalledWith(expect.any(Function), 15_000)
+  })
+
+  // Regresión: una factura ya AUTORIZADA por el SRI (DELIVERY_PENDING) quedaba
+  // atrapada visualmente -- el botón de avance solo se mostraba con tone === 'process',
+  // y AUTHORIZED/DELIVERY_PENDING tienen tone 'success' (fiscalHumanStatus), así que
+  // nunca se podía disparar cerrarEntregaFiscal (generar RIDE + cerrar DELIVERED) desde
+  // la UI, aunque el backend (finalize-delivery.js) ya lo soportaba sin tocar el SRI.
+  describe('acción de avance para facturas ya autorizadas por el SRI (DELIVERY_PENDING/AUTHORIZED)', () => {
+    it('1. renderiza "Autorizada · preparando documentos"', async () => {
+      state.items = [authorizedInvoice]
+      render(<FacturacionView />)
+      expect(await screen.findByText('Autorizada · preparando documentos')).toBeInTheDocument()
+    })
+
+    it('2. existe el botón "Preparar documentos"', async () => {
+      state.items = [authorizedInvoice]
+      render(<FacturacionView />)
+      await screen.findByText('001-002-000000002')
+      expect(screen.getByTitle('Preparar documentos')).toBeInTheDocument()
+    })
+
+    it('3. el click llama a api.cerrarEntregaFiscal(factura.id)', async () => {
+      state.items = [authorizedInvoice]
+      render(<FacturacionView />)
+      await screen.findByText('001-002-000000002')
+
+      fireEvent.click(screen.getByTitle('Preparar documentos'))
+      await waitFor(() => expect(apiMock.cerrarEntregaFiscal).toHaveBeenCalledWith(authorizedInvoice.id))
+    })
+
+    it('4. el click NO llama a api.procesarFacturaFiscal (nunca reprocesa/reenvía al SRI una factura ya autorizada)', async () => {
+      state.items = [authorizedInvoice]
+      render(<FacturacionView />)
+      await screen.findByText('001-002-000000002')
+
+      fireEvent.click(screen.getByTitle('Preparar documentos'))
+      await waitFor(() => expect(apiMock.cerrarEntregaFiscal).toHaveBeenCalled())
+      expect(apiMock.procesarFacturaFiscal).not.toHaveBeenCalled()
+    })
+
+    it('5. después del click, recarga el listado', async () => {
+      state.items = [authorizedInvoice]
+      render(<FacturacionView />)
+      await screen.findByText('001-002-000000002')
+      apiMock.getFacturasFiscales.mockClear()
+
+      fireEvent.click(screen.getByTitle('Preparar documentos'))
+      await waitFor(() => expect(apiMock.getFacturasFiscales).toHaveBeenCalled())
+    })
+
+    it('6. una factura DELIVERED no muestra ningún botón de avance', async () => {
+      state.items = [deliveredInvoice]
+      render(<FacturacionView />)
+      await screen.findByText('001-002-000000001')
+      expect(screen.queryByTitle('Preparar documentos')).not.toBeInTheDocument()
+      expect(screen.queryByTitle('Actualizar estado')).not.toBeInTheDocument()
+    })
+
+    it('cubre también el status AUTHORIZED (compatibilidad) con el mismo comportamiento que DELIVERY_PENDING', async () => {
+      state.items = [{ ...authorizedInvoice, id: 'FACT-AUTHORIZED-COMPAT', status: 'AUTHORIZED' }]
+      render(<FacturacionView />)
+      await screen.findByText('001-002-000000002')
+
+      expect(screen.getByTitle('Preparar documentos')).toBeInTheDocument()
+      fireEvent.click(screen.getByTitle('Preparar documentos'))
+      await waitFor(() => expect(apiMock.cerrarEntregaFiscal).toHaveBeenCalledWith('FACT-AUTHORIZED-COMPAT'))
+      expect(apiMock.procesarFacturaFiscal).not.toHaveBeenCalled()
+    })
+
+    it('un estado activo previo a la autorización (ej. PROCESSING) sigue mostrando "Actualizar estado" y sigue llamando a procesarFacturaFiscal', async () => {
+      state.items = [{ ...authorizedInvoice, id: 'FACT-PROCESSING', status: 'PROCESSING', sriAuthorizationStatus: '', authorizationNumber: '' }]
+      render(<FacturacionView />)
+      await screen.findByText('001-002-000000002')
+
+      const button = screen.getByTitle('Actualizar estado')
+      fireEvent.click(button)
+      await waitFor(() => expect(apiMock.procesarFacturaFiscal).toHaveBeenCalledWith('FACT-PROCESSING'))
+      expect(apiMock.cerrarEntregaFiscal).not.toHaveBeenCalled()
+    })
   })
 })

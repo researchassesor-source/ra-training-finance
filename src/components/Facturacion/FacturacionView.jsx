@@ -25,6 +25,15 @@ const STATUS_OPTIONS = [
   ['NOT_AUTHORIZED', 'No autorizada'],
 ]
 
+/** Estados en los que refreshInvoice todavía tiene algo que avanzar -- para
+ * AUTHORIZED/DELIVERY_PENDING eso es cerrarEntregaFiscal (genera RIDE y cierra como
+ * DELIVERED), nunca una nueva llamada al SRI. DELIVERED/NOT_AUTHORIZED/RETURNED/DRAFT
+ * quedan fuera porque no tienen una acción de avance automática desde aquí. */
+const ADVANCEABLE_FISCAL_STATUSES = new Set([
+  'SEQUENCE_RESERVED', 'GENERATED', 'SIGNED', 'SUBMITTING', 'RECEIVED', 'PROCESSING', 'AUTHORIZED', 'DELIVERY_PENDING',
+])
+const DELIVERY_READY_STATUSES = new Set(['AUTHORIZED', 'DELIVERY_PENDING'])
+
 function firstConcept(factura) {
   return factura.items?.[0]?.descripcion || factura.concept || factura.course || 'Sin detalle registrado'
 }
@@ -222,6 +231,9 @@ export default function FacturacionView() {
                   {data.map(factura => {
                     const status = fiscalHumanStatus(factura.status)
                     const sri = fiscalSriStatus(factura)
+                    const rawStatus = String(factura.status || '').toUpperCase()
+                    const showAdvanceAction = ADVANCEABLE_FISCAL_STATUSES.has(rawStatus)
+                    const advanceActionTitle = DELIVERY_READY_STATUSES.has(rawStatus) ? 'Preparar documentos' : 'Actualizar estado'
                     return (
                       <tr key={factura.id} className="border-b border-gray-50 align-top last:border-0">
                         <td className="px-4 py-3 text-gray-600">{fmt.date(factura.issueDate || factura.createdAt)}</td>
@@ -241,8 +253,8 @@ export default function FacturacionView() {
                             <button className="btn-secondary px-2 py-1.5" title="Ver detalle" onClick={() => setSelected(factura)}><Eye size={16} /></button>
                             <button className="btn-secondary px-2 py-1.5" title="Descargar XML" disabled={!factura.xmlAvailable || busy === `XML_AUTORIZADO:${factura.id}`} onClick={() => downloadDocument(factura, 'XML_AUTORIZADO')}><FileCode2 size={16} /></button>
                             <button className="btn-secondary px-2 py-1.5" title="Descargar RIDE" disabled={!factura.rideAvailable || busy === `RIDE:${factura.id}`} onClick={() => downloadDocument(factura, 'RIDE')}><Download size={16} /></button>
-                            {status.tone === 'process' && (
-                              <button className="btn-secondary px-2 py-1.5" title="Actualizar estado" disabled={busy === `refresh:${factura.id}`} onClick={() => refreshInvoice(factura)}><RefreshCw size={16} /></button>
+                            {showAdvanceAction && (
+                              <button className="btn-secondary px-2 py-1.5" title={advanceActionTitle} disabled={busy === `refresh:${factura.id}`} onClick={() => refreshInvoice(factura)}><RefreshCw size={16} /></button>
                             )}
                           </div>
                         </td>
