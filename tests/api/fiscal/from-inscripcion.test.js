@@ -6,20 +6,20 @@ const { callGasActionAsUserMock, continuarFlujoFacturaMock, loadSigningKeysMock 
   loadSigningKeysMock: vi.fn(),
 }))
 
-vi.mock('../../lib/fiscal/orchestration/gasClient.js', async importOriginal => {
+vi.mock('../../../lib/fiscal/orchestration/gasClient.js', async importOriginal => {
   const actual = await importOriginal()
   return { ...actual, callGasActionAsUser: callGasActionAsUserMock }
 })
-vi.mock('../../lib/fiscal/orchestration/facturaOrchestrator.js', () => ({
+vi.mock('../../../lib/fiscal/orchestration/facturaOrchestrator.js', () => ({
   continuarFlujoFactura: continuarFlujoFacturaMock,
 }))
-vi.mock('../../lib/fiscal/orchestration/loadSigningKeys.js', async importOriginal => {
+vi.mock('../../../lib/fiscal/orchestration/loadSigningKeys.js', async importOriginal => {
   const actual = await importOriginal()
   return { ...actual, loadSigningKeysFromEnv: loadSigningKeysMock }
 })
 
-const { default: handler, resolverClasificacionFiscalCurso } = await import('./from-inscripcion.js')
-const { SigningKeysNotConfiguredError } = await import('../../lib/fiscal/orchestration/loadSigningKeys.js')
+const { default: handler, resolverClasificacionFiscalCurso } = await import('../../../api/fiscal/from-inscripcion.js')
+const { SigningKeysNotConfiguredError } = await import('../../../lib/fiscal/orchestration/loadSigningKeys.js')
 
 function mockRes() {
   const res = { statusCode: null, body: null }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { corsOriginForRequest } from './proxy'
+import { corsOriginForRequest } from '../../api/proxy'
 
 describe('allowlist CORS del proxy', () => {
   it('permite solicitudes sin Origin y del mismo host', () => {

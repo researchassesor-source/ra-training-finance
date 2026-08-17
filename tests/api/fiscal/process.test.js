@@ -6,21 +6,21 @@ const { callGasActionAsUserMock, continuarFlujoFacturaMock, loadSigningKeysMock 
   loadSigningKeysMock: vi.fn(),
 }))
 
-vi.mock('../../lib/fiscal/orchestration/gasClient.js', async importOriginal => {
+vi.mock('../../../lib/fiscal/orchestration/gasClient.js', async importOriginal => {
   const actual = await importOriginal()
   return { ...actual, callGasActionAsUser: callGasActionAsUserMock }
 })
-vi.mock('../../lib/fiscal/orchestration/facturaOrchestrator.js', () => ({
+vi.mock('../../../lib/fiscal/orchestration/facturaOrchestrator.js', () => ({
   continuarFlujoFactura: continuarFlujoFacturaMock,
 }))
-vi.mock('../../lib/fiscal/orchestration/loadSigningKeys.js', async importOriginal => {
+vi.mock('../../../lib/fiscal/orchestration/loadSigningKeys.js', async importOriginal => {
   const actual = await importOriginal()
   return { ...actual, loadSigningKeysFromEnv: loadSigningKeysMock }
 })
 
-const { default: handler } = await import('./process.js')
-const { GasClientError } = await import('../../lib/fiscal/orchestration/gasClient.js')
-const { XadesSignError, XadesVerifyError } = await import('../../lib/fiscal/xadesSign.js')
+const { default: handler } = await import('../../../api/fiscal/process.js')
+const { GasClientError } = await import('../../../lib/fiscal/orchestration/gasClient.js')
+const { XadesSignError, XadesVerifyError } = await import('../../../lib/fiscal/xadesSign.js')
 
 function mockRes() {
   const res = { statusCode: null, body: null }

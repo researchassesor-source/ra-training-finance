@@ -5,15 +5,15 @@ const { listarMock, consultarMock } = vi.hoisted(() => ({
   consultarMock: vi.fn(),
 }))
 
-vi.mock('../../lib/fiscal/orchestration/gasClient.js', async importOriginal => {
+vi.mock('../../../lib/fiscal/orchestration/gasClient.js', async importOriginal => {
   const actual = await importOriginal()
   return { ...actual, callGasAction: listarMock }
 })
-vi.mock('../../lib/fiscal/orchestration/facturaOrchestrator.js', () => ({
+vi.mock('../../../lib/fiscal/orchestration/facturaOrchestrator.js', () => ({
   consultarYActualizarAutorizacion: consultarMock,
 }))
 
-const { default: handler } = await import('./poll.js')
+const { default: handler } = await import('../../../api/fiscal/poll.js')
 
 function mockRes() {
   const res = { statusCode: null, body: null }

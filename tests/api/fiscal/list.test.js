@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { callGasActionAsUserMock } = vi.hoisted(() => ({ callGasActionAsUserMock: vi.fn() }))
-vi.mock('../../lib/fiscal/orchestration/gasClient.js', async importOriginal => {
+vi.mock('../../../lib/fiscal/orchestration/gasClient.js', async importOriginal => {
   const actual = await importOriginal()
   return { ...actual, callGasActionAsUser: callGasActionAsUserMock }
 })
 
-const { default: handler } = await import('./list.js')
+const { default: handler } = await import('../../../api/fiscal/list.js')
 
 function mockReq(query, headers = { authorization: 'Bearer tok' }) {
   return { method: 'GET', query, headers }
