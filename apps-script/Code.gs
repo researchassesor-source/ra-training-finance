@@ -1699,6 +1699,19 @@ function resolverServicioImportacionCrm(nombreSolicitado) {
   return matches.length === 1 ? matches[0] : null;
 }
 
+// Vínculo estable CRM -> Finance (Course.financeServiceId). A diferencia del
+// emparejamiento por nombre, un ID que no resuelve a un Servicio Activo NO
+// cae al nombre: el vínculo está roto y debe arreglarse, no enmascararse con
+// una coincidencia por nombre que podría ser el servicio equivocado.
+function resolverServicioPorIdImportacionCrm(servicioId) {
+  const id = String(servicioId || '').trim();
+  if (!id) return null;
+  const matches = sheetToObjects(getSheet('Servicios')).filter(function(servicio) {
+    return esVerdadero(servicio.Activo) && String(servicio.ID || '').trim() === id;
+  });
+  return matches.length === 1 ? matches[0] : null;
+}
+
 function eliminarFilaCreadaPorId(sheet, id) {
   const row = sheetToObjects(sheet).find(function(item) { return String(item.ID || '') === String(id || ''); });
   if (row) sheet.deleteRow(row._row);
@@ -1745,8 +1758,11 @@ function importCrmEnrollment(user, { idempotencyKey, inscripcion } = {}) {
     const identification = participant.identification === null
       ? ''
       : String(valorCrmPreferido(participant.identification, inscripcion.clienteID) || '').trim();
+    const requestedServiceId = String(valorCrmPreferido(inscripcion.financeServiceId, inscripcion.serviceId) || '').trim();
     const requestedCourse = valorCrmPreferido(inscripcion.courseTitle, inscripcion.servicioNombre);
-    const service = resolverServicioImportacionCrm(requestedCourse);
+    const service = requestedServiceId
+      ? resolverServicioPorIdImportacionCrm(requestedServiceId)
+      : resolverServicioImportacionCrm(requestedCourse);
     if (!service) return { success: false, error: 'Servicio de Finance no configurado para este curso.' };
 
     const amountValue = valorCrmPreferido(inscripcion.amount, inscripcion.monto);

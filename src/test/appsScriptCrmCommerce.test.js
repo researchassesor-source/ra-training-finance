@@ -418,3 +418,64 @@ describe('20. serviceToken válido autentica acciones comerciales incluso con un
     })
   })
 })
+
+describe('21. importCrmEnrollment resuelve el Servicio por financeServiceId cuando llega, con fallback legacy por nombre', () => {
+  function legacyImport(harness, overrides) {
+    return harness.context.processRequest({
+      action: 'addInscripcion',
+      token: 'integration-token',
+      idempotencyKey: overrides.crmEnrollmentId,
+      inscripcion: Object.assign({
+        crmContactId: 'CTC-1', crmCourseId: 'CRS-1', modality: 'Virtual',
+        participant: { fullName: 'Ana Pérez', email: 'ana@example.com' }, amount: 20,
+      }, overrides),
+    })
+  }
+
+  it('financeServiceId resuelve por ID e ignora un courseTitle que no coincide con ningún Servicio por nombre', () => {
+    const harness = seededHarness()
+    harness.seed('Servicios', [
+      { ID: 'SRV-2', Nombre: 'Curso Distinto', Modalidad: 'Virtual', Duracion: '40', Activo: true },
+    ])
+    const result = legacyImport(harness, {
+      crmEnrollmentId: 'ENR-FSID-1', financeServiceId: 'SRV-2',
+      courseTitle: 'Nombre que no coincide con ningún Servicio por nombre',
+    })
+    expect(result.success).toBe(true)
+    const row = porId(harness, result.id)
+    expect(row.ServicioID).toBe('SRV-2')
+    expect(row.ServicioNombre).toBe('Curso Distinto')
+  })
+
+  it('financeServiceId que no resuelve a un Servicio Activo falla cerrado y NO cae al nombre (aunque el nombre sí calzaría)', () => {
+    const harness = seededHarness()
+    const result = legacyImport(harness, {
+      crmEnrollmentId: 'ENR-FSID-2', financeServiceId: 'SRV-NO-EXISTE',
+      courseTitle: 'Habilidades blandas para profesionales',
+    })
+    expect(result).toEqual({ success: false, error: 'Servicio de Finance no configurado para este curso.' })
+    expect(inscripciones(harness)).toHaveLength(0)
+  })
+
+  it('financeServiceId apuntando a un Servicio inactivo también falla cerrado, sin caer al nombre', () => {
+    const harness = seededHarness()
+    harness.seed('Servicios', [
+      { ID: 'SRV-INACTIVO', Nombre: 'Otro Curso Cualquiera', Modalidad: 'Virtual', Duracion: '60', Activo: false },
+    ])
+    const result = legacyImport(harness, {
+      crmEnrollmentId: 'ENR-FSID-3', financeServiceId: 'SRV-INACTIVO',
+      courseTitle: 'Habilidades blandas para profesionales',
+    })
+    expect(result).toEqual({ success: false, error: 'Servicio de Finance no configurado para este curso.' })
+  })
+
+  it('sin financeServiceId (ausente o vacío), el emparejamiento legacy por nombre sigue intacto', () => {
+    const harness = seededHarness()
+    const result = legacyImport(harness, {
+      crmEnrollmentId: 'ENR-FSID-4', financeServiceId: '',
+      courseTitle: 'Habilidades blandas para profesionales',
+    })
+    expect(result.success).toBe(true)
+    expect(porId(harness, result.id).ServicioID).toBe('SRV-1')
+  })
+})
