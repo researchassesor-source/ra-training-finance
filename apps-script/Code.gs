@@ -1431,8 +1431,10 @@ function updateServicio(user, { id, servicio }) {
     Capacitador: pick('capacitador', row.Capacitador || ''),
     EstadoEvento: pick('estadoEvento', row.EstadoEvento || 'programado'),
   });
+  SpreadsheetApp.flush();
   bustSheet('servicios');
   bustSheet('inscripciones');
+  bustSheet('calendario');
   return { success: true };
 }
 

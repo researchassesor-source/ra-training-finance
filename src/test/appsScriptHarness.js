@@ -128,7 +128,7 @@ export function createAppsScriptHarness({ authSecret = 'test-only-secret-with-at
 
   const context = {
     console,
-    SpreadsheetApp: { getActiveSpreadsheet: () => spreadsheet },
+    SpreadsheetApp: { getActiveSpreadsheet: () => spreadsheet, flush: () => {} },
     CacheService: { getScriptCache: () => ({ get: () => null, put: () => {}, removeAll: () => {} }) },
     LockService: {
       getScriptLock: () => ({

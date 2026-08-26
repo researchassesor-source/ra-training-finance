@@ -25,6 +25,11 @@ function normalizarEstadoEvento(value) {
     : 'programado'
 }
 
+function dateOnly(value) {
+  if (!value) return ''
+  return String(value).slice(0, 10)
+}
+
 function requiereDuracionAcademica(tipo) {
   const normalized = String(tipo || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
   return ['curso', 'certificacion', 'taller', 'certificado lms', 'capacitacion'].includes(normalized)
@@ -40,8 +45,8 @@ function mapInitial(initial) {
     duracion:      initial.Duracion      || initial.duracion      || '',
     descripcion:   initial.Descripcion   || initial.descripcion   || '',
     activo:        initial.Activo === true || initial.Activo === 'TRUE' || initial.activo === true,
-    fechaEvento:   initial.FechaEvento   || initial.fechaEvento   || '',
-    fechaFinEvento:initial.FechaFinEvento|| initial.fechaFinEvento|| '',
+    fechaEvento:   dateOnly(initial.FechaEvento   || initial.fechaEvento),
+    fechaFinEvento:dateOnly(initial.FechaFinEvento|| initial.fechaFinEvento),
     lugarEvento:   initial.LugarEvento   || initial.lugarEvento   || '',
     capacitador:   initial.Capacitador   || initial.capacitador   || '',
     estadoEvento:  normalizarEstadoEvento(initial.EstadoEvento || initial.estadoEvento),
@@ -251,8 +256,9 @@ export default function ServiciosView() {
           {filtered.map(s => {
             const activo = s.Activo === true || s.Activo === 'TRUE'
             const estadoEvento = normalizarEstadoEvento(s.EstadoEvento)
-            const fechaFin = s.FechaFinEvento || s.FechaEvento
-            const eventoVencido = fechaFin && `${fechaFin}` < new Date().toISOString().slice(0, 10)
+            const fechaEvento = dateOnly(s.FechaEvento)
+            const fechaFin = dateOnly(s.FechaFinEvento || s.FechaEvento)
+            const eventoVencido = fechaFin && fechaFin < new Date().toISOString().slice(0, 10)
             const eventoVisible = estadoEvento === 'programado'
             return (
               <div key={s.ID} className={`card flex flex-col gap-2 ${!activo ? 'opacity-50' : ''}`}>
@@ -279,16 +285,16 @@ export default function ServiciosView() {
                     <span>{s.Capacitador}</span>
                   </div>
                 )}
-                {s.FechaEvento && (
+                {fechaEvento && (
                   <div className={`flex items-center gap-1.5 text-xs rounded-lg px-2 py-1.5 ${
                     eventoVisible ? 'text-brand-700 bg-brand-50' : 'text-gray-600 bg-gray-50'
                   }`}>
                     <Calendar size={12} />
-                    <span>{fmt.date(s.FechaEvento)}{s.FechaFinEvento && s.FechaFinEvento !== s.FechaEvento ? ` → ${fmt.date(s.FechaFinEvento)}` : ''}</span>
+                    <span>{fmt.date(fechaEvento)}{fechaFin && fechaFin !== fechaEvento ? ` → ${fmt.date(fechaFin)}` : ''}</span>
                     {s.LugarEvento && <span className="text-gray-400">· {s.LugarEvento}</span>}
                   </div>
                 )}
-                {s.FechaEvento && (
+                {fechaEvento && (
                   <div className="flex flex-wrap gap-1.5">
                     <span className={eventoVisible ? 'badge-blue' : estadoEvento === 'finalizado' ? 'badge-green' : 'badge-gray'}>
                       {estadoEvento === 'programado' ? (eventoVencido ? 'Fecha vencida por revisar' : 'Evento visible') :
@@ -310,12 +316,12 @@ export default function ServiciosView() {
                     {activo ? 'Activo' : 'Inactivo'}
                   </span>
                 </div>
-                {isAdmin && s.FechaEvento && eventoVisible && (
+                {isAdmin && fechaEvento && eventoVisible && (
                   <button
                     onClick={() => api.updateServicio(s.ID, {
                       nombre: s.Nombre, tipo: s.Tipo, modalidad: s.Modalidad, precio: s.Precio,
                       duracion: s.Duracion, descripcion: s.Descripcion, activo,
-                      fechaEvento: s.FechaEvento, fechaFinEvento: s.FechaFinEvento,
+                      fechaEvento, fechaFinEvento: fechaFin,
                       lugarEvento: s.LugarEvento, capacitador: s.Capacitador,
                       estadoEvento: 'finalizado',
                     }).then(load).catch(e => setError(e.message))}
