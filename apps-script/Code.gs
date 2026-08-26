@@ -265,7 +265,11 @@ function sheetToObjects(sheet) {
       const obj = { _row: i + 2 };
       headers.forEach((h, j) => {
         // Google Sheets returns Date objects for date-formatted cells; convert to ISO string
-        obj[h] = row[j] instanceof Date ? row[j].toISOString() : row[j];
+        const value = row[j] instanceof Date ? row[j].toISOString() : row[j];
+        // Si una hoja real tiene encabezados duplicados por migraciones/manual,
+        // una columna vacia posterior no debe borrar el valor leido antes.
+        if (obj[h] !== undefined && (value === '' || value === null || value === undefined)) return;
+        obj[h] = value;
       });
       return obj;
     })
@@ -276,8 +280,12 @@ function updateRow(sheet, row, fieldMap) {
   const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
   Object.entries(fieldMap).forEach(([col, val]) => {
     if (val === undefined) return;
-    const idx = headers.indexOf(col) + 1;
-    if (idx > 0) sheet.getRange(row._row, idx).setValue(val === null ? '' : val);
+    const normalized = val === null ? '' : val;
+    headers.forEach(function(header, index) {
+      // Actualizar todas las columnas con el mismo encabezado. Esto corrige hojas
+      // productivas con columnas duplicadas (ej. Capacitador) sin destruir datos.
+      if (header === col) sheet.getRange(row._row, index + 1).setValue(normalized);
+    });
   });
 }
 

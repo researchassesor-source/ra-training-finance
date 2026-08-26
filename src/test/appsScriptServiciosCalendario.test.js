@@ -118,4 +118,30 @@ describe('servicios y calendario operativo', () => {
     expect(servicios.data[0].Capacitador).toBe('Omar')
     expect(servicios.data[0].EstadoEvento).toBe('programado')
   })
+
+  it('persiste capacitador aunque la hoja productiva tenga encabezado duplicado', () => {
+    const harness = createHarness()
+    const sheet = harness.ensureSheet('Servicios')
+    sheet.rows[0].push('Capacitador')
+    harness.seed('Servicios', [{
+      ID: 'SRV-1', Nombre: 'Curso con columna duplicada', Tipo: 'Curso', Modalidad: 'Virtual',
+      Precio: 10, Duracion: '10 horas', Activo: true, EstadoEvento: 'programado',
+    }])
+    sheet.rows[1][sheet.rows[0].length - 1] = ''
+
+    const updated = harness.context.processRequest({
+      action: 'updateServicio',
+      token: 'admin-token',
+      id: 'SRV-1',
+      servicio: { capacitador: 'Omar' },
+    })
+    const servicios = harness.context.processRequest({ action: 'getServicios', token: 'admin-token' })
+    const headers = sheet.rows[0]
+    const capIndexes = headers.map((h, i) => (h === 'Capacitador' ? i : -1)).filter(i => i >= 0)
+
+    expect(updated.success).toBe(true)
+    expect(capIndexes.length).toBe(2)
+    expect(capIndexes.map(i => sheet.rows[1][i])).toEqual(['Omar', 'Omar'])
+    expect(servicios.data[0].Capacitador).toBe('Omar')
+  })
 })
