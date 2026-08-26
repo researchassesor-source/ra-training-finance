@@ -186,7 +186,7 @@ const SHEET_HEADERS = {
   Contratos:        ['ID','Tipo','Nombre','Concepto','ValorTotal','FechaInicio','FechaFin','Estado','Notas','CreadoPor','FechaCreacion'],
   Proyecciones:     ['ID','Evento','Tipo','FechaEstimada','MontoProyectado','MontoReal','Estado','Notas','CreadoPor','FechaCreacion'],
   Categorias:       ['ID','Nombre','Tipo','Activo'],
-  Servicios:        ['ID','Nombre','Tipo','Modalidad','Precio','Duracion','Descripcion','Activo','FechaCreacion','FechaEvento','FechaFinEvento','LugarEvento'],
+  Servicios:        ['ID','Nombre','Tipo','Modalidad','Precio','Duracion','Descripcion','Activo','FechaCreacion','FechaEvento','FechaFinEvento','LugarEvento','Capacitador','EstadoEvento'],
   Inscripciones:    ['ID','ClienteNombre','ClienteID','ClienteEmail','ClienteTelefono','ServicioID','ServicioNombre','Modalidad','FechaInicio','Monto','MetodoPago','RazonSocial','RUC','DireccionFactura','EstadoPago','EstadoCertificado','IngresoID','Notas','CreadoPor','FechaCreacion','FechaEmisionCertificado','RequiereAvalExterno','EstadoAval','AvalReferencia','FechaAval','ValorAval','FechaFin','NumeroComprobante','FechaPago','FechaVerificacionPago','VerificadoPor','InstitucionAval','CodigoCertificado','EmitidoPor','EstadoEntrega','FechaEntregaCertificado','EntregadoPor','AvalEnlaceExterno','AvalCodigoExterno','AvalTextoConfirmado','CertificateVersion','TemplateVersion','PdfHash','PdfStorageReference','OriginalCertificateId','ReissuedCertificateId','CertificateStatus','IssuedAt','IssuedBy','VoidedAt','VoidedBy','VoidReason','ReissueReason',
                      // Modulo comercial CRM (aditivo) -- ver seccion MODULO COMERCIAL CRM.
                      // Insertadas ANTES de CRMEnrollmentID/CRMContactID/CRMCourseID/Origen a
@@ -1396,6 +1396,7 @@ function addServicio(user, { servicio }) {
     Number(servicio.precio) || 0, servicio.duracion || '',
     servicio.descripcion || '', true, now,
     servicio.fechaEvento || '', servicio.fechaFinEvento || '', servicio.lugarEvento || '',
+    servicio.capacitador || '', servicio.estadoEvento || 'programado',
   ]);
   bustSheet('servicios');
   bustSheet('inscripciones');
@@ -1407,17 +1408,25 @@ function updateServicio(user, { id, servicio }) {
   const sheet = getSheet('Servicios');
   const row   = sheetToObjects(sheet).find(r => r.ID === id);
   if (!row) return { success: false, error: 'Servicio no encontrado.' };
+  function pick(field, fallback) {
+    return servicio[field] === undefined ? fallback : servicio[field];
+  }
   const tipo = servicio.tipo === undefined ? row.Tipo : servicio.tipo;
   const duracion = servicio.duracion === undefined ? row.Duracion : servicio.duracion;
   if (servicioRequiereDuracion(tipo) && !String(duracion || '').trim()) {
     return { success: false, error: 'La duración académica es obligatoria para este tipo de servicio.' };
   }
   updateRow(sheet, row, {
-    Nombre: servicio.nombre, Tipo: servicio.tipo, Modalidad: servicio.modalidad,
-    Precio: Number(servicio.precio) || 0, Duracion: servicio.duracion,
-    Descripcion: servicio.descripcion, Activo: servicio.activo,
-    FechaEvento: servicio.fechaEvento || '', FechaFinEvento: servicio.fechaFinEvento || '',
-    LugarEvento: servicio.lugarEvento || '',
+    Nombre: pick('nombre', row.Nombre), Tipo: pick('tipo', row.Tipo), Modalidad: pick('modalidad', row.Modalidad),
+    Precio: servicio.precio === undefined ? row.Precio : (Number(servicio.precio) || 0),
+    Duracion: pick('duracion', row.Duracion),
+    Descripcion: pick('descripcion', row.Descripcion),
+    Activo: pick('activo', row.Activo),
+    FechaEvento: pick('fechaEvento', row.FechaEvento || ''),
+    FechaFinEvento: pick('fechaFinEvento', row.FechaFinEvento || ''),
+    LugarEvento: pick('lugarEvento', row.LugarEvento || ''),
+    Capacitador: pick('capacitador', row.Capacitador || ''),
+    EstadoEvento: pick('estadoEvento', row.EstadoEvento || 'programado'),
   });
   bustSheet('servicios');
   bustSheet('inscripciones');
@@ -1429,13 +1438,19 @@ function getCalendario(user, { year, month } = {}) {
   const yr    = year  || now.getFullYear();
   const mn    = month || null; // null = todo el año
 
-  function inRange(dateStr) {
-    if (!dateStr) return false;
-    const d = new Date(dateStr);
-    if (isNaN(d)) return false;
-    if (d.getFullYear() !== yr) return false;
-    if (mn !== null && d.getMonth() + 1 !== mn) return false;
-    return true;
+  function parseDateOnly(dateStr) {
+    if (!dateStr) return null;
+    const d = new Date(ds(dateStr) + 'T12:00:00Z');
+    return isNaN(d) ? null : d;
+  }
+
+  function rangeOverlaps(startStr, endStr) {
+    const start = parseDateOnly(startStr);
+    if (!start) return false;
+    const end = parseDateOnly(endStr || startStr) || start;
+    const rangeStart = mn === null ? new Date(yr, 0, 1, 12) : new Date(yr, mn - 1, 1, 12);
+    const rangeEnd = mn === null ? new Date(yr, 11, 31, 12) : new Date(yr, mn, 0, 12);
+    return start <= rangeEnd && end >= rangeStart;
   }
 
   const eventos = [];
@@ -1443,14 +1458,23 @@ function getCalendario(user, { year, month } = {}) {
   // Servicios con fechaEvento programada
   const servicios = sheetToObjects(getSheet('Servicios'));
   servicios.forEach(function(s) {
-    if (!inRange(s.FechaEvento)) return;
+    const estadoEvento = String(s.EstadoEvento || 'programado').toLowerCase();
+    if (['finalizado','oculto','cancelado'].indexOf(estadoEvento) !== -1) return;
+    if (!rangeOverlaps(s.FechaEvento, s.FechaFinEvento)) return;
+    const detalle = [];
+    if (s.Tipo) detalle.push(s.Tipo);
+    if (s.Capacitador) detalle.push('Capacitador: ' + s.Capacitador);
+    if (s.LugarEvento) detalle.push(s.LugarEvento);
     eventos.push({
       id:     s.ID,
       fecha:  s.FechaEvento,
       fechaFin: s.FechaFinEvento || s.FechaEvento,
       titulo: s.Nombre,
       tipo:   'Servicio',
-      sub:    s.Tipo + (s.LugarEvento ? ' · ' + s.LugarEvento : ''),
+      sub:    detalle.join(' · '),
+      capacitador: s.Capacitador || '',
+      estadoEvento: estadoEvento,
+      cursoActivo: s.Activo === true || s.Activo === 'TRUE',
       color:  'blue',
     });
   });
@@ -1458,7 +1482,7 @@ function getCalendario(user, { year, month } = {}) {
   // Inscripciones (FechaInicio = evento del cliente)
   const inscripciones = sheetToObjects(getSheet('Inscripciones'));
   inscripciones.forEach(function(i) {
-    if (!inRange(i.FechaInicio)) return;
+    if (!rangeOverlaps(i.FechaInicio, i.FechaInicio)) return;
     eventos.push({
       id:     i.ID,
       fecha:  i.FechaInicio,
@@ -1473,7 +1497,7 @@ function getCalendario(user, { year, month } = {}) {
   // Proyecciones futuras
   const proyecciones = sheetToObjects(getSheet('Proyecciones'));
   proyecciones.forEach(function(p) {
-    if (!inRange(p.FechaEstimada)) return;
+    if (!rangeOverlaps(p.FechaEstimada, p.FechaEstimada)) return;
     eventos.push({
       id:     p.ID,
       fecha:  p.FechaEstimada,

@@ -138,6 +138,102 @@ export function exportContratosPDF(data) {
   doc.save('contratos_ra_training.pdf')
 }
 
+export function exportFlujosTrabajoPDF({ usuarioLabel, desde, hasta, flujos }) {
+  const doc = new jsPDF('landscape')
+  const periodo = `${desde ? fmt.date(desde) : 'Sin inicio'} a ${hasta ? fmt.date(hasta) : 'Sin fin'}`
+  const y = addHeader(doc, 'Reporte de flujo de trabajo', `${usuarioLabel || 'Todos los usuarios'} · Período: ${periodo}`)
+
+  const actividades = flujos.flatMap(f => (f.actividades || []).map(a => ({
+    ...a,
+    Semana: f.Semana || f.semana,
+    NombreUsuario: f.NombreUsuario || f.nombreUsuario || f.Username,
+    TotalHorasPlan: f.TotalHorasPlan,
+  })))
+  const totalPlan = flujos.reduce((s, f) => s + (Number(f.TotalHorasPlan) || 0), 0)
+  const totalEst = actividades.reduce((s, a) => s + (Number(a.HorasEstimadas) || 0), 0)
+  const totalReal = actividades.reduce((s, a) => s + (Number(a.HorasReales) || 0), 0)
+  const completadas = actividades.filter(a => a.Estado === 'completado').length
+
+  doc.setFontSize(9)
+  doc.setTextColor(70, 70, 70)
+  doc.text(
+    `Flujos: ${flujos.length}  |  Actividades: ${actividades.length}  |  Completadas: ${completadas}  |  Horas plan: ${totalPlan}  |  Horas estimadas: ${totalEst}  |  Horas reales: ${totalReal}`,
+    14,
+    y,
+  )
+
+  autoTable(doc, {
+    startY: y + 6,
+    head: [['Semana', 'Usuario', 'Día', 'Actividad', 'Estado', 'H. estimadas', 'H. reales', 'Evidencia / notas']],
+    body: actividades.map(a => [
+      fmt.date(a.Semana),
+      a.NombreUsuario || a.Username || '—',
+      a.DiaSemana || '—',
+      `${a.Titulo || '—'}${a.Descripcion ? `\n${a.Descripcion}` : ''}`,
+      a.Estado || '—',
+      String(a.HorasEstimadas || 0),
+      String(a.HorasReales || 0),
+      a.Evidencia || a.Notas || '—',
+    ]),
+    foot: [['', '', '', '', 'TOTALES', String(totalEst), String(totalReal), `Plan semanal acumulado: ${totalPlan}h`]],
+    headStyles: { fillColor: BRAND_COLOR, fontSize: 7 },
+    footStyles: { fillColor: [240, 240, 255], fontStyle: 'bold', fontSize: 8 },
+    bodyStyles: { fontSize: 7, overflow: 'linebreak' },
+    alternateRowStyles: { fillColor: [248, 249, 255] },
+    columnStyles: {
+      3: { cellWidth: 70 },
+      5: { halign: 'right', cellWidth: 22 },
+      6: { halign: 'right', cellWidth: 22 },
+      7: { cellWidth: 60 },
+    },
+  })
+
+  addFooter(doc)
+  doc.save('reporte_flujo_trabajo_ra_training.pdf')
+}
+
+export function exportAsistenciaPDF({ usuarioLabel, desde, hasta, registros, resumenes }) {
+  const doc = new jsPDF('landscape')
+  const periodo = `${desde ? fmt.date(desde) : 'Sin inicio'} a ${hasta ? fmt.date(hasta) : 'Sin fin'}`
+  const y = addHeader(doc, 'Reporte de asistencia', `${usuarioLabel || 'Todos los usuarios'} · Período: ${periodo}`)
+
+  const totalHoras = (resumenes || []).reduce((s, r) => s + (Number(r.totalHoras) || 0), 0)
+  doc.setFontSize(9)
+  doc.setTextColor(70, 70, 70)
+  doc.text(`Registros: ${registros.length}  |  Horas contabilizadas: ${totalHoras.toFixed(2)}h`, 14, y)
+
+  autoTable(doc, {
+    startY: y + 6,
+    head: [['Fecha', 'Usuario', 'Nombre', 'Hora', 'Tipo', 'Notas']],
+    body: registros.map(r => [
+      fmt.date(r.Fecha),
+      r.Username || '—',
+      r.Nombre || '—',
+      r.Timestamp ? new Date(r.Timestamp).toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit' }) : '—',
+      r.Tipo === 'entrada' ? 'Entrada' : r.Tipo === 'salida' ? 'Salida' : r.Tipo || '—',
+      r.Notas || '—',
+    ]),
+    headStyles: { fillColor: BRAND_COLOR, fontSize: 7 },
+    bodyStyles: { fontSize: 7 },
+    alternateRowStyles: { fillColor: [248, 249, 255] },
+  })
+
+  const finalY = doc.lastAutoTable.finalY + 8
+  autoTable(doc, {
+    startY: finalY,
+    head: [['Usuario', 'Semana', 'Horas']],
+    body: (resumenes || []).map(r => [r.username || '—', fmt.date(r.semana), `${Number(r.totalHoras || 0).toFixed(2)}h`]),
+    foot: [['', 'TOTAL', `${totalHoras.toFixed(2)}h`]],
+    headStyles: { fillColor: BRAND_COLOR, fontSize: 8 },
+    footStyles: { fillColor: [240, 240, 255], fontStyle: 'bold' },
+    bodyStyles: { fontSize: 8 },
+    columnStyles: { 2: { halign: 'right' } },
+  })
+
+  addFooter(doc)
+  doc.save('reporte_asistencia_ra_training.pdf')
+}
+
 export function exportResumenPDF({ kpis, ingresosXMes, egresosXMes, year }) {
   const doc = new jsPDF()
   const y = addHeader(doc, `Informe Financiero ${year}`, `Generado por R.A. Training Finance`)

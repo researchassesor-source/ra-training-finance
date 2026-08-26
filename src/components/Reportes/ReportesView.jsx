@@ -1,8 +1,12 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { api } from '../../services/api'
-import { exportIngresosPDF, exportEgresosPDF, exportPagosPDF, exportContratosPDF, exportResumenPDF, exportResumenWord } from '../../utils/exporters'
-import { FileText, Download, Loader2 } from 'lucide-react'
+import {
+  exportIngresosPDF, exportEgresosPDF, exportPagosPDF, exportContratosPDF,
+  exportResumenPDF, exportResumenWord, exportFlujosTrabajoPDF, exportAsistenciaPDF,
+} from '../../utils/exporters'
+import { FileText, Download, Loader2, ClipboardList, CalendarCheck } from 'lucide-react'
 import { fmt } from '../../utils/formatters'
+import { useAuth } from '../../context/AuthContext'
 
 const YEAR = new Date().getFullYear()
 const YEARS = Array.from({ length: 5 }, (_, i) => YEAR - i)
@@ -36,11 +40,35 @@ function ReportCard({ icon: Icon, title, description, onPDF, onWord, loading }) 
 }
 
 export default function ReportesView() {
+  const { isAdmin, user } = useAuth()
   const [year, setYear]     = useState(YEAR)
   const [desde, setDesde]   = useState('')
   const [hasta, setHasta]   = useState('')
   const [loading, setLoading] = useState({})
   const [error, setError]   = useState('')
+  const [usuarios, setUsuarios] = useState([])
+  const [usuarioReporte, setUsuarioReporte] = useState('')
+
+  useEffect(() => {
+    if (!isAdmin) return
+    api.getUsuarios()
+      .then(r => {
+        const activos = (r.data || []).filter(u => u.Activo === true || u.Activo === 'TRUE')
+        setUsuarios(activos)
+      })
+      .catch(() => {})
+  }, [isAdmin])
+
+  const periodo = useMemo(() => ({
+    desde: desde || `${year}-01-01`,
+    hasta: hasta || `${year}-12-31`,
+  }), [desde, hasta, year])
+
+  const usuariosObjetivo = useMemo(() => {
+    if (!isAdmin) return [{ Username: user?.username, Nombre: user?.nombre || user?.username }]
+    if (usuarioReporte) return usuarios.filter(u => u.Username === usuarioReporte)
+    return usuarios
+  }, [isAdmin, user, usuarios, usuarioReporte])
 
   function setLoad(key, val) { setLoading(l => ({ ...l, [key]: val })) }
 
@@ -102,12 +130,89 @@ export default function ReportesView() {
     finally { setLoad('res', false) }
   }
 
+  function getMondayOf(dateStr) {
+    const d = new Date(`${dateStr}T12:00:00Z`)
+    const day = d.getUTCDay()
+    const diff = day === 0 ? -6 : 1 - day
+    d.setUTCDate(d.getUTCDate() + diff)
+    return d.toISOString().slice(0, 10)
+  }
+
+  function addDays(dateStr, days) {
+    const d = new Date(`${dateStr}T12:00:00Z`)
+    d.setUTCDate(d.getUTCDate() + days)
+    return d.toISOString().slice(0, 10)
+  }
+
+  function weeksInRange(start, end) {
+    const weeks = []
+    let cursor = getMondayOf(start)
+    const limit = getMondayOf(end)
+    while (cursor <= limit) {
+      weeks.push(cursor)
+      cursor = addDays(cursor, 7)
+    }
+    return weeks
+  }
+
+  function usuarioLabel() {
+    if (!isAdmin) return user?.nombre || user?.username || 'Mi usuario'
+    if (usuarioReporte) {
+      const u = usuarios.find(item => item.Username === usuarioReporte)
+      return u ? `${u.Nombre} (@${u.Username})` : usuarioReporte
+    }
+    return 'Todos los usuarios activos'
+  }
+
+  async function genFlujosPDF() {
+    setLoad('flu', true)
+    setError('')
+    try {
+      const targets = usuariosObjetivo.filter(u => u?.Username)
+      if (!targets.length) throw new Error('No hay usuarios activos para generar el reporte.')
+      const weeks = weeksInRange(periodo.desde, periodo.hasta)
+      const results = await Promise.all(targets.flatMap(u =>
+        weeks.map(semana => api.getFlujosSemana({ username: u.Username, semana })
+          .then(r => (r.data || []).map(f => ({ ...f, NombreUsuario: f.NombreUsuario || u.Nombre || u.Username }))))
+      ))
+      const flujos = results.flat()
+      exportFlujosTrabajoPDF({ usuarioLabel: usuarioLabel(), desde: periodo.desde, hasta: periodo.hasta, flujos })
+    } catch (e) { setError(e.message) }
+    finally { setLoad('flu', false) }
+  }
+
+  async function genAsistenciaPDF() {
+    setLoad('asi', true)
+    setError('')
+    try {
+      const targets = usuariosObjetivo.filter(u => u?.Username)
+      if (!targets.length) throw new Error('No hay usuarios activos para generar el reporte.')
+      const weeks = weeksInRange(periodo.desde, periodo.hasta)
+      const registrosResults = await Promise.all(targets.map(u =>
+        api.getAsistencia({ username: u.Username, desde: periodo.desde, hasta: periodo.hasta })
+          .then(r => (r.data || []).map(item => ({ ...item, Nombre: item.Nombre || u.Nombre || u.Username })))
+      ))
+      const resumenResults = await Promise.all(targets.flatMap(u =>
+        weeks.map(semana => api.getResumenSemanal({ username: u.Username, semana })
+          .then(r => ({ ...(r.data || {}), username: u.Nombre || u.Username })))
+      ))
+      exportAsistenciaPDF({
+        usuarioLabel: usuarioLabel(),
+        desde: periodo.desde,
+        hasta: periodo.hasta,
+        registros: registrosResults.flat(),
+        resumenes: resumenResults,
+      })
+    } catch (e) { setError(e.message) }
+    finally { setLoad('asi', false) }
+  }
+
   return (
-    <div className="space-y-6 max-w-2xl">
+    <div className="space-y-6 max-w-5xl">
       {/* Filters */}
       <div className="card">
         <h3 className="font-semibold text-gray-900 mb-4">Filtros de Período</h3>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <div>
             <label className="label">Año fiscal</label>
             <select className="input" value={year} onChange={e => setYear(Number(e.target.value))}>
@@ -122,9 +227,20 @@ export default function ReportesView() {
             <label className="label">Hasta (opcional)</label>
             <input className="input" type="date" value={hasta} onChange={e => setHasta(e.target.value)} />
           </div>
+          <div>
+            <label className="label">Usuario interno</label>
+            {isAdmin ? (
+              <select className="input" value={usuarioReporte} onChange={e => setUsuarioReporte(e.target.value)}>
+                <option value="">Todos los usuarios</option>
+                {usuarios.map(u => <option key={u.ID} value={u.Username}>{u.Nombre}</option>)}
+              </select>
+            ) : (
+              <input className="input" disabled value={user?.nombre || user?.username || 'Mi usuario'} />
+            )}
+          </div>
         </div>
         <p className="text-xs text-gray-400 mt-2">
-          El informe ejecutivo siempre usa el año fiscal completo. Los demás reportes usan el rango de fechas si se especifica.
+          El informe ejecutivo usa el año fiscal completo. Los demás reportes usan el rango de fechas si se especifica.
         </p>
       </div>
 
@@ -167,6 +283,20 @@ export default function ReportesView() {
           description="Estado actual de todos los contratos con clientes y proveedores."
           onPDF={genContratosPDF}
           loading={loading.con}
+        />
+        <ReportCard
+          icon={ClipboardList}
+          title="Reporte de Flujo de Trabajo"
+          description="Actividades planificadas, estados, evidencias y horas reales por usuario y período."
+          onPDF={genFlujosPDF}
+          loading={loading.flu}
+        />
+        <ReportCard
+          icon={CalendarCheck}
+          title="Reporte de Asistencia"
+          description="Timbradas de entrada/salida y horas contabilizadas por usuario, semana o rango de fechas."
+          onPDF={genAsistenciaPDF}
+          loading={loading.asi}
         />
       </div>
     </div>

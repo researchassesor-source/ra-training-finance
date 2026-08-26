@@ -231,11 +231,11 @@ export const api = {
   getServicios: () =>
     callCached('getServicios', {}, getToken()),
   addServicio: (servicio) => {
-    bust('getServicios', 'getInscripciones')
+    bust('getServicios', 'getInscripciones', 'getCalendario')
     return call('addServicio', { servicio }, getToken())
   },
   updateServicio: (id, servicio) => {
-    bust('getServicios', 'getInscripciones')
+    bust('getServicios', 'getInscripciones', 'getCalendario')
     return call('updateServicio', { id, servicio }, getToken())
   },
 

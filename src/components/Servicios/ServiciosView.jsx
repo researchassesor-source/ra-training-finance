@@ -4,9 +4,26 @@ import { fmt, MODALIDADES, TIPOS_SERVICIO } from '../../utils/formatters'
 import { useAuth } from '../../context/AuthContext'
 import Modal from '../UI/Modal'
 import Spinner from '../UI/Spinner'
-import { Plus, Pencil, ToggleLeft, ToggleRight, MessageCircle, Calendar } from 'lucide-react'
+import { Plus, Pencil, MessageCircle, Calendar, UserRound, EyeOff, CheckCircle2 } from 'lucide-react'
 
-const EMPTY = { nombre: '', tipo: '', modalidad: 'N/A', precio: '', duracion: '', descripcion: '', activo: true, fechaEvento: '', fechaFinEvento: '', lugarEvento: '' }
+const EMPTY = {
+  nombre: '', tipo: '', modalidad: 'N/A', precio: '', duracion: '', descripcion: '',
+  activo: true, fechaEvento: '', fechaFinEvento: '', lugarEvento: '',
+  capacitador: '', estadoEvento: 'programado',
+}
+
+const ESTADOS_EVENTO = [
+  { value: 'programado', label: 'Programado / visible en calendario' },
+  { value: 'finalizado', label: 'Finalizado / oculto del calendario activo' },
+  { value: 'oculto', label: 'Oculto temporalmente del calendario' },
+  { value: 'cancelado', label: 'Cancelado / oculto del calendario' },
+]
+
+function normalizarEstadoEvento(value) {
+  return ['programado', 'finalizado', 'oculto', 'cancelado'].includes(String(value || '').toLowerCase())
+    ? String(value).toLowerCase()
+    : 'programado'
+}
 
 function requiereDuracionAcademica(tipo) {
   const normalized = String(tipo || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
@@ -26,6 +43,8 @@ function mapInitial(initial) {
     fechaEvento:   initial.FechaEvento   || initial.fechaEvento   || '',
     fechaFinEvento:initial.FechaFinEvento|| initial.fechaFinEvento|| '',
     lugarEvento:   initial.LugarEvento   || initial.lugarEvento   || '',
+    capacitador:   initial.Capacitador   || initial.capacitador   || '',
+    estadoEvento:  normalizarEstadoEvento(initial.EstadoEvento || initial.estadoEvento),
   }
 }
 
@@ -89,8 +108,13 @@ function ServicioForm({ initial, onSave, onCancel }) {
             onChange={e => set('descripcion', e.target.value)} placeholder="Descripción del servicio..." />
         </div>
         <div className="sm:col-span-2 border-t border-gray-100 pt-3">
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Fecha del Evento (opcional)</p>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Fecha del evento en calendario</p>
+              <p className="text-xs text-gray-400">El estado del curso y el estado de la fecha se manejan por separado.</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="label">Fecha inicio evento</label>
               <input className="input" type="date" value={form.fechaEvento}
@@ -102,9 +126,23 @@ function ServicioForm({ initial, onSave, onCancel }) {
                 onChange={e => set('fechaFinEvento', e.target.value)} />
             </div>
             <div>
-              <label className="label">Lugar / Modalidad</label>
+              <label className="label">Capacitador</label>
+              <input className="input" value={form.capacitador}
+                onChange={e => set('capacitador', e.target.value)} placeholder="Ej: Alexandra Villagómez" />
+            </div>
+            <div>
+              <label className="label">Lugar / Modalidad del evento</label>
               <input className="input" value={form.lugarEvento}
                 onChange={e => set('lugarEvento', e.target.value)} placeholder="Ej: Quito, Online" />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="label">Estado de la fecha en calendario</label>
+              <select className="input" value={form.estadoEvento} onChange={e => set('estadoEvento', e.target.value)}>
+                {ESTADOS_EVENTO.map(e => <option key={e.value} value={e.value}>{e.label}</option>)}
+              </select>
+              <p className="mt-1 text-xs text-gray-400">
+                “Servicio activo” controla si se vende. Este estado controla si la fecha aparece como evento activo.
+              </p>
             </div>
           </div>
         </div>
@@ -212,6 +250,10 @@ export default function ServiciosView() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {filtered.map(s => {
             const activo = s.Activo === true || s.Activo === 'TRUE'
+            const estadoEvento = normalizarEstadoEvento(s.EstadoEvento)
+            const fechaFin = s.FechaFinEvento || s.FechaEvento
+            const eventoVencido = fechaFin && `${fechaFin}` < new Date().toISOString().slice(0, 10)
+            const eventoVisible = estadoEvento === 'programado'
             return (
               <div key={s.ID} className={`card flex flex-col gap-2 ${!activo ? 'opacity-50' : ''}`}>
                 <div className="flex items-start justify-between gap-2">
@@ -230,11 +272,30 @@ export default function ServiciosView() {
                   )}
                 </div>
                 {s.Descripcion && <p className="text-xs text-gray-500 line-clamp-2">{s.Descripcion}</p>}
+                {s.Capacitador && (
+                  <div className="flex items-center gap-1.5 text-xs text-slate-700 bg-slate-50 rounded-lg px-2 py-1.5">
+                    <UserRound size={12} />
+                    <span className="font-medium">Capacitador:</span>
+                    <span>{s.Capacitador}</span>
+                  </div>
+                )}
                 {s.FechaEvento && (
-                  <div className="flex items-center gap-1.5 text-xs text-brand-700 bg-brand-50 rounded-lg px-2 py-1.5">
+                  <div className={`flex items-center gap-1.5 text-xs rounded-lg px-2 py-1.5 ${
+                    eventoVisible ? 'text-brand-700 bg-brand-50' : 'text-gray-600 bg-gray-50'
+                  }`}>
                     <Calendar size={12} />
                     <span>{fmt.date(s.FechaEvento)}{s.FechaFinEvento && s.FechaFinEvento !== s.FechaEvento ? ` → ${fmt.date(s.FechaFinEvento)}` : ''}</span>
                     {s.LugarEvento && <span className="text-gray-400">· {s.LugarEvento}</span>}
+                  </div>
+                )}
+                {s.FechaEvento && (
+                  <div className="flex flex-wrap gap-1.5">
+                    <span className={eventoVisible ? 'badge-blue' : estadoEvento === 'finalizado' ? 'badge-green' : 'badge-gray'}>
+                      {estadoEvento === 'programado' ? (eventoVencido ? 'Fecha vencida por revisar' : 'Evento visible') :
+                        estadoEvento === 'finalizado' ? 'Evento finalizado' :
+                        estadoEvento === 'cancelado' ? 'Evento cancelado' : 'Evento oculto'}
+                    </span>
+                    {!eventoVisible && <span className="badge-gray inline-flex items-center gap-1"><EyeOff size={11} /> No aparece en calendario</span>}
                   </div>
                 )}
                 <div className="flex items-center justify-between mt-auto pt-2 border-t border-gray-50">
@@ -249,6 +310,20 @@ export default function ServiciosView() {
                     {activo ? 'Activo' : 'Inactivo'}
                   </span>
                 </div>
+                {isAdmin && s.FechaEvento && eventoVisible && (
+                  <button
+                    onClick={() => api.updateServicio(s.ID, {
+                      nombre: s.Nombre, tipo: s.Tipo, modalidad: s.Modalidad, precio: s.Precio,
+                      duracion: s.Duracion, descripcion: s.Descripcion, activo,
+                      fechaEvento: s.FechaEvento, fechaFinEvento: s.FechaFinEvento,
+                      lugarEvento: s.LugarEvento, capacitador: s.Capacitador,
+                      estadoEvento: 'finalizado',
+                    }).then(load).catch(e => setError(e.message))}
+                    className="btn-secondary text-xs justify-center"
+                  >
+                    <CheckCircle2 size={13} /> Marcar fecha como finalizada
+                  </button>
+                )}
               </div>
             )
           })}
