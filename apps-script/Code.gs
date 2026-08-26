@@ -123,6 +123,8 @@ function processRequest(data) {
     getAsistencia:        () => getAsistencia(user, params),
     getResumenSemanal:    () => getResumenSemanal(user, params),
     getFlujosSemana:      () => getFlujosSemana(user, params),
+    getReporteFlujosTrabajo: () => getReporteFlujosTrabajo(user, params),
+    getReporteAsistencia: () => getReporteAsistencia(user, params),
     addFlujoSemanal:      () => addFlujoSemanal(user, params),
     updateFlujoSemanal:   () => updateFlujoSemanal(user, params),
     deleteFlujoSemanal:   () => deleteFlujoSemanal(user, params),
@@ -1373,9 +1375,10 @@ function deleteUsuario(user, { id }) {
 // ─────────────────────────────────────────────
 
 function getServicios(user, params) {
-  return sheetCache('servicios', 180, function() {
-    return { success: true, data: sheetToObjects(getSheet('Servicios')) };
-  });
+  // No usar cache aqui: el administrador edita fechas/capacitador y necesita
+  // ver el dato persistido inmediatamente. Con cache de 180s parecia que no
+  // guardaba aunque Sheets si aceptara la escritura.
+  return { success: true, data: sheetToObjects(getSheet('Servicios')) };
 }
 
 function servicioRequiereDuracion(tipo) {
@@ -4158,6 +4161,120 @@ function getAsistencia(user, { username, desde, hasta } = {}) {
   const ultHoy = data.filter(function(r) { return r.Fecha === hoy; });
   const estadoActual = ultHoy.length > 0 ? ultHoy[0].Tipo : null;
   return { success: true, data: data, estadoActual: estadoActual };
+}
+
+function usuariosObjetivoReporteInterno(user, username) {
+  if (!isVendedor(user)) throw new Error('Acceso denegado.');
+  if (!isAdmin(user)) {
+    return [{ Username: user.Username, Nombre: user.Nombre || user.Username }];
+  }
+  const usuarios = sheetToObjects(getSheet('Usuarios'))
+    .filter(function(u) { return u.Activo === true || u.Activo === 'TRUE'; });
+  if (username) {
+    return usuarios.filter(function(u) { return u.Username === username; });
+  }
+  return usuarios;
+}
+
+function getReporteFlujosTrabajo(user, { username, desde, hasta } = {}) {
+  const inicio = ds(desde) || '1900-01-01';
+  const fin = ds(hasta) || '2999-12-31';
+  const objetivos = usuariosObjetivoReporteInterno(user, username);
+  const usuariosPermitidos = {};
+  objetivos.forEach(function(u) { usuariosPermitidos[u.Username] = u.Nombre || u.Username; });
+  const flujos = sheetToObjects(getSheet('FlujosSemanales'))
+    .filter(function(f) {
+      if (!usuariosPermitidos[f.Username]) return false;
+      const fInicio = ds(f.FechaInicio || f.Semana);
+      const fFin = ds(f.FechaFin || fInicio);
+      return fInicio <= fin && fFin >= inicio;
+    });
+  const ids = {};
+  flujos.forEach(function(f) { ids[f.ID] = true; });
+  const actividadesPorFlujo = {};
+  sheetToObjects(getSheet('ActividadesFlujo')).forEach(function(a) {
+    if (!ids[a.FlujoID]) return;
+    if (!actividadesPorFlujo[a.FlujoID]) actividadesPorFlujo[a.FlujoID] = [];
+    actividadesPorFlujo[a.FlujoID].push(a);
+  });
+  const DIAS = ['Lunes','Martes','Miércoles','Jueves','Viernes'];
+  const data = flujos.map(function(f) {
+    const acts = (actividadesPorFlujo[f.ID] || [])
+      .sort(function(a, b) { return DIAS.indexOf(a.DiaSemana) - DIAS.indexOf(b.DiaSemana); });
+    return Object.assign({}, f, {
+      Semana: ds(f.Semana),
+      FechaInicio: ds(f.FechaInicio),
+      FechaFin: ds(f.FechaFin),
+      NombreUsuario: f.NombreUsuario || usuariosPermitidos[f.Username] || f.Username,
+      actividades: acts,
+    });
+  });
+  data.sort(function(a, b) {
+    return String(a.Username).localeCompare(String(b.Username)) || String(a.Semana).localeCompare(String(b.Semana));
+  });
+  return { success: true, data: data, usuarios: objetivos.length };
+}
+
+function calcularResumenAsistenciaPorUsuarioSemana_(timbradas) {
+  const grupos = {};
+  timbradas.forEach(function(r) {
+    const semana = getMondayOf(ds(r.Fecha));
+    const key = r.Username + '|' + semana;
+    if (!grupos[key]) grupos[key] = { username: r.Nombre || r.Username, semana: semana, totalHoras: 0, registros: [] };
+    grupos[key].registros.push(r);
+  });
+  return Object.keys(grupos).sort().map(function(key) {
+    const grupo = grupos[key];
+    const porDia = {};
+    grupo.registros
+      .sort(function(a, b) { return new Date(a.Timestamp) - new Date(b.Timestamp); })
+      .forEach(function(r) {
+        const fecha = ds(r.Fecha);
+        if (!porDia[fecha]) porDia[fecha] = [];
+        porDia[fecha].push(r);
+      });
+    let totalMin = 0;
+    Object.keys(porDia).forEach(function(fecha) {
+      let entrada = null;
+      porDia[fecha].forEach(function(r) {
+        if (r.Tipo === 'entrada') entrada = new Date(r.Timestamp);
+        if (r.Tipo === 'salida' && entrada) {
+          totalMin += (new Date(r.Timestamp) - entrada) / 60000;
+          entrada = null;
+        }
+      });
+    });
+    grupo.totalHoras = Math.round(totalMin / 60 * 100) / 100;
+    delete grupo.registros;
+    return grupo;
+  });
+}
+
+function getReporteAsistencia(user, { username, desde, hasta } = {}) {
+  const inicio = ds(desde) || '1900-01-01';
+  const fin = ds(hasta) || '2999-12-31';
+  const objetivos = usuariosObjetivoReporteInterno(user, username);
+  const usuariosPermitidos = {};
+  objetivos.forEach(function(u) { usuariosPermitidos[u.Username] = u.Nombre || u.Username; });
+  const registros = sheetToObjects(getSheet('Asistencia'))
+    .filter(function(r) {
+      const fecha = ds(r.Fecha);
+      return usuariosPermitidos[r.Username] && fecha >= inicio && fecha <= fin;
+    })
+    .map(function(r) {
+      return Object.assign({}, r, { Fecha: ds(r.Fecha), Nombre: r.Nombre || usuariosPermitidos[r.Username] || r.Username });
+    })
+    .sort(function(a, b) {
+      return String(a.Username).localeCompare(String(b.Username)) || new Date(a.Timestamp) - new Date(b.Timestamp);
+    });
+  return {
+    success: true,
+    data: {
+      registros: registros,
+      resumenes: calcularResumenAsistenciaPorUsuarioSemana_(registros),
+      usuarios: objetivos.length,
+    },
+  };
 }
 
 function getResumenSemanal(user, { username, semana } = {}) {

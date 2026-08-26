@@ -34,11 +34,14 @@ export default function CalendarView() {
 
   const load = useCallback(() => {
     setLoading(true)
-    api.getCalendario(year, month + 1)
+    // Cargar el año completo permite que la grilla muestre correctamente los
+    // primeros días del mes siguiente y últimos del anterior cuando aparecen en
+    // la vista mensual.
+    api.getCalendario(year)
       .then(r => setEventos(r.data || []))
       .catch(e => setError(e.message))
       .finally(() => setLoading(false))
-  }, [year, month])
+  }, [year])
 
   useEffect(() => { load() }, [load])
 
@@ -51,20 +54,21 @@ export default function CalendarView() {
     else setMonth(m => m + 1)
   }
 
-  // Build calendar grid
-  const firstDay = new Date(year, month, 1).getDay()
-  const daysInMonth = new Date(year, month + 1, 0).getDate()
-  const cells = []
-  for (let i = 0; i < firstDay; i++) cells.push(null)
-  for (let d = 1; d <= daysInMonth; d++) cells.push(d)
-  while (cells.length % 7 !== 0) cells.push(null)
+  // Build calendar grid with adjacent month days, so the first days of next
+  // month remain visible instead of blank cells.
+  const gridStart = new Date(year, month, 1)
+  gridStart.setDate(gridStart.getDate() - gridStart.getDay())
+  const cells = Array.from({ length: 42 }, (_, i) => {
+    const d = new Date(gridStart)
+    d.setDate(gridStart.getDate() + i)
+    return d
+  })
 
-  function dayYMD(d) {
-    return `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`
+  function dateYMD(d) {
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
   }
 
-  function eventosForDay(d) {
-    const ymd = dayYMD(d)
+  function eventosForYMD(ymd) {
     return eventos.filter(ev => {
       if (tipoFiltro && ev.tipo !== tipoFiltro) return false
       const start = toYMD(ev.fecha)
@@ -74,12 +78,7 @@ export default function CalendarView() {
   }
 
   const todayYMD = toYMD(new Date().toISOString())
-  const selectedEventos = selected ? eventos.filter(ev => {
-    if (tipoFiltro && ev.tipo !== tipoFiltro) return false
-    const start = toYMD(ev.fecha)
-    const end   = toYMD(ev.fechaFin) || start
-    return selected >= start && selected <= end
-  }) : []
+  const selectedEventos = selected ? eventosForYMD(selected) : []
 
   // Upcoming events list (current month)
   const monthPrefix = `${year}-${String(month+1).padStart(2,'0')}`
@@ -91,30 +90,38 @@ export default function CalendarView() {
   }).sort((a, b) => new Date(a.fecha) - new Date(b.fecha))
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <button onClick={prevMonth} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
-            <ChevronLeft size={18} />
-          </button>
-          <h2 className="text-lg font-bold text-gray-900 min-w-[180px] text-center">
-            {MESES_LARGO[month]} {year}
-          </h2>
-          <button onClick={nextMonth} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
-            <ChevronRight size={18} />
-          </button>
-        </div>
-        <div className="flex items-center gap-3 text-xs text-gray-500">
-          <select className="input text-xs py-1.5 w-auto" value={tipoFiltro} onChange={e => setTipoFiltro(e.target.value)}>
-            <option value="">Todo el calendario</option>
-            <option value="Servicio">Solo eventos/cursos</option>
-            <option value="Inscripcion">Solo inscripciones</option>
-            <option value="Proyeccion">Solo proyecciones</option>
-          </select>
-          <span className="hidden md:flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-blue-500 inline-block" />Eventos</span>
-          <span className="hidden md:flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block" />Inscripciones</span>
-          <span className="hidden md:flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-purple-500 inline-block" />Proyecciones</span>
+      <div className="card p-4">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <button onClick={prevMonth} className="p-2 hover:bg-gray-100 rounded-lg transition-colors border border-gray-200">
+              <ChevronLeft size={18} />
+            </button>
+            <div>
+              <p className="text-xs uppercase tracking-wide text-gray-400 font-semibold">Calendario operativo</p>
+              <h2 className="text-xl font-bold text-gray-900 min-w-[180px]">
+                {MESES_LARGO[month]} {year}
+              </h2>
+            </div>
+            <button onClick={nextMonth} className="p-2 hover:bg-gray-100 rounded-lg transition-colors border border-gray-200">
+              <ChevronRight size={18} />
+            </button>
+          </div>
+          <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500">
+            <select className="input text-xs py-2 w-auto min-w-[190px]" value={tipoFiltro} onChange={e => setTipoFiltro(e.target.value)}>
+              <option value="">Todo el calendario</option>
+              <option value="Servicio">Solo eventos/cursos</option>
+              <option value="Inscripcion">Solo inscripciones</option>
+              <option value="Proyeccion">Solo proyecciones</option>
+            </select>
+            <button onClick={() => { setYear(now.getFullYear()); setMonth(now.getMonth()); setSelected(todayYMD) }} className="btn-secondary text-xs py-2 px-3">
+              Hoy
+            </button>
+            <span className="hidden md:flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-blue-500 inline-block" />Eventos/cursos</span>
+            <span className="hidden md:flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block" />Inscripciones</span>
+            <span className="hidden md:flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-purple-500 inline-block" />Proyecciones</span>
+          </div>
         </div>
       </div>
 
@@ -142,38 +149,38 @@ export default function CalendarView() {
             </div>
           ) : (
             <div className="grid grid-cols-7">
-              {cells.map((d, i) => {
-                const ymd = d ? dayYMD(d) : null
-                const evs = d ? eventosForDay(d) : []
+              {cells.map((cellDate, i) => {
+                const ymd = dateYMD(cellDate)
+                const d = cellDate.getDate()
+                const isCurrentMonth = cellDate.getMonth() === month
+                const evs = eventosForYMD(ymd)
                 const isToday = ymd === todayYMD
                 const isSelected = ymd === selected
                 return (
                   <div
                     key={i}
-                    onClick={() => d && setSelected(isSelected ? null : ymd)}
-                    className={`min-h-[112px] border-b border-r border-gray-100 p-2 relative transition-colors
-                      ${d ? 'cursor-pointer hover:bg-gray-50' : 'bg-gray-50/50'}
+                    onClick={() => setSelected(isSelected ? null : ymd)}
+                    className={`min-h-[132px] border-b border-r border-gray-100 p-2 relative transition-colors
+                      cursor-pointer hover:bg-gray-50
+                      ${!isCurrentMonth ? 'bg-gray-50/70 text-gray-400' : 'bg-white'}
                       ${isSelected ? 'bg-brand-50 ring-1 ring-inset ring-brand-300' : ''}
                     `}
                   >
-                    {d && (
-                      <>
-                        <span className={`text-xs font-medium w-6 h-6 flex items-center justify-center rounded-full
-                          ${isToday ? 'bg-brand-600 text-white' : 'text-gray-700'}
-                        `}>{d}</span>
-                        <div className="mt-1.5 space-y-1">
-                          {evs.slice(0, 2).map((ev, ei) => (
-                            <div key={ei} className={`text-[10px] leading-tight px-1.5 py-1 rounded-md ${COLOR[ev.color]?.chip || 'bg-gray-100 text-gray-700'}`}>
-                              <p className="font-semibold line-clamp-2">{ev.titulo}</p>
-                              {ev.capacitador && <p className="mt-0.5 opacity-75 truncate">Cap.: {ev.capacitador}</p>}
-                            </div>
-                          ))}
-                          {evs.length > 2 && (
-                            <div className="text-[10px] text-gray-400 px-1">+{evs.length - 2} más</div>
-                          )}
+                    <span className={`text-xs font-semibold w-7 h-7 flex items-center justify-center rounded-full
+                      ${isToday ? 'bg-brand-600 text-white' : isCurrentMonth ? 'text-gray-700' : 'text-gray-400'}
+                    `}>{d}</span>
+                    <div className="mt-1.5 space-y-1">
+                      {evs.slice(0, 3).map((ev, ei) => (
+                        <div key={ei} className={`text-[10px] leading-tight px-1.5 py-1 rounded-md shadow-sm ${COLOR[ev.color]?.chip || 'bg-gray-100 text-gray-700'}`}>
+                          <p className="font-bold line-clamp-2">{ev.titulo}</p>
+                          <p className="mt-0.5 opacity-75 truncate">{TIPO_LABEL[ev.tipo] || ev.tipo}</p>
+                          {ev.capacitador && <p className="mt-0.5 opacity-80 truncate">Cap.: {ev.capacitador}</p>}
                         </div>
-                      </>
-                    )}
+                      ))}
+                      {evs.length > 3 && (
+                        <div className="text-[10px] text-gray-400 px-1">+{evs.length - 3} más</div>
+                      )}
+                    </div>
                   </div>
                 )
               })}

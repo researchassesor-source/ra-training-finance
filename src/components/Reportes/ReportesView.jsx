@@ -130,31 +130,6 @@ export default function ReportesView() {
     finally { setLoad('res', false) }
   }
 
-  function getMondayOf(dateStr) {
-    const d = new Date(`${dateStr}T12:00:00Z`)
-    const day = d.getUTCDay()
-    const diff = day === 0 ? -6 : 1 - day
-    d.setUTCDate(d.getUTCDate() + diff)
-    return d.toISOString().slice(0, 10)
-  }
-
-  function addDays(dateStr, days) {
-    const d = new Date(`${dateStr}T12:00:00Z`)
-    d.setUTCDate(d.getUTCDate() + days)
-    return d.toISOString().slice(0, 10)
-  }
-
-  function weeksInRange(start, end) {
-    const weeks = []
-    let cursor = getMondayOf(start)
-    const limit = getMondayOf(end)
-    while (cursor <= limit) {
-      weeks.push(cursor)
-      cursor = addDays(cursor, 7)
-    }
-    return weeks
-  }
-
   function usuarioLabel() {
     if (!isAdmin) return user?.nombre || user?.username || 'Mi usuario'
     if (usuarioReporte) {
@@ -168,14 +143,13 @@ export default function ReportesView() {
     setLoad('flu', true)
     setError('')
     try {
-      const targets = usuariosObjetivo.filter(u => u?.Username)
-      if (!targets.length) throw new Error('No hay usuarios activos para generar el reporte.')
-      const weeks = weeksInRange(periodo.desde, periodo.hasta)
-      const results = await Promise.all(targets.flatMap(u =>
-        weeks.map(semana => api.getFlujosSemana({ username: u.Username, semana })
-          .then(r => (r.data || []).map(f => ({ ...f, NombreUsuario: f.NombreUsuario || u.Nombre || u.Username }))))
-      ))
-      const flujos = results.flat()
+      if (isAdmin && usuarios.length === 0) throw new Error('No hay usuarios activos para generar el reporte.')
+      const r = await api.getReporteFlujosTrabajo({
+        ...(usuarioReporte ? { username: usuarioReporte } : {}),
+        desde: periodo.desde,
+        hasta: periodo.hasta,
+      })
+      const flujos = r.data || []
       exportFlujosTrabajoPDF({ usuarioLabel: usuarioLabel(), desde: periodo.desde, hasta: periodo.hasta, flujos })
     } catch (e) { setError(e.message) }
     finally { setLoad('flu', false) }
@@ -185,23 +159,18 @@ export default function ReportesView() {
     setLoad('asi', true)
     setError('')
     try {
-      const targets = usuariosObjetivo.filter(u => u?.Username)
-      if (!targets.length) throw new Error('No hay usuarios activos para generar el reporte.')
-      const weeks = weeksInRange(periodo.desde, periodo.hasta)
-      const registrosResults = await Promise.all(targets.map(u =>
-        api.getAsistencia({ username: u.Username, desde: periodo.desde, hasta: periodo.hasta })
-          .then(r => (r.data || []).map(item => ({ ...item, Nombre: item.Nombre || u.Nombre || u.Username })))
-      ))
-      const resumenResults = await Promise.all(targets.flatMap(u =>
-        weeks.map(semana => api.getResumenSemanal({ username: u.Username, semana })
-          .then(r => ({ ...(r.data || {}), username: u.Nombre || u.Username })))
-      ))
+      if (isAdmin && usuarios.length === 0) throw new Error('No hay usuarios activos para generar el reporte.')
+      const r = await api.getReporteAsistencia({
+        ...(usuarioReporte ? { username: usuarioReporte } : {}),
+        desde: periodo.desde,
+        hasta: periodo.hasta,
+      })
       exportAsistenciaPDF({
         usuarioLabel: usuarioLabel(),
         desde: periodo.desde,
         hasta: periodo.hasta,
-        registros: registrosResults.flat(),
-        resumenes: resumenResults,
+        registros: r.data?.registros || [],
+        resumenes: r.data?.resumenes || [],
       })
     } catch (e) { setError(e.message) }
     finally { setLoad('asi', false) }

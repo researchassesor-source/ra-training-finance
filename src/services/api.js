@@ -359,6 +359,10 @@ export const api = {
     call('getAsistencia', params, getToken()),
   getResumenSemanal: (params = {}) =>
     call('getResumenSemanal', params, getToken()),
+  getReporteFlujosTrabajo: (params = {}) =>
+    call('getReporteFlujosTrabajo', params, getToken()),
+  getReporteAsistencia: (params = {}) =>
+    call('getReporteAsistencia', params, getToken()),
   deleteTimbrada: (id) =>
     call('deleteTimbrada', { id }, getToken()),
 

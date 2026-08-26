@@ -97,4 +97,25 @@ describe('servicios y calendario operativo', () => {
     expect(row.Capacitador).toBe('Capacitador Uno')
     expect(calendar.data).toEqual([])
   })
+
+  it('getServicios devuelve datos frescos después de actualizar capacitador', () => {
+    const harness = createHarness()
+    harness.seed('Servicios', [{
+      ID: 'SRV-1', Nombre: 'Curso activo', Tipo: 'Curso', Modalidad: 'Virtual', Precio: 10, Duracion: '10 horas',
+      Activo: true, FechaEvento: '2026-09-10', FechaFinEvento: '2026-09-10', Capacitador: '',
+      EstadoEvento: 'programado',
+    }])
+
+    const updated = harness.context.processRequest({
+      action: 'updateServicio',
+      token: 'admin-token',
+      id: 'SRV-1',
+      servicio: { capacitador: 'Omar', estadoEvento: 'programado' },
+    })
+    const servicios = harness.context.processRequest({ action: 'getServicios', token: 'admin-token' })
+
+    expect(updated.success).toBe(true)
+    expect(servicios.data[0].Capacitador).toBe('Omar')
+    expect(servicios.data[0].EstadoEvento).toBe('programado')
+  })
 })
