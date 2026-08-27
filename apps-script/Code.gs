@@ -417,7 +417,7 @@ function hashPassword(password) {
 }
 
 function requireAdmin(user) {
-  if (user.Rol !== 'admin') throw new Error('Acceso denegado: se requiere rol de administrador.');
+  if (!user || user.Rol !== 'admin') throw new Error('Acceso denegado: se requiere rol de administrador.');
 }
 
 function registrarAuditoriaCertificado(evento) {
@@ -465,9 +465,9 @@ function requireCertificateAdmin(user, action, context) {
   throw new Error('Acceso denegado: solo un administrador puede gestionar certificados oficiales.');
 }
 
-function isAdmin(user)    { return user.Rol === 'admin'; }
-function isVendedor(user) { return user.Rol === 'vendedor' || user.Rol === 'admin'; }
-function isAval(user)     { return user.Rol === 'aval'; }
+function isAdmin(user)    { return !!user && user.Rol === 'admin'; }
+function isVendedor(user) { return !!user && (user.Rol === 'vendedor' || user.Rol === 'admin'); }
+function isAval(user)     { return !!user && user.Rol === 'aval'; }
 
 function esVerdadero(value) {
   return value === true || String(value).toLowerCase() === 'true';
@@ -4585,6 +4585,15 @@ function migrarActividadesFlujoV2(user, { confirmacion } = {}) {
   Logger.log('migrarActividadesFlujoV2: filas reparadas=' + migrated);
   bustSheet('flujosSemana');
   return { success: true, migrated: migrated };
+}
+
+function migrarActividadesFlujoV2_MANUAL() {
+  const result = migrarActividadesFlujoV2(
+    { Username: 'apps-script-manual', Rol: 'admin', Nombre: 'Apps Script Manual' },
+    { confirmacion: 'APLICAR_ACTIVIDADES_FLUJO_V2' }
+  );
+  Logger.log(JSON.stringify(result));
+  return result;
 }
 
 function parseChecklistFlujo_(value) {
