@@ -697,7 +697,7 @@ describe('recuperación de factura rechazada por fecha de emisión extemporánea
     }])
   }
 
-  it('descarta AccessKey/XML con fecha mala, conserva serie/secuencial y reabre a SEQUENCE_RESERVED', () => {
+  it('descarta AccessKey/XML con fecha mala desde NOT_AUTHORIZED, conserva serie/secuencial y reabre a SEQUENCE_RESERVED', () => {
     const harness = seededHarness()
     migrar(harness)
     seedFacturaRechazadaPorFechaExtemporanea(harness)
@@ -747,6 +747,36 @@ describe('recuperación de factura rechazada por fecha de emisión extemporánea
       && item.EstadoNuevo === 'SEQUENCE_RESERVED'
       && item.Metadatos.includes('2708202601069178737300120010020000000055533316110')
       && item.Metadatos.includes('000000005')
+    ))).toBe(true)
+  })
+
+  it('también recupera el caso real cuando el SRI devuelve la factura en Recepción como RETURNED', () => {
+    const harness = seededHarness()
+    migrar(harness)
+    seedFacturaRechazadaPorFechaExtemporanea(harness, {
+      Status: 'RETURNED',
+      SriReceptionStatus: 'DEVUELTA',
+      SriAuthorizationStatus: '',
+    })
+
+    const result = harness.context.processRequest({
+      action: 'recuperarFacturaRechazadaPorFechaEmisionExtemporanea',
+      token: 'admin-token',
+      facturaId: 'FACT-DATE',
+      confirmacion: 'RECUPERAR_FECHA_EMISION_EXTEMPORANEA',
+    })
+
+    const factura = harness.objects('FacturasFiscales')[0]
+    expect(result.success).toBe(true)
+    expect(factura.Status).toBe('SEQUENCE_RESERVED')
+    expect(factura.Sequential).toBe('000000005')
+    expect(factura.DocumentNumber).toBe('001-002-000000005')
+    expect(factura.AccessKey).toBe('')
+    expect(factura.SriReceptionStatus).toBe('')
+    expect(harness.objects('AuditoriaFiscal').some(item => (
+      item.Accion === 'FACTURA_EXTEMPORANEOUS_ISSUE_DATE_RESET'
+      && item.EstadoAnterior === 'RETURNED'
+      && item.EstadoNuevo === 'SEQUENCE_RESERVED'
     ))).toBe(true)
   })
 

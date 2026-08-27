@@ -1516,6 +1516,8 @@ function recuperarFacturaRechazadaPorIdentificacionReceptor(user, params) {
  * al SRI. Solo descarta la clave/XML rechazados y vuelve la misma factura a
  * SEQUENCE_RESERVED para que el orquestador regenere AccessKey/XML con fecha
  * fiscal Ecuador (America/Guayaquil), conservando DocumentNumber y Sequential.
+ * Aplica tanto si el SRI la devolvió en Recepción (RETURNED) como si llegó a
+ * Autorización y quedó NOT_AUTHORIZED.
  */
 function recuperarFacturaRechazadaPorFechaEmisionExtemporanea(user, params) {
   const p = params || {};
@@ -1529,8 +1531,9 @@ function recuperarFacturaRechazadaPorFechaEmisionExtemporanea(user, params) {
     const sheet = getSheet('FacturasFiscales');
     const { row: factura } = facturaFiscalPorId_(p.facturaId);
     if (!factura) throw new Error('Factura no encontrada: ' + p.facturaId);
-    if (factura.Status !== 'NOT_AUTHORIZED') {
-      throw new Error('Solo se puede recuperar una factura en estado NOT_AUTHORIZED (actual: ' + factura.Status + ').');
+    const estadosRecuperables = ['RETURNED', 'NOT_AUTHORIZED'];
+    if (estadosRecuperables.indexOf(factura.Status) === -1) {
+      throw new Error('Solo se puede recuperar una factura en estado RETURNED o NOT_AUTHORIZED (actual: ' + factura.Status + ').');
     }
 
     const rechazo = String(factura.LastSriMessage || '');
@@ -1576,7 +1579,7 @@ function recuperarFacturaRechazadaPorFechaEmisionExtemporanea(user, params) {
       usuario: user.Username,
       rol: user.Rol,
       accion: 'FACTURA_EXTEMPORANEOUS_ISSUE_DATE_RESET',
-      estadoAnterior: 'NOT_AUTHORIZED',
+      estadoAnterior: factura.Status,
       estadoNuevo: 'SEQUENCE_RESERVED',
       canal: 'api',
       resultado: 'ok',
