@@ -379,6 +379,23 @@ describe('borrador de factura', () => {
     expect(harness.objects('AuditoriaFiscal').map(item => item.Accion)).toContain('FACTURA_DRAFT_CREATED')
   })
 
+  it('preserva como texto una identificación del receptor con cero inicial al crear FacturasFiscales', () => {
+    const harness = seededHarness()
+    migrar(harness)
+    const result = harness.context.processRequest(draftParams({
+      idempotencyKey: 'idem-zero-buyer',
+      buyerIdentification: '0604989095',
+      buyerName: 'Lizbeth Carolina Sanunga Guananga',
+    }))
+
+    const factura = harness.objects('FacturasFiscales')[0]
+    const headers = harness.sheets.FacturasFiscales.rows[0]
+    const identificationIndex = headers.indexOf('BuyerIdentification')
+    expect(result.success).toBe(true)
+    expect(factura.BuyerIdentification).toBe('0604989095')
+    expect(harness.sheets.FacturasFiscales.formats[1][identificationIndex]).toBe('@')
+  })
+
   it('bloquea production si la forma de pago no tiene codigo SRI resuelto', () => {
     const harness = seededHarness()
     migrar(harness)
@@ -524,6 +541,244 @@ describe('backfill controlado de SriPaymentCode historico', () => {
 
     expect(noAdmin.success).toBe(false)
     expect(noConfirm.success).toBe(false)
+  })
+})
+
+describe('recuperación de factura rechazada por identificación del receptor con cero inicial', () => {
+  function seedFacturaRechazadaPorCedulaSinCero(harness, overrides = {}) {
+    harness.seed('Inscripciones', [{
+      ID: 'INS-ZERO',
+      ClienteNombre: 'Lizbeth Carolina Sanunga Guananga',
+      ClienteID: '0604989095',
+      RUC: '',
+    }])
+    harness.seed('FacturasFiscales', [{
+      ID: 'FACT-ZERO',
+      Environment: 'production',
+      Status: 'NOT_AUTHORIZED',
+      InscripcionID: 'INS-ZERO',
+      IdempotencyKey: 'inscripcion:INS-ZERO:pago-verificado:v1',
+      DocumentType: '01',
+      IssueDate: '2026-08-26T20:00:00.000Z',
+      IssuerRuc: '0691787373001',
+      Establishment: '001',
+      EmissionPoint: '002',
+      Sequential: '000000004',
+      DocumentNumber: '001-002-000000004',
+      AccessKey: '2608202601069178737300120010020000000045482075411',
+      NumericCode: '54820754',
+      BuyerIdentificationType: 'cedula',
+      BuyerIdentification: '604989095',
+      BuyerName: 'Lizbeth Carolina Sanunga Guananga',
+      XmlGeneratedReference: 'old-generated-ref',
+      XmlSignedReference: 'old-signed-ref',
+      Sha256Generated: 'old-generated-sha',
+      Sha256Signed: 'old-signed-sha',
+      SriReceptionStatus: 'RECIBIDA',
+      SriAuthorizationStatus: 'NO_AUTORIZADO',
+      LastSriMessage: '[ERROR] 69: ERROR EN LA IDENTIFICACION DEL RECEPTOR',
+      ReviewFlag: 'needs_review',
+      ReviewReason: 'rechazo sri',
+      ...overrides,
+    }])
+  }
+
+  it('restaura BuyerIdentification desde Inscripciones, conserva clave/secuencial y reabre a GENERATED', () => {
+    const harness = seededHarness()
+    migrar(harness)
+    seedFacturaRechazadaPorCedulaSinCero(harness)
+
+    const result = harness.context.processRequest({
+      action: 'recuperarFacturaRechazadaPorIdentificacionReceptor',
+      token: 'admin-token',
+      facturaId: 'FACT-ZERO',
+      confirmacion: 'RECUPERAR_IDENTIFICACION_RECEPTOR',
+    })
+
+    const factura = harness.objects('FacturasFiscales')[0]
+    expect(result.success).toBe(true)
+    expect(factura).toMatchObject({
+      ID: 'FACT-ZERO',
+      Status: 'GENERATED',
+      BuyerIdentification: '0604989095',
+      BuyerIdentificationType: 'cedula',
+      AccessKey: '2608202601069178737300120010020000000045482075411',
+      Sequential: '000000004',
+      DocumentNumber: '001-002-000000004',
+      XmlGeneratedReference: '',
+      XmlSignedReference: '',
+      Sha256Generated: '',
+      Sha256Signed: '',
+      SriReceptionStatus: '',
+      SriAuthorizationStatus: '',
+      ReviewFlag: '',
+      ReviewReason: '',
+    })
+    expect(harness.objects('AuditoriaFiscal').some(item => (
+      item.Accion === 'FACTURA_BUYER_IDENTIFICATION_ZERO_PREFIX_RESTORED'
+      && item.EstadoAnterior === 'NOT_AUTHORIZED'
+      && item.EstadoNuevo === 'GENERATED'
+      && item.Metadatos.includes('604989095')
+      && item.Metadatos.includes('0604989095')
+    ))).toBe(true)
+  })
+
+  it('bloquea la recuperación si la identificación no coincide numéricamente con la inscripción', () => {
+    const harness = seededHarness()
+    migrar(harness)
+    seedFacturaRechazadaPorCedulaSinCero(harness, { BuyerIdentification: '1717171717' })
+
+    const result = harness.context.processRequest({
+      action: 'recuperarFacturaRechazadaPorIdentificacionReceptor',
+      token: 'admin-token',
+      facturaId: 'FACT-ZERO',
+      confirmacion: 'RECUPERAR_IDENTIFICACION_RECEPTOR',
+    })
+
+    expect(result.success).toBe(false)
+    expect(result.error).toMatch(/no coincide numéricamente/)
+    expect(harness.objects('FacturasFiscales')[0].Status).toBe('NOT_AUTHORIZED')
+  })
+
+  it('bloquea la recuperación para vendedor', () => {
+    const harness = seededHarness()
+    migrar(harness)
+    seedFacturaRechazadaPorCedulaSinCero(harness)
+
+    const result = harness.context.processRequest({
+      action: 'recuperarFacturaRechazadaPorIdentificacionReceptor',
+      token: 'seller-token',
+      facturaId: 'FACT-ZERO',
+      confirmacion: 'RECUPERAR_IDENTIFICACION_RECEPTOR',
+    })
+
+    expect(result.success).toBe(false)
+    expect(harness.objects('FacturasFiscales')[0].BuyerIdentification).toBe('604989095')
+  })
+})
+
+describe('recuperación de factura rechazada por fecha de emisión extemporánea', () => {
+  function seedFacturaRechazadaPorFechaExtemporanea(harness, overrides = {}) {
+    harness.seed('FacturasFiscales', [{
+      ID: 'FACT-DATE',
+      Environment: 'production',
+      Status: 'NOT_AUTHORIZED',
+      InscripcionID: 'INS-DATE',
+      DocumentType: '01',
+      IssueDate: '2026-08-27T02:30:00.000Z',
+      IssuerRuc: '0691787373001',
+      Establishment: '001',
+      EmissionPoint: '002',
+      Sequential: '000000005',
+      DocumentNumber: '001-002-000000005',
+      AccessKey: '2708202601069178737300120010020000000055533316110',
+      NumericCode: '55333161',
+      BuyerIdentificationType: 'ruc',
+      BuyerIdentification: '0992912723001',
+      BuyerName: 'Jonathan Eduardo Lopez Poveda',
+      XmlGeneratedReference: 'old-generated-ref',
+      XmlSignedReference: 'old-signed-ref',
+      Sha256Generated: 'old-generated-sha',
+      Sha256Signed: 'old-signed-sha',
+      Sha256Authorized: 'old-authorized-sha',
+      SriReceptionStatus: 'RECIBIDA',
+      SriAuthorizationStatus: 'NO_AUTORIZADO',
+      AuthorizationNumber: 'old-auth-number',
+      AuthorizationDate: 'old-auth-date',
+      AuthorizedAt: 'old-authorized-at',
+      XmlAuthorizedReference: 'old-xml-authorized',
+      XmlAuthorizedContent: '<xml/>',
+      RideReference: 'old-ride',
+      Sha256Ride: 'old-ride-sha',
+      LastSriMessage: '[ERROR] 65: FECHA EMISION EXTEMPORANEA',
+      ReviewFlag: 'needs_review',
+      ReviewReason: 'rechazo sri',
+      ...overrides,
+    }])
+  }
+
+  it('descarta AccessKey/XML con fecha mala, conserva serie/secuencial y reabre a SEQUENCE_RESERVED', () => {
+    const harness = seededHarness()
+    migrar(harness)
+    seedFacturaRechazadaPorFechaExtemporanea(harness)
+
+    const result = harness.context.processRequest({
+      action: 'recuperarFacturaRechazadaPorFechaEmisionExtemporanea',
+      token: 'admin-token',
+      facturaId: 'FACT-DATE',
+      confirmacion: 'RECUPERAR_FECHA_EMISION_EXTEMPORANEA',
+    })
+
+    const factura = harness.objects('FacturasFiscales')[0]
+    expect(result.success).toBe(true)
+    expect(factura).toMatchObject({
+      ID: 'FACT-DATE',
+      Status: 'SEQUENCE_RESERVED',
+      Establishment: '001',
+      EmissionPoint: '002',
+      Sequential: '000000005',
+      DocumentNumber: '001-002-000000005',
+      BuyerIdentification: '0992912723001',
+      BuyerName: 'Jonathan Eduardo Lopez Poveda',
+      AccessKey: '',
+      NumericCode: '',
+      IssueDate: '',
+      XmlGeneratedReference: '',
+      XmlSignedReference: '',
+      Sha256Generated: '',
+      Sha256Signed: '',
+      Sha256Authorized: '',
+      SriReceptionStatus: '',
+      SriAuthorizationStatus: '',
+      AuthorizationNumber: '',
+      AuthorizationDate: '',
+      AuthorizedAt: '',
+      XmlAuthorizedReference: '',
+      XmlAuthorizedContent: '',
+      RideReference: '',
+      Sha256Ride: '',
+      LastSriMessage: '',
+      ReviewFlag: '',
+      ReviewReason: '',
+    })
+    expect(harness.objects('AuditoriaFiscal').some(item => (
+      item.Accion === 'FACTURA_EXTEMPORANEOUS_ISSUE_DATE_RESET'
+      && item.EstadoAnterior === 'NOT_AUTHORIZED'
+      && item.EstadoNuevo === 'SEQUENCE_RESERVED'
+      && item.Metadatos.includes('2708202601069178737300120010020000000055533316110')
+      && item.Metadatos.includes('000000005')
+    ))).toBe(true)
+  })
+
+  it('bloquea vendedor', () => {
+    const harness = seededHarness()
+    migrar(harness)
+    seedFacturaRechazadaPorFechaExtemporanea(harness)
+
+    const result = harness.context.processRequest({
+      action: 'recuperarFacturaRechazadaPorFechaEmisionExtemporanea',
+      token: 'seller-token',
+      facturaId: 'FACT-DATE',
+      confirmacion: 'RECUPERAR_FECHA_EMISION_EXTEMPORANEA',
+    })
+    expect(result.success).toBe(false)
+    expect(harness.objects('FacturasFiscales')[0].Status).toBe('NOT_AUTHORIZED')
+  })
+
+  it('bloquea facturas que no tengan el rechazo exacto por fecha', () => {
+    const harness = seededHarness()
+    migrar(harness)
+    seedFacturaRechazadaPorFechaExtemporanea(harness, { LastSriMessage: '[ERROR] 39: FIRMA INVALIDA' })
+
+    const result = harness.context.processRequest({
+      action: 'recuperarFacturaRechazadaPorFechaEmisionExtemporanea',
+      token: 'admin-token',
+      facturaId: 'FACT-DATE',
+      confirmacion: 'RECUPERAR_FECHA_EMISION_EXTEMPORANEA',
+    })
+
+    expect(result.success).toBe(false)
+    expect(harness.objects('FacturasFiscales')[0].Status).toBe('NOT_AUTHORIZED')
   })
 })
 describe('reserva atómica de secuencial', () => {

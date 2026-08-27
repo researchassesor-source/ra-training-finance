@@ -56,7 +56,17 @@ class Range {
   setFontWeight() { return this }
   setBackground() { return this }
   setFontColor() { return this }
-  setNumberFormat() { return this }
+  setNumberFormat(format) {
+    for (let rowOffset = 0; rowOffset < this.rowCount; rowOffset += 1) {
+      for (let columnOffset = 0; columnOffset < this.columnCount; columnOffset += 1) {
+        const rowIndex = this.row - 1 + rowOffset
+        const columnIndex = this.column - 1 + columnOffset
+        while (this.sheet.formats.length <= rowIndex) this.sheet.formats.push([])
+        this.sheet.formats[rowIndex][columnIndex] = format
+      }
+    }
+    return this
+  }
 }
 
 class Sheet {
@@ -64,14 +74,15 @@ class Sheet {
     this.name = name
     this.rows = rows
     this.formulas = rows.map(row => row.map(() => ''))
+    this.formats = rows.map(row => row.map(() => ''))
   }
 
   getDataRange() { return new Range(this, 1, 1, this.rows.length, this.getLastColumn()) }
   getLastColumn() { return Math.max(0, ...this.rows.map(row => row.length)) }
   getLastRow() { return this.rows.length }
   getRange(row, column, rowCount, columnCount) { return new Range(this, row, column, rowCount, columnCount) }
-  appendRow(row) { this.rows.push([...row]); this.formulas.push(row.map(() => '')) }
-  deleteRow(row) { this.rows.splice(row - 1, 1); this.formulas.splice(row - 1, 1) }
+  appendRow(row) { this.rows.push([...row]); this.formulas.push(row.map(() => '')); this.formats.push(row.map(() => '')) }
+  deleteRow(row) { this.rows.splice(row - 1, 1); this.formulas.splice(row - 1, 1); this.formats.splice(row - 1, 1) }
   setFrozenRows() {}
 }
 

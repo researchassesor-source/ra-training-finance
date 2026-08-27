@@ -782,12 +782,12 @@ function crearBorradorFactura(user, params) {
       UpdatedAt: now,
     };
 
-    getSheet('FacturasFiscales').appendRow(SHEET_HEADERS.FacturasFiscales.map(function (header) {
+    appendRowPreservandoTexto_(getSheet('FacturasFiscales'), SHEET_HEADERS.FacturasFiscales, SHEET_HEADERS.FacturasFiscales.map(function (header) {
       return registro[header] !== undefined ? registro[header] : '';
     }));
 
     p.items.forEach(function (item) {
-      getSheet('FacturaItems').appendRow(SHEET_HEADERS.FacturaItems.map(function (header) {
+      appendRowPreservandoTexto_(getSheet('FacturaItems'), SHEET_HEADERS.FacturaItems, SHEET_HEADERS.FacturaItems.map(function (header) {
         const map = {
           ID: generateId('FITM'),
           FacturaID: id,
@@ -893,7 +893,7 @@ function reservarSecuencialFiscal(user, params) {
       forzarTextoEnCelda_(secuenciaSheet, contadorExistente._row, 'DocumentType', documentType);
       forzarTextoEnCelda_(secuenciaSheet, contadorExistente._row, 'LastSequential', String(nuevoSecuencial));
     } else {
-      secuenciaSheet.appendRow(SHEET_HEADERS.SecuenciaFiscal.map(function (header) {
+      appendRowPreservandoTexto_(secuenciaSheet, SHEET_HEADERS.SecuenciaFiscal, SHEET_HEADERS.SecuenciaFiscal.map(function (header) {
         const map = { ID: generateId('FSEQ'), Environment: claveContador.Environment, Establishment: establishment, EmissionPoint: emissionPoint, DocumentType: documentType, LastSequential: nuevoSecuencial, UpdatedAt: now };
         return map[header] !== undefined ? map[header] : '';
       }));
@@ -1396,6 +1396,209 @@ function reabrirFacturaRechazadaParaCorreccion(user, params) {
       throw new Error('Invariante violada: AccessKey/Sequential cambiaron al reabrir. Deteniendo.');
     }
     return { success: true, data: facturaActualizada };
+  });
+}
+
+function identidadNumericaSinCeros_(value) {
+  const raw = String(value === null || value === undefined ? '' : value).trim();
+  if (!/^\d+$/.test(raw)) return '';
+  return raw.replace(/^0+/, '') || '0';
+}
+
+/**
+ * Recuperación quirúrgica para el incidente real "[ERROR] 69: ERROR EN LA
+ * IDENTIFICACION DEL RECEPTOR" causado por Google Sheets al convertir una cédula
+ * con cero inicial en número dentro de FacturasFiscales. No crea otra factura, no
+ * reserva otro secuencial y no toca SRI: solo restaura BuyerIdentification desde
+ * la inscripción vinculada, invalida hashes/XML generados con el dato malo y
+ * reabre la misma factura NOT_AUTHORIZED a GENERATED para que el orquestador
+ * regenere y firme con la misma AccessKey/secuencial.
+ */
+function recuperarFacturaRechazadaPorIdentificacionReceptor(user, params) {
+  const p = params || {};
+  requireFiscalAdmin(user, 'FACTURA_BUYER_IDENTIFICATION_RECOVER', { facturaId: p.facturaId });
+  if (!p.facturaId) throw new Error('facturaId es obligatorio.');
+  if (p.confirmacion !== 'RECUPERAR_IDENTIFICACION_RECEPTOR') {
+    throw new Error('Confirmación requerida: RECUPERAR_IDENTIFICACION_RECEPTOR.');
+  }
+
+  return conBloqueoFiscal(function () {
+    const sheet = getSheet('FacturasFiscales');
+    const { row: factura } = facturaFiscalPorId_(p.facturaId);
+    if (!factura) throw new Error('Factura no encontrada: ' + p.facturaId);
+    if (factura.Status !== 'NOT_AUTHORIZED') {
+      throw new Error('Solo se puede recuperar una factura en estado NOT_AUTHORIZED (actual: ' + factura.Status + ').');
+    }
+    const rechazo = String(factura.LastSriMessage || '');
+    if (!/IDENTIFICACION\s+DEL\s+RECEPTOR/i.test(rechazo)) {
+      throw new Error('La factura no tiene rechazo SRI por identificación del receptor.');
+    }
+    const inscripcionId = String(factura.InscripcionID || '').trim();
+    if (!inscripcionId) throw new Error('La factura no tiene InscripcionID vinculado.');
+    const inscripcion = sheetToObjects(getSheet('Inscripciones')).find(function (row) {
+      return String(row.ID || '').trim() === inscripcionId;
+    });
+    if (!inscripcion) throw new Error('No se encontró la inscripción vinculada: ' + inscripcionId);
+    const identificacionCorrecta = String(inscripcion.ClienteID || inscripcion.RUC || '').trim();
+    if (!/^\d{10}$|^\d{13}$/.test(identificacionCorrecta)) {
+      throw new Error('La inscripción vinculada no tiene una cédula/RUC válido de 10 o 13 dígitos.');
+    }
+    const identificacionFiscalAnterior = String(factura.BuyerIdentification || '').trim();
+    if (identificacionFiscalAnterior === identificacionCorrecta) {
+      throw new Error('La factura ya tiene la misma identificación que la inscripción; use la reapertura técnica normal.');
+    }
+    if (identidadNumericaSinCeros_(identificacionFiscalAnterior) !== identidadNumericaSinCeros_(identificacionCorrecta)) {
+      throw new Error('La identificación fiscal anterior no coincide numéricamente con la inscripción; se bloquea para revisión manual.');
+    }
+
+    const now = new Date().toISOString();
+    const accessKeyPrevia = factura.AccessKey;
+    const sequentialPrevio = factura.Sequential;
+    const documentNumberPrevio = factura.DocumentNumber;
+
+    updateRow(sheet, factura, {
+      Status: 'GENERATED',
+      BuyerIdentification: identificacionCorrecta,
+      BuyerIdentificationType: identificacionCorrecta.length === 13 ? 'ruc' : 'cedula',
+      XmlGeneratedReference: '',
+      XmlSignedReference: '',
+      Sha256Generated: '',
+      Sha256Signed: '',
+      Sha256Authorized: '',
+      SriReceptionStatus: '',
+      SriAuthorizationStatus: '',
+      AuthorizationNumber: '',
+      AuthorizationDate: '',
+      AuthorizedAt: '',
+      DeliveredAt: '',
+      XmlAuthorizedReference: '',
+      XmlAuthorizedContent: '',
+      RideReference: '',
+      Sha256Ride: '',
+      ReviewFlag: '',
+      ReviewReason: '',
+      UpdatedAt: now,
+    });
+
+    registrarAuditoriaFiscal({
+      facturaId: p.facturaId,
+      usuario: user.Username,
+      rol: user.Rol,
+      accion: 'FACTURA_BUYER_IDENTIFICATION_ZERO_PREFIX_RESTORED',
+      estadoAnterior: 'NOT_AUTHORIZED',
+      estadoNuevo: 'GENERATED',
+      canal: 'api',
+      resultado: 'ok',
+      motivo: 'Se restauró el cero inicial de la identificación del receptor desde la inscripción vinculada.',
+      metadatos: {
+        inscripcionId: inscripcionId,
+        buyerIdentificationAnterior: identificacionFiscalAnterior,
+        buyerIdentificationRecuperada: identificacionCorrecta,
+        motivoRechazoAnterior: rechazo,
+        accessKey: accessKeyPrevia,
+        sequential: sequentialPrevio,
+        documentNumber: documentNumberPrevio,
+      },
+    });
+
+    const { row: actualizada } = facturaFiscalPorId_(p.facturaId);
+    if (actualizada.AccessKey !== accessKeyPrevia || actualizada.Sequential !== sequentialPrevio || actualizada.DocumentNumber !== documentNumberPrevio) {
+      throw new Error('Invariante violada: AccessKey/Sequential/DocumentNumber cambiaron durante la recuperación.');
+    }
+    return { success: true, data: actualizada };
+  });
+}
+
+/**
+ * Recuperación quirúrgica para "[ERROR] 65: FECHA EMISION EXTEMPORANEA".
+ *
+ * No crea factura, no reserva otro secuencial, no toca cliente/importes ni llama
+ * al SRI. Solo descarta la clave/XML rechazados y vuelve la misma factura a
+ * SEQUENCE_RESERVED para que el orquestador regenere AccessKey/XML con fecha
+ * fiscal Ecuador (America/Guayaquil), conservando DocumentNumber y Sequential.
+ */
+function recuperarFacturaRechazadaPorFechaEmisionExtemporanea(user, params) {
+  const p = params || {};
+  requireFiscalAdmin(user, 'FACTURA_EXTEMPORANEOUS_DATE_RECOVER', { facturaId: p.facturaId });
+  if (!p.facturaId) throw new Error('facturaId es obligatorio.');
+  if (p.confirmacion !== 'RECUPERAR_FECHA_EMISION_EXTEMPORANEA') {
+    throw new Error('Confirmación requerida: RECUPERAR_FECHA_EMISION_EXTEMPORANEA.');
+  }
+
+  return conBloqueoFiscal(function () {
+    const sheet = getSheet('FacturasFiscales');
+    const { row: factura } = facturaFiscalPorId_(p.facturaId);
+    if (!factura) throw new Error('Factura no encontrada: ' + p.facturaId);
+    if (factura.Status !== 'NOT_AUTHORIZED') {
+      throw new Error('Solo se puede recuperar una factura en estado NOT_AUTHORIZED (actual: ' + factura.Status + ').');
+    }
+
+    const rechazo = String(factura.LastSriMessage || '');
+    if (!/FECHA\s+EMISION\s+EXTEMPORANEA/i.test(rechazo)) {
+      throw new Error('La factura no tiene rechazo SRI por FECHA EMISION EXTEMPORANEA.');
+    }
+
+    const now = new Date().toISOString();
+    const accessKeyAnterior = factura.AccessKey;
+    const numericCodeAnterior = factura.NumericCode;
+    const issueDateAnterior = factura.IssueDate;
+    const sequentialPrevio = factura.Sequential;
+    const documentNumberPrevio = factura.DocumentNumber;
+
+    updateRow(sheet, factura, {
+      Status: 'SEQUENCE_RESERVED',
+      AccessKey: '',
+      NumericCode: '',
+      IssueDate: '',
+      XmlGeneratedReference: '',
+      XmlSignedReference: '',
+      Sha256Generated: '',
+      Sha256Signed: '',
+      Sha256Authorized: '',
+      SriReceptionStatus: '',
+      SriAuthorizationStatus: '',
+      AuthorizationNumber: '',
+      AuthorizationDate: '',
+      AuthorizedAt: '',
+      DeliveredAt: '',
+      XmlAuthorizedReference: '',
+      XmlAuthorizedContent: '',
+      RideReference: '',
+      Sha256Ride: '',
+      LastSriMessage: '',
+      ReviewFlag: '',
+      ReviewReason: '',
+      UpdatedAt: now,
+    });
+
+    registrarAuditoriaFiscal({
+      facturaId: p.facturaId,
+      usuario: user.Username,
+      rol: user.Rol,
+      accion: 'FACTURA_EXTEMPORANEOUS_ISSUE_DATE_RESET',
+      estadoAnterior: 'NOT_AUTHORIZED',
+      estadoNuevo: 'SEQUENCE_RESERVED',
+      canal: 'api',
+      resultado: 'ok',
+      motivo: 'Se descartó AccessKey/XML con fecha extemporánea para regenerar con zona horaria America/Guayaquil.',
+      metadatos: {
+        motivoRechazoAnterior: rechazo,
+        accessKeyAnterior: accessKeyAnterior,
+        numericCodeAnterior: numericCodeAnterior,
+        issueDateAnterior: issueDateAnterior,
+        sequential: sequentialPrevio,
+        documentNumber: documentNumberPrevio,
+      },
+    });
+
+    const { row: actualizada } = facturaFiscalPorId_(p.facturaId);
+    if (actualizada.Sequential !== sequentialPrevio || actualizada.DocumentNumber !== documentNumberPrevio) {
+      throw new Error('Invariante violada: Sequential/DocumentNumber cambiaron durante la recuperación.');
+    }
+    if (actualizada.AccessKey || actualizada.NumericCode || actualizada.IssueDate) {
+      throw new Error('Invariante violada: AccessKey/NumericCode/IssueDate no fueron limpiados para regeneración controlada.');
+    }
+    return { success: true, data: actualizada };
   });
 }
 

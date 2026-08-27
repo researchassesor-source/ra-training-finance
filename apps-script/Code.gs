@@ -147,6 +147,8 @@ function processRequest(data) {
     listarFacturasPendientesDePolling: () => listarFacturasPendientesDePolling(user, params),
     reanudarPollingFactura:         () => reanudarPollingFactura(user, params),
     reabrirFacturaRechazadaParaCorreccion: () => reabrirFacturaRechazadaParaCorreccion(user, params),
+    recuperarFacturaRechazadaPorIdentificacionReceptor: () => recuperarFacturaRechazadaPorIdentificacionReceptor(user, params),
+    recuperarFacturaRechazadaPorFechaEmisionExtemporanea: () => recuperarFacturaRechazadaPorFechaEmisionExtemporanea(user, params),
     backfillSriPaymentCodeFacturaAutorizada: () => backfillSriPaymentCodeFacturaAutorizada(user, params),
     guardarRideFiscal:              () => guardarRideFiscal(user, params),
     getDocumentoFiscalParaDescarga: () => getDocumentoFiscalParaDescarga(user, params),
@@ -265,7 +267,7 @@ function sheetToObjects(sheet) {
       const obj = { _row: i + 2 };
       headers.forEach((h, j) => {
         // Google Sheets returns Date objects for date-formatted cells; convert to ISO string
-        const value = row[j] instanceof Date ? row[j].toISOString() : row[j];
+        const value = row[j] instanceof Date ? row[j].toISOString() : normalizarValorTextoSensible_(h, row[j]);
         // Si una hoja real tiene encabezados duplicados por migraciones/manual,
         // una columna vacia posterior no debe borrar el valor leido antes.
         if (obj[h] !== undefined && (value === '' || value === null || value === undefined)) return;
@@ -284,9 +286,71 @@ function updateRow(sheet, row, fieldMap) {
     headers.forEach(function(header, index) {
       // Actualizar todas las columnas con el mismo encabezado. Esto corrige hojas
       // productivas con columnas duplicadas (ej. Capacitador) sin destruir datos.
-      if (header === col) sheet.getRange(row._row, index + 1).setValue(normalized);
+      if (header === col) {
+        const range = sheet.getRange(row._row, index + 1);
+        escribirCeldaPreservandoTexto_(range, header, normalized);
+      }
     });
   });
+}
+
+const TEXT_SENSITIVE_HEADERS = {
+  ID: true,
+  ClienteID: true,
+  ClienteTelefono: true,
+  RUC: true,
+  NumeroComprobante: true,
+  IngresoID: true,
+  ServicioID: true,
+  ContratoID: true,
+  FacturaID: true,
+  CRMEnrollmentID: true,
+  CRMContactID: true,
+  CRMCourseID: true,
+  IssuerRuc: true,
+  Establishment: true,
+  EmissionPoint: true,
+  Sequential: true,
+  DocumentNumber: true,
+  AccessKey: true,
+  NumericCode: true,
+  BuyerIdentification: true,
+  BuyerIdentificationType: true,
+  SriPaymentCode: true,
+  AuthorizationNumber: true,
+  LastSequential: true,
+};
+
+function esEncabezadoTextoSensible_(header) {
+  return !!TEXT_SENSITIVE_HEADERS[String(header || '').trim()];
+}
+
+function normalizarValorTextoSensible_(header, value) {
+  if (!esEncabezadoTextoSensible_(header)) return value;
+  if (value === null || value === undefined) return '';
+  return String(value).trim();
+}
+
+function escribirCeldaPreservandoTexto_(range, header, value) {
+  if (esEncabezadoTextoSensible_(header)) {
+    range.setNumberFormat('@');
+    return range.setValue(normalizarValorTextoSensible_(header, value));
+  }
+  return range.setValue(value);
+}
+
+function appendRowPreservandoTexto_(sheet, headers, rowValues) {
+  const values = headers.map(function(header, index) {
+    const value = rowValues[index] === undefined || rowValues[index] === null ? '' : rowValues[index];
+    return normalizarValorTextoSensible_(header, value);
+  });
+  sheet.appendRow(values);
+  const rowNumber = sheet.getLastRow();
+  headers.forEach(function(header, index) {
+    if (!esEncabezadoTextoSensible_(header)) return;
+    escribirCeldaPreservandoTexto_(sheet.getRange(rowNumber, index + 1), header, values[index]);
+  });
+  return rowNumber;
 }
 
 function generateId(prefix) {
@@ -503,6 +567,9 @@ function valorInscripcionParaCliente(field, value) {
     const normalized = fechaSolo(value);
     return normalized || value;
   }
+  if (esEncabezadoTextoSensible_(field)) {
+    return normalizarValorTextoSensible_(field, value);
+  }
   if (esObjetoFecha(value)) {
     return value.toISOString();
   }
@@ -663,7 +730,7 @@ function actualizarFilaInscripcionFisica(sheet, rowNumber, fieldMap) {
       return all.indexOf(column) === index;
     });
     equivalentColumns.forEach(function(column) {
-      sheet.getRange(rowNumber, column + 1).setValue(value);
+      escribirCeldaPreservandoTexto_(sheet.getRange(rowNumber, column + 1), field, value);
     });
   });
 }
@@ -680,9 +747,16 @@ function appendInscripcionPorEncabezados(sheet, valuesByField) {
   fields.forEach(function(field) {
     values[schema.indices[field]] = valuesByField[field] === undefined || valuesByField[field] === null
       ? ''
-      : valuesByField[field];
+      : normalizarValorTextoSensible_(field, valuesByField[field]);
   });
   sheet.appendRow(values);
+  const rowNumber = sheet.getLastRow();
+  fields.forEach(function(field) {
+    if (!esEncabezadoTextoSensible_(field)) return;
+    const columnIndex = schema.indices[field];
+    if (columnIndex === undefined) return;
+    escribirCeldaPreservandoTexto_(sheet.getRange(rowNumber, columnIndex + 1), field, valuesByField[field]);
+  });
 }
 
 function registrarRechazoActualizacionHistorica(user, id, historicalKey, motivo) {

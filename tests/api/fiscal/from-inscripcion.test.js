@@ -140,6 +140,18 @@ describe('POST /api/fiscal/from-inscripcion — guard de entorno Production (hot
 })
 
 describe('POST /api/fiscal/from-inscripcion — aislamiento test/production e idempotencia', () => {
+  it('conserva una cédula ecuatoriana con cero inicial al construir el borrador fiscal', async () => {
+    inscripcionesFixture = [validInscripcion({ ClienteID: '0102030405' })]
+    const res = mockRes()
+    await handler({ method: 'POST', body: { token: 'tok', inscripcionId: 'INS-1' } }, res)
+
+    expect(callsFor('crearBorradorFactura')).toHaveLength(1)
+    expect(callsFor('crearBorradorFactura')[0][1]).toMatchObject({
+      buyerIdentificationType: 'cedula',
+      buyerIdentification: '0102030405',
+    })
+  })
+
   it('8. un DRAFT test existente NO hace idempotente un intento production (InscripcionID + environment)', async () => {
     process.env.VERCEL_ENV = 'production'
     process.env.SRI_ENVIRONMENT = 'production'

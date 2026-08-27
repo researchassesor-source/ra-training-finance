@@ -150,9 +150,38 @@ describe('handoff idempotente CRM a Finance', () => {
 
     expect(result).toMatchObject({ success: true, id: expect.any(String), ingresoId: expect.any(String) })
     expect(harness.objects('Inscripciones')[0]).toMatchObject({
-      EstadoPago: 'verificado', Origen: '', CRMEnrollmentID: '', MetodoPago: 'Efectivo',
+      ClienteID: '0102030405', EstadoPago: 'verificado', Origen: '', CRMEnrollmentID: '', MetodoPago: 'Efectivo',
     })
+    const headers = harness.sheets.Inscripciones.rows[0]
+    const clienteIdIndex = headers.indexOf('ClienteID')
+    expect(harness.sheets.Inscripciones.formats[1][clienteIdIndex]).toBe('@')
     expect(harness.objects('Ingresos')[0].Estado).toBe('confirmado')
+  })
+
+  it('actualiza una cédula con cero inicial como texto para que facturación no pierda el primer dígito', () => {
+    const harness = createHarness()
+    const created = harness.context.processRequest({
+      action: 'addInscripcion', token: 'integration-token',
+      inscripcion: {
+        clienteNombre: 'Registro Manual', clienteID: '1804417424', clienteEmail: 'manual@example.test',
+        clienteTelefono: '0980000000', servicioId: 'SRV-CRM-1', servicioNombre: 'Curso de Liderazgo Ágil',
+        modalidad: 'Virtual', fechaInicio: '2026-09-05', fechaFin: '2026-09-06', monto: 50,
+        metodoPago: 'Efectivo', estadoPago: 'pendiente', requiereAvalExterno: false,
+      },
+    })
+
+    const result = harness.context.processRequest({
+      action: 'updateInscripcion',
+      token: 'integration-token',
+      id: created.id,
+      inscripcion: { clienteID: '0102030405' },
+    })
+
+    const headers = harness.sheets.Inscripciones.rows[0]
+    const clienteIdIndex = headers.indexOf('ClienteID')
+    expect(result).toMatchObject({ success: true, persistenceVerified: true })
+    expect(harness.objects('Inscripciones')[0].ClienteID).toBe('0102030405')
+    expect(harness.sheets.Inscripciones.formats[1][clienteIdIndex]).toBe('@')
   })
 
   it('permite actualizar aval institucional en una inscripción CRM sin cédula y conserva la trazabilidad', () => {
