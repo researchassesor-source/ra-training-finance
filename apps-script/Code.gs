@@ -4478,7 +4478,7 @@ function addActividadFlujo(user, { actividad } = {}) {
     Titulo: actividad.titulo,
     Descripcion: actividad.descripcion || '',
     DescripcionFormato: actividad.descripcionFormato || 'texto_enriquecido_v1',
-    DiaSemana: actividad.diaSemana || 'Lunes',
+    DiaSemana: normalizarDiaSemanaFlujo_(actividad.diaSemana || 'Lunes'),
     HorasEstimadas: Number(actividad.horasEstimadas) || 1,
     Estado: 'pendiente',
     HorasReales: 0,
@@ -4500,6 +4500,21 @@ function addActividadFlujo(user, { actividad } = {}) {
     return registro[header] !== undefined ? registro[header] : '';
   }));
   return { success: true, id: id };
+}
+
+function normalizarDiaSemanaFlujo_(dia) {
+  var raw = String(dia || '').trim().toLowerCase();
+  var normalized = raw
+    .normalize ? raw.normalize('NFD').replace(/[\u0300-\u036f]/g, '') : raw;
+  var map = {
+    lunes: 'Lunes',
+    martes: 'Martes',
+    miercoles: 'Miércoles',
+    jueves: 'Jueves',
+    viernes: 'Viernes',
+  };
+  if (!map[normalized]) throw new Error('Día de actividad inválido.');
+  return map[normalized];
 }
 
 function parseChecklistFlujo_(value) {
@@ -4571,7 +4586,7 @@ function updateActividadFlujo(user, { id, actividad } = {}) {
     if (actividad.titulo        !== undefined) fields.Titulo          = actividad.titulo;
     if (actividad.descripcion   !== undefined) fields.Descripcion     = actividad.descripcion;
     if (actividad.descripcionFormato !== undefined) fields.DescripcionFormato = actividad.descripcionFormato;
-    if (actividad.diaSemana     !== undefined) fields.DiaSemana       = actividad.diaSemana;
+    if (actividad.diaSemana     !== undefined) fields.DiaSemana       = normalizarDiaSemanaFlujo_(actividad.diaSemana);
     if (actividad.horasEstimadas !== undefined) fields.HorasEstimadas = Number(actividad.horasEstimadas) || 0;
     if (actividad.estadoRevision !== undefined) {
       var revision = String(actividad.estadoRevision || '').trim();
@@ -4592,8 +4607,10 @@ function updateActividadFlujo(user, { id, actividad } = {}) {
       fields.RevisadoEn = new Date().toISOString();
       if (actividad.reprogramadoPara !== undefined) {
         fields.ReprogramadoDesde = row.DiaSemana || '';
-        fields.ReprogramadoPara = actividad.reprogramadoPara || '';
-        if (actividad.reprogramadoPara) fields.DiaSemana = actividad.reprogramadoPara;
+        fields.ReprogramadoPara = actividad.reprogramadoPara
+          ? normalizarDiaSemanaFlujo_(actividad.reprogramadoPara)
+          : '';
+        if (actividad.reprogramadoPara) fields.DiaSemana = fields.ReprogramadoPara;
       }
     } else if (actividad.feedbackRevision !== undefined) {
       fields.FeedbackRevision = String(actividad.feedbackRevision || '');

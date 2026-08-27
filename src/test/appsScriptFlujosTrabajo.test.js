@@ -67,6 +67,46 @@ describe('flujos de trabajo enriquecidos', () => {
     })
   })
 
+  it('normaliza el día al crear actividades para que no queden ocultas fuera del calendario semanal', () => {
+    const harness = createHarness()
+
+    const created = harness.context.processRequest({
+      action: 'addActividadFlujo',
+      token: 'admin-token',
+      actividad: {
+        flujoId: 'FLJ-1',
+        titulo: 'Revisión y optimización de CRM',
+        descripcion: 'Validar CRM y automatizaciones.',
+        diaSemana: ' martes ',
+        horasEstimadas: 4,
+        checklist: '[]',
+      },
+    })
+    const row = harness.objects('ActividadesFlujo')[0]
+
+    expect(created.success).toBe(true)
+    expect(row.DiaSemana).toBe('Martes')
+  })
+
+  it('rechaza días inválidos al crear actividades para evitar registros imposibles de mostrar', () => {
+    const harness = createHarness()
+
+    const created = harness.context.processRequest({
+      action: 'addActividadFlujo',
+      token: 'admin-token',
+      actividad: {
+        flujoId: 'FLJ-1',
+        titulo: 'Actividad con día inválido',
+        diaSemana: 'Sábado',
+        horasEstimadas: 1,
+      },
+    })
+
+    expect(created.success).toBe(false)
+    expect(created.error).toContain('Día de actividad inválido')
+    expect(harness.objects('ActividadesFlujo')).toHaveLength(0)
+  })
+
   it('permite al encargado marcar checklist, guardar notas e imágenes sin permisos admin', () => {
     const harness = createHarness()
     harness.seed('ActividadesFlujo', [{
@@ -315,5 +355,47 @@ describe('flujos de trabajo enriquecidos', () => {
     expect(row.ReprogramadoDesde).toBe('Jueves')
     expect(row.ReprogramadoPara).toBe('Viernes')
     expect(row.DiaSemana).toBe('Viernes')
+  })
+
+  it('normaliza el día al editar o reprogramar actividades', () => {
+    const harness = createHarness()
+    harness.seed('ActividadesFlujo', [{
+      ID: 'ACT-DAY-1',
+      FlujoID: 'FLJ-1',
+      Username: 'angel',
+      Titulo: 'Mover actividad',
+      DiaSemana: 'Lunes',
+      HorasEstimadas: 2,
+      Estado: 'pendiente',
+      HorasReales: 0,
+      EstadoRevision: 'pendiente_revision',
+      HorasAprobadas: 0,
+    }])
+
+    const edited = harness.context.processRequest({
+      action: 'updateActividadFlujo',
+      token: 'admin-token',
+      id: 'ACT-DAY-1',
+      actividad: { diaSemana: ' miercoles ' },
+    })
+    expect(edited.success).toBe(true)
+    expect(harness.objects('ActividadesFlujo')[0].DiaSemana).toBe('Miércoles')
+
+    const reprogrammed = harness.context.processRequest({
+      action: 'updateActividadFlujo',
+      token: 'admin-token',
+      id: 'ACT-DAY-1',
+      actividad: {
+        estadoRevision: 'rechazado',
+        feedbackRevision: 'Reprogramar para revisión posterior.',
+        reprogramadoPara: ' viernes ',
+      },
+    })
+
+    const row = harness.objects('ActividadesFlujo')[0]
+    expect(reprogrammed.success).toBe(true)
+    expect(row.DiaSemana).toBe('Viernes')
+    expect(row.ReprogramadoDesde).toBe('Miércoles')
+    expect(row.ReprogramadoPara).toBe('Viernes')
   })
 })

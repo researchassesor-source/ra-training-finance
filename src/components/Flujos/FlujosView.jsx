@@ -14,6 +14,19 @@ import {
 
 const DIAS_SEMANA = ['Lunes','Martes','Miércoles','Jueves','Viernes']
 
+function normalizeDiaSemana(value) {
+  const raw = String(value || '').trim().toLowerCase()
+  const normalized = raw.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  const map = {
+    lunes: 'Lunes',
+    martes: 'Martes',
+    miercoles: 'Miércoles',
+    jueves: 'Jueves',
+    viernes: 'Viernes',
+  }
+  return map[normalized] || ''
+}
+
 function getMondayOf(dateStr) {
   let d
   if (dateStr) {
@@ -243,11 +256,13 @@ function ActividadCard({ act, isAdmin, onUpdate, onDelete }) {
   const [revisionError, setRevisionError] = useState('')
   const [detalle, setDetalle]           = useState({
     titulo: act.Titulo, descripcion: act.Descripcion || '',
-    diaSemana: act.DiaSemana, horasEstimadas: act.HorasEstimadas,
+    diaSemana: normalizeDiaSemana(act.DiaSemana) || 'Lunes', horasEstimadas: act.HorasEstimadas,
   })
   const [saving, setSaving]             = useState(false)
   const [imageError, setImageError]     = useState('')
   const est = ESTADO_ACT[act.Estado] || ESTADO_ACT.pendiente
+  const tituloActividad = act.Titulo || 'Actividad sin título'
+  const diaActividad = normalizeDiaSemana(act.DiaSemana) || act.DiaSemana || 'Sin día asignado'
   const Icon = est.icon
   const revisionEstado = getRevisionEstado(act)
   const revision = REVISION_ACT[revisionEstado] || REVISION_ACT.pendiente_revision
@@ -338,7 +353,7 @@ function ActividadCard({ act, isAdmin, onUpdate, onDelete }) {
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
           <p className={`font-semibold text-sm ${act.Estado === 'completado' ? 'line-through text-gray-400' : 'text-gray-900'}`}>
-            {act.Titulo}
+            {tituloActividad}
           </p>
           <FormattedDescription text={act.Descripcion} />
         </div>
@@ -387,7 +402,7 @@ function ActividadCard({ act, isAdmin, onUpdate, onDelete }) {
         <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-medium ${est.css}`}>
           <Icon size={11} /> {est.label}
         </span>
-        <span className="text-gray-400">{act.DiaSemana}</span>
+        <span className="text-gray-400">{diaActividad}</span>
         <span className="text-gray-400">{act.HorasEstimadas}h estimadas</span>
         {checklistTotal > 0 && (
           <span className="text-indigo-700 font-medium">{checklistDone}/{checklistTotal} verificadas</span>
@@ -531,7 +546,7 @@ function ActividadCard({ act, isAdmin, onUpdate, onDelete }) {
               <select className="input text-sm" value={revisionReprogramar}
                 onChange={e => setRevisionReprogramar(e.target.value)}>
                 <option value="">No reprogramar</option>
-                {DIAS_SEMANA.filter(d => d !== act.DiaSemana).map(d => <option key={d}>{d}</option>)}
+                {DIAS_SEMANA.filter(d => d !== diaActividad).map(d => <option key={d}>{d}</option>)}
               </select>
             </div>
           </div>
@@ -765,12 +780,14 @@ export default function FlujosView() {
   const aprobadas = flujoActual?.actividades?.filter(a => getRevisionEstado(a) === 'aprobado').length || 0
   const rechazadas = flujoActual?.actividades?.filter(a => getRevisionEstado(a) === 'rechazado').length || 0
   const totalActs   = flujoActual?.actividades?.length || 0
+  const actividades = flujoActual?.actividades || []
 
   // Agrupar actividades por día
   const actsByDia = DIAS_SEMANA.reduce((acc, d) => {
-    acc[d] = (flujoActual?.actividades || []).filter(a => a.DiaSemana === d)
+    acc[d] = actividades.filter(a => normalizeDiaSemana(a.DiaSemana) === d)
     return acc
   }, {})
+  const actsSinDia = actividades.filter(a => !normalizeDiaSemana(a.DiaSemana))
 
   return (
     <div className="space-y-5">
@@ -970,6 +987,28 @@ export default function FlujosView() {
                     </div>
                   )
                 })}
+                {actsSinDia.length > 0 && (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+                    <div className="flex items-center gap-2 mb-2 text-amber-800">
+                      <AlertCircle size={15} />
+                      <span className="text-sm font-bold">Actividades guardadas sin día válido</span>
+                      <span className="text-xs text-amber-700">
+                        Edita la actividad y asígnala a Lunes, Martes, Miércoles, Jueves o Viernes.
+                      </span>
+                    </div>
+                    <div className="space-y-2">
+                      {actsSinDia.map(act => (
+                        <ActividadCard
+                          key={act.ID}
+                          act={act}
+                          isAdmin={isAdmin}
+                          onUpdate={handleUpdateAct}
+                          onDelete={setConfirmDel}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Admin: agregar actividad global */}
@@ -997,7 +1036,7 @@ export default function FlujosView() {
       <ConfirmDialog
         open={!!confirmDel} onClose={() => setConfirmDel(null)} onConfirm={handleDeleteAct}
         loading={deleting} title="Eliminar Actividad"
-        message={`¿Eliminar la actividad "${confirmDel?.Titulo}"?`}
+        message={`¿Eliminar la actividad "${confirmDel?.Titulo || 'Actividad sin título'}"?`}
       />
 
       <ConfirmDialog
