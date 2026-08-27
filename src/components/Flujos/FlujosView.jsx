@@ -8,6 +8,7 @@ import TableSkeleton from '../UI/TableSkeleton'
 import {
   Plus, Pencil, Trash2, CheckCircle, Clock, ChevronLeft, ChevronRight,
   ListChecks, PlayCircle, AlertCircle, Paperclip, ExternalLink,
+  Image as ImageIcon, X, Bold, List, ListOrdered, CheckSquare, Save,
 } from 'lucide-react'
 
 const DIAS_SEMANA = ['Lunes','Martes','Miércoles','Jueves','Viernes']
@@ -42,10 +43,175 @@ const ESTADO_ACT = {
   bloqueado:   { label: 'Bloqueado',    css: 'bg-red-100 text-red-700',      icon: AlertCircle },
 }
 
+const MAX_WORKFLOW_IMAGE_CHARS = 42_000
+const MAX_WORKFLOW_IMAGES = 3
+
+function parseJsonArray(value) {
+  if (Array.isArray(value)) return value
+  if (!value) return []
+  try {
+    const parsed = JSON.parse(value)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+function stringifyWorkflowArray(items) {
+  return JSON.stringify(Array.isArray(items) ? items : [])
+}
+
+function insertSnippet(text, snippet) {
+  return `${text || ''}${text ? '\n' : ''}${snippet}`
+}
+
+function RichTextBox({ value, onChange, rows = 4, placeholder = 'Describe la actividad...' }) {
+  const insert = (snippet) => onChange(insertSnippet(value, snippet))
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap gap-1.5">
+        <button type="button" onClick={() => insert('**texto importante**')}
+          className="text-xs px-2 py-1 rounded-lg bg-white border border-gray-200 hover:bg-gray-50 flex items-center gap-1">
+          <Bold size={12} /> Negrita
+        </button>
+        <button type="button" onClick={() => insert('• Punto clave')}
+          className="text-xs px-2 py-1 rounded-lg bg-white border border-gray-200 hover:bg-gray-50 flex items-center gap-1">
+          <List size={12} /> Lista
+        </button>
+        <button type="button" onClick={() => insert('1. Paso a realizar')}
+          className="text-xs px-2 py-1 rounded-lg bg-white border border-gray-200 hover:bg-gray-50 flex items-center gap-1">
+          <ListOrdered size={12} /> Pasos
+        </button>
+        <button type="button" onClick={() => insert('[ ] Actividad verificable')}
+          className="text-xs px-2 py-1 rounded-lg bg-white border border-gray-200 hover:bg-gray-50 flex items-center gap-1">
+          <CheckSquare size={12} /> Checklist
+        </button>
+      </div>
+      <textarea className="input text-sm font-mono leading-relaxed" rows={rows} value={value}
+        onChange={e => onChange(e.target.value)} placeholder={placeholder} />
+      <p className="text-[11px] text-gray-400">
+        Usa saltos de línea, listas y marcas [ ] / [x] para estructurar la explicación.
+      </p>
+    </div>
+  )
+}
+
+function FormattedDescription({ text }) {
+  if (!text) return null
+  return (
+    <div className="mt-2 rounded-lg bg-white/70 border border-gray-100 px-3 py-2 text-xs text-gray-600 whitespace-pre-wrap leading-relaxed">
+      {text}
+    </div>
+  )
+}
+
+function normalizeChecklist(items) {
+  return parseJsonArray(items)
+    .map((item, index) => ({
+      id: item.id || `chk-${index + 1}`,
+      text: String(item.text || '').trim(),
+      done: item.done === true,
+    }))
+    .filter(item => item.text)
+}
+
+function WorkflowChecklist({ items, onChange, readOnly = false }) {
+  const [draft, setDraft] = useState('')
+  const checklist = normalizeChecklist(items)
+  const update = (next) => onChange(next)
+  const toggle = (id) => update(checklist.map(item => item.id === id ? { ...item, done: !item.done } : item))
+  const remove = (id) => update(checklist.filter(item => item.id !== id))
+  const add = () => {
+    const text = draft.trim()
+    if (!text) return
+    update([...checklist, { id: `chk-${Date.now()}`, text, done: false }])
+    setDraft('')
+  }
+
+  return (
+    <div className="rounded-xl border border-gray-200 bg-white/80 p-3 space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs font-semibold text-gray-700 flex items-center gap-1.5">
+          <ListChecks size={14} /> Checklist de verificación
+        </p>
+        <span className="text-[11px] text-gray-400">
+          {checklist.filter(i => i.done).length}/{checklist.length} completadas
+        </span>
+      </div>
+      {checklist.length === 0 ? (
+        <p className="text-xs text-gray-400 italic">Sin puntos de verificación todavía.</p>
+      ) : (
+        <div className="space-y-1.5">
+          {checklist.map(item => (
+            <div key={item.id} className="flex items-start gap-2 text-xs">
+              <button type="button" disabled={readOnly} onClick={() => toggle(item.id)}
+                className={`mt-0.5 h-4 w-4 rounded border flex items-center justify-center ${
+                  item.done ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-gray-300 bg-white'
+                } ${readOnly ? 'cursor-default' : 'hover:border-emerald-500'}`}>
+                {item.done && <CheckCircle size={11} />}
+              </button>
+              <span className={`flex-1 ${item.done ? 'line-through text-gray-400' : 'text-gray-700'}`}>{item.text}</span>
+              {!readOnly && (
+                <button type="button" onClick={() => remove(item.id)}
+                  className="text-gray-300 hover:text-red-500"><X size={12} /></button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      {!readOnly && (
+        <div className="flex gap-2 pt-1">
+          <input className="input text-xs flex-1" value={draft}
+            onChange={e => setDraft(e.target.value)} placeholder="Nuevo punto de verificación..." />
+          <button type="button" onClick={add} className="btn-secondary text-xs px-3">Agregar</button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+async function compressWorkflowImage(file) {
+  if (!file || !file.type?.startsWith('image/')) {
+    throw new Error('Solo se permiten imágenes.')
+  }
+  const dataUrl = await new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result)
+    reader.onerror = () => reject(new Error('No se pudo leer la imagen.'))
+    reader.readAsDataURL(file)
+  })
+  const img = await new Promise((resolve, reject) => {
+    const image = new Image()
+    image.onload = () => resolve(image)
+    image.onerror = () => reject(new Error('No se pudo procesar la imagen.'))
+    image.src = dataUrl
+  })
+  const maxWidth = 900
+  const scale = Math.min(1, maxWidth / img.width)
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(1, Math.round(img.width * scale))
+  canvas.height = Math.max(1, Math.round(img.height * scale))
+  const ctx = canvas.getContext('2d')
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+  const compressed = canvas.toDataURL('image/jpeg', 0.72)
+  if (compressed.length > MAX_WORKFLOW_IMAGE_CHARS) {
+    throw new Error('La imagen sigue siendo muy pesada. Usa una captura más pequeña o súbela a Drive y pega el enlace.')
+  }
+  return {
+    id: `img-${Date.now()}`,
+    name: file.name || 'captura.jpg',
+    type: 'image/jpeg',
+    dataUrl: compressed,
+    createdAt: new Date().toISOString(),
+  }
+}
+
 function ActividadCard({ act, isAdmin, onUpdate, onDelete }) {
   const [editHoras, setEditHoras]       = useState(false)
   const [editEvidencia, setEditEvidencia] = useState(false)
   const [editDetalle, setEditDetalle]   = useState(false)
+  const [checklist, setChecklist]       = useState(() => normalizeChecklist(act.Checklist))
+  const [imagenes, setImagenes]         = useState(() => parseJsonArray(act.Imagenes))
   const [horas, setHoras]               = useState(act.HorasReales || 0)
   const [notas, setNotas]               = useState(act.Notas || '')
   const [evidencia, setEvidencia]       = useState(act.Evidencia || '')
@@ -54,6 +220,7 @@ function ActividadCard({ act, isAdmin, onUpdate, onDelete }) {
     diaSemana: act.DiaSemana, horasEstimadas: act.HorasEstimadas,
   })
   const [saving, setSaving]             = useState(false)
+  const [imageError, setImageError]     = useState('')
   const est = ESTADO_ACT[act.Estado] || ESTADO_ACT.pendiente
   const Icon = est.icon
 
@@ -66,7 +233,7 @@ function ActividadCard({ act, isAdmin, onUpdate, onDelete }) {
 
   async function saveEvidencia() {
     setSaving(true)
-    await onUpdate(act.ID, { evidencia })
+    await onUpdate(act.ID, { evidencia, imagenes: stringifyWorkflowArray(imagenes) })
     setSaving(false)
     setEditEvidencia(false)
   }
@@ -75,16 +242,47 @@ function ActividadCard({ act, isAdmin, onUpdate, onDelete }) {
     setSaving(true)
     await onUpdate(act.ID, {
       titulo: detalle.titulo, descripcion: detalle.descripcion,
+      descripcionFormato: 'texto_enriquecido_v1',
       diaSemana: detalle.diaSemana, horasEstimadas: Number(detalle.horasEstimadas),
     })
     setSaving(false)
     setEditDetalle(false)
   }
 
+  async function saveChecklist(nextChecklist = checklist) {
+    setChecklist(nextChecklist)
+    await onUpdate(act.ID, { checklist: stringifyWorkflowArray(nextChecklist) })
+  }
+
+  async function handleImageUpload(event) {
+    const files = Array.from(event.target.files || [])
+    if (files.length === 0) return
+    setImageError('')
+    try {
+      const disponibles = Math.max(0, MAX_WORKFLOW_IMAGES - imagenes.length)
+      if (disponibles === 0) throw new Error(`Máximo ${MAX_WORKFLOW_IMAGES} imágenes por actividad.`)
+      const nuevas = []
+      for (const file of files.slice(0, disponibles)) {
+        nuevas.push(await compressWorkflowImage(file))
+      }
+      setImagenes(prev => [...prev, ...nuevas])
+    } catch (err) {
+      setImageError(err.message || 'No se pudo cargar la imagen.')
+    } finally {
+      event.target.value = ''
+    }
+  }
+
+  function removeImage(id) {
+    setImagenes(prev => prev.filter(img => img.id !== id))
+  }
+
   const isUrl = (s) => s && (s.startsWith('http://') || s.startsWith('https://'))
+  const checklistDone = checklist.filter(item => item.done).length
+  const checklistTotal = checklist.length
 
   return (
-    <div className={`border rounded-xl p-4 space-y-2 transition-all
+    <div className={`border rounded-xl p-4 space-y-3 transition-all
       ${act.Estado === 'completado' ? 'bg-emerald-50 border-emerald-200' :
         act.Estado === 'en_proceso' ? 'bg-blue-50 border-blue-200' :
         act.Estado === 'bloqueado'  ? 'bg-red-50 border-red-200' :
@@ -94,7 +292,7 @@ function ActividadCard({ act, isAdmin, onUpdate, onDelete }) {
           <p className={`font-semibold text-sm ${act.Estado === 'completado' ? 'line-through text-gray-400' : 'text-gray-900'}`}>
             {act.Titulo}
           </p>
-          {act.Descripcion && <p className="text-xs text-gray-500 mt-0.5">{act.Descripcion}</p>}
+          <FormattedDescription text={act.Descripcion} />
         </div>
         <div className="flex gap-1 flex-shrink-0">
           {isAdmin && (
@@ -116,8 +314,9 @@ function ActividadCard({ act, isAdmin, onUpdate, onDelete }) {
         <div className="pt-2 space-y-2 border-t border-gray-100">
           <input className="input text-sm" value={detalle.titulo}
             onChange={e => setDetalle(d => ({ ...d, titulo: e.target.value }))} placeholder="Título" />
-          <textarea className="input text-sm" rows={2} value={detalle.descripcion}
-            onChange={e => setDetalle(d => ({ ...d, descripcion: e.target.value }))} placeholder="Descripción (opcional)" />
+          <RichTextBox value={detalle.descripcion}
+            onChange={value => setDetalle(d => ({ ...d, descripcion: value }))}
+            placeholder="Descripción organizada: objetivos, pasos, notas, enlaces o checklist textual..." />
           <div className="flex gap-2">
             <select className="input text-sm flex-1" value={detalle.diaSemana}
               onChange={e => setDetalle(d => ({ ...d, diaSemana: e.target.value }))}>
@@ -142,22 +341,43 @@ function ActividadCard({ act, isAdmin, onUpdate, onDelete }) {
         </span>
         <span className="text-gray-400">{act.DiaSemana}</span>
         <span className="text-gray-400">{act.HorasEstimadas}h estimadas</span>
+        {checklistTotal > 0 && (
+          <span className="text-indigo-700 font-medium">{checklistDone}/{checklistTotal} verificadas</span>
+        )}
         {Number(act.HorasReales) > 0 && (
           <span className="text-emerald-700 font-medium">{act.HorasReales}h reales</span>
         )}
       </div>
 
+      <WorkflowChecklist items={checklist} onChange={saveChecklist} readOnly={false} />
+
       {/* Evidencia adjunta */}
-      {act.Evidencia && (
-        <div className="flex items-center gap-1.5 text-xs text-gray-600 bg-white/70 rounded-lg px-2.5 py-1.5 border border-gray-200">
-          <Paperclip size={12} className="text-gray-400 flex-shrink-0" />
-          {isUrl(act.Evidencia) ? (
-            <a href={act.Evidencia} target="_blank" rel="noopener noreferrer"
-              className="text-brand-600 hover:underline flex items-center gap-1 truncate">
-              Ver evidencia <ExternalLink size={11} />
-            </a>
-          ) : (
-            <span className="truncate">{act.Evidencia}</span>
+      {(act.Evidencia || imagenes.length > 0) && (
+        <div className="space-y-2">
+          {act.Evidencia && (
+            <div className="flex items-center gap-1.5 text-xs text-gray-600 bg-white/70 rounded-lg px-2.5 py-1.5 border border-gray-200">
+              <Paperclip size={12} className="text-gray-400 flex-shrink-0" />
+              {isUrl(act.Evidencia) ? (
+                <a href={act.Evidencia} target="_blank" rel="noopener noreferrer"
+                  className="text-brand-600 hover:underline flex items-center gap-1 truncate">
+                  Ver evidencia <ExternalLink size={11} />
+                </a>
+              ) : (
+                <span className="truncate">{act.Evidencia}</span>
+              )}
+            </div>
+          )}
+          {imagenes.length > 0 && (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              {imagenes.map(img => (
+                <a key={img.id} href={img.dataUrl} target="_blank" rel="noopener noreferrer"
+                  className="group block rounded-lg overflow-hidden border border-gray-200 bg-white">
+                  <img src={img.dataUrl} alt={img.name || 'Evidencia visual'}
+                    className="h-24 w-full object-cover group-hover:opacity-90" />
+                  <span className="block truncate px-2 py-1 text-[11px] text-gray-500">{img.name || 'Captura'}</span>
+                </a>
+              ))}
+            </div>
           )}
         </div>
       )}
@@ -186,7 +406,7 @@ function ActividadCard({ act, isAdmin, onUpdate, onDelete }) {
         {act.Estado !== 'pendiente' && (
           <button onClick={() => { setEditEvidencia(v => !v); setEditHoras(false) }}
             className="text-xs px-2.5 py-1 rounded-lg bg-amber-100 text-amber-700 hover:bg-amber-200 flex items-center gap-1">
-            <Paperclip size={12} /> {act.Evidencia ? 'Editar evidencia' : 'Agregar evidencia'}
+            <Paperclip size={12} /> {(act.Evidencia || imagenes.length) ? 'Editar evidencia' : 'Agregar evidencia'}
           </button>
         )}
       </div>
@@ -209,14 +429,36 @@ function ActividadCard({ act, isAdmin, onUpdate, onDelete }) {
       {/* Panel: Evidencia */}
       {editEvidencia && (
         <div className="pt-2 space-y-2">
-          <p className="text-xs text-gray-500">Pega un enlace (Drive, Dropbox, etc.) o escribe una descripción del trabajo realizado.</p>
+          <p className="text-xs text-gray-500">Pega un enlace, escribe una nota o carga capturas pequeñas como evidencia visual.</p>
           <textarea className="input text-xs" rows={3} value={evidencia}
             onChange={e => setEvidencia(e.target.value)}
             placeholder="https://drive.google.com/... o descripción de lo que se realizó" />
+          <div className="rounded-lg border border-dashed border-gray-300 bg-white/70 p-3 space-y-2">
+            <label className="text-xs font-medium text-gray-700 flex items-center gap-1.5">
+              <ImageIcon size={13} /> Capturas o referencias visuales
+            </label>
+            <input type="file" accept="image/*" multiple onChange={handleImageUpload}
+              className="block w-full text-xs text-gray-500 file:mr-3 file:rounded-lg file:border-0 file:bg-brand-50 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-brand-700 hover:file:bg-brand-100" />
+            {imageError && <p className="text-xs text-red-600">{imageError}</p>}
+            {imagenes.length > 0 && (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {imagenes.map(img => (
+                  <div key={img.id} className="relative rounded-lg overflow-hidden border border-gray-200 bg-white">
+                    <img src={img.dataUrl} alt={img.name || 'Evidencia'} className="h-24 w-full object-cover" />
+                    <button type="button" onClick={() => removeImage(img.id)}
+                      className="absolute top-1 right-1 rounded-full bg-white/90 p-1 text-gray-500 hover:text-red-600">
+                      <X size={12} />
+                    </button>
+                    <p className="truncate px-2 py-1 text-[11px] text-gray-500">{img.name || 'Captura'}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
           <div className="flex gap-2">
             <button onClick={() => setEditEvidencia(false)} className="btn-secondary text-xs flex-1">Cancelar</button>
             <button onClick={saveEvidencia} disabled={saving} className="btn-primary text-xs flex-1">
-              {saving ? 'Guardando...' : 'Guardar evidencia'}
+              {saving ? 'Guardando...' : <><Save size={12} /> Guardar evidencia</>}
             </button>
           </div>
         </div>
@@ -227,7 +469,7 @@ function ActividadCard({ act, isAdmin, onUpdate, onDelete }) {
 
 function NuevaActividadForm({ flujoId, username, onSave, onCancel }) {
   const [form, setForm] = useState({
-    titulo: '', descripcion: '', diaSemana: 'Lunes', horasEstimadas: 1,
+    titulo: '', descripcion: '', diaSemana: 'Lunes', horasEstimadas: 1, checklist: [],
   })
   const [saving, setSaving] = useState(false)
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
@@ -236,7 +478,14 @@ function NuevaActividadForm({ flujoId, username, onSave, onCancel }) {
     e.preventDefault()
     setSaving(true)
     try {
-      await api.addActividadFlujo({ ...form, flujoId, username })
+      await api.addActividadFlujo({
+        ...form,
+        flujoId,
+        username,
+        descripcionFormato: 'texto_enriquecido_v1',
+        checklist: stringifyWorkflowArray(form.checklist),
+        imagenes: '[]',
+      })
       onSave()
     } catch (err) { /* ignore */ }
     finally { setSaving(false) }
@@ -247,8 +496,9 @@ function NuevaActividadForm({ flujoId, username, onSave, onCancel }) {
       <p className="text-xs font-semibold text-brand-700 uppercase tracking-wide">Nueva actividad</p>
       <input className="input text-sm" required placeholder="Título de la actividad *"
         value={form.titulo} onChange={e => set('titulo', e.target.value)} />
-      <textarea className="input text-sm" rows={2} placeholder="Descripción (opcional)"
-        value={form.descripcion} onChange={e => set('descripcion', e.target.value)} />
+      <RichTextBox value={form.descripcion} onChange={value => set('descripcion', value)} rows={3}
+        placeholder="Describe objetivos, pasos, responsables o referencias de esta actividad..." />
+      <WorkflowChecklist items={form.checklist} onChange={items => set('checklist', items)} />
       <div className="flex gap-2">
         <select className="input text-sm flex-1" value={form.diaSemana} onChange={e => set('diaSemana', e.target.value)}>
           {DIAS_SEMANA.map(d => <option key={d}>{d}</option>)}

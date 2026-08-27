@@ -205,7 +205,7 @@ const SHEET_HEADERS = {
   Convenios:        ['ID','Organizacion','Representante','Cargo','Objeto','ObligacionesRA','ObligacionesAliado','Vigencia','FechaInicio','FechaFin','Estado','Notas','CreadoPor','FechaCreacion'],
   Asistencia:       ['ID','Username','Nombre','Tipo','Timestamp','Fecha','Notas','FechaCreacion'],
   FlujosSemanales:  ['ID','Username','NombreUsuario','Semana','FechaInicio','FechaFin','TotalHorasPlan','Estado','Notas','CreadoPor','FechaCreacion'],
-  ActividadesFlujo: ['ID','FlujoID','Username','Titulo','Descripcion','DiaSemana','HorasEstimadas','Estado','HorasReales','Notas','Evidencia','CompletadoEn','FechaCreacion'],
+  ActividadesFlujo: ['ID','FlujoID','Username','Titulo','Descripcion','DescripcionFormato','DiaSemana','HorasEstimadas','Estado','HorasReales','Notas','Checklist','Evidencia','Imagenes','CompletadoEn','FechaCreacion'],
   AuditoriaCertificados: ['ID','CertificadoID','InscripcionID','Usuario','Rol','Accion','FechaHora','EstadoAnterior','EstadoNuevo','Canal','Resultado','Motivo','Metadatos'],
   Certificados: ['ID','InscripcionID','CodigoCertificado','CertificateVersion','TemplateVersion','PdfHash','PdfStorageReference','OriginalCertificateId','ReissuedCertificateId','CertificateStatus','IssuedAt','IssuedBy','VoidedAt','VoidedBy','VoidReason','ReissueReason','CreatedAt'],
   DescargasCertificados: ['ID','CertificadoID','InscripcionID','Usuario','Rol','Estado','FechaSolicitud','FechaConfirmacion','Motivo','PdfHash','PdfStorageReference','Canal'],
@@ -4471,13 +4471,27 @@ function addActividadFlujo(user, { actividad } = {}) {
   // Recuperar username del flujo
   const flujo = sheetToObjects(getSheet('FlujosSemanales'))
     .find(function(f) { return f.ID === actividad.flujoId; });
-  sheet.appendRow([
-    id, actividad.flujoId, flujo ? flujo.Username : '',
-    actividad.titulo, actividad.descripcion || '',
-    actividad.diaSemana || 'Lunes',
-    Number(actividad.horasEstimadas) || 1,
-    'pendiente', 0, '', '', '', now,
-  ]);
+  const registro = {
+    ID: id,
+    FlujoID: actividad.flujoId,
+    Username: flujo ? flujo.Username : '',
+    Titulo: actividad.titulo,
+    Descripcion: actividad.descripcion || '',
+    DescripcionFormato: actividad.descripcionFormato || 'texto_enriquecido_v1',
+    DiaSemana: actividad.diaSemana || 'Lunes',
+    HorasEstimadas: Number(actividad.horasEstimadas) || 1,
+    Estado: 'pendiente',
+    HorasReales: 0,
+    Notas: '',
+    Checklist: actividad.checklist || '[]',
+    Evidencia: '',
+    Imagenes: actividad.imagenes || '[]',
+    CompletadoEn: '',
+    FechaCreacion: now,
+  };
+  sheet.appendRow(SHEET_HEADERS.ActividadesFlujo.map(function(header) {
+    return registro[header] !== undefined ? registro[header] : '';
+  }));
   return { success: true, id: id };
 }
 
@@ -4523,6 +4537,7 @@ function updateActividadFlujo(user, { id, actividad } = {}) {
   if (isAdmin(user)) {
     if (actividad.titulo        !== undefined) fields.Titulo          = actividad.titulo;
     if (actividad.descripcion   !== undefined) fields.Descripcion     = actividad.descripcion;
+    if (actividad.descripcionFormato !== undefined) fields.DescripcionFormato = actividad.descripcionFormato;
     if (actividad.diaSemana     !== undefined) fields.DiaSemana       = actividad.diaSemana;
     if (actividad.horasEstimadas !== undefined) fields.HorasEstimadas = Number(actividad.horasEstimadas) || 0;
   }
@@ -4533,7 +4548,9 @@ function updateActividadFlujo(user, { id, actividad } = {}) {
   }
   if (actividad.horasReales !== undefined) fields.HorasReales = Number(actividad.horasReales) || 0;
   if (actividad.notas       !== undefined) fields.Notas     = actividad.notas;
+  if (actividad.checklist   !== undefined) fields.Checklist = actividad.checklist;
   if (actividad.evidencia   !== undefined) fields.Evidencia = actividad.evidencia;
+  if (actividad.imagenes    !== undefined) fields.Imagenes  = actividad.imagenes;
   updateRow(sheet, row, fields);
   return { success: true };
 }
