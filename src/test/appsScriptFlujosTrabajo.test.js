@@ -60,6 +60,8 @@ describe('flujos de trabajo enriquecidos', () => {
       Imagenes: imagenes,
       Evidencia: '',
       Estado: 'pendiente',
+      EstadoRevision: 'pendiente_revision',
+      HorasAprobadas: 0,
     })
   })
 
@@ -130,5 +132,119 @@ describe('flujos de trabajo enriquecidos', () => {
       Titulo: 'Actividad legacy',
       Descripcion: 'Texto simple anterior',
     })
+  })
+
+  it('permite al administrador aprobar horas y dejar retroalimentación visible', () => {
+    const harness = createHarness()
+    harness.seed('ActividadesFlujo', [{
+      ID: 'ACT-REV-1',
+      FlujoID: 'FLJ-1',
+      Username: 'angel',
+      Titulo: 'Preparar evidencia',
+      Descripcion: 'Subir capturas',
+      DiaSemana: 'Jueves',
+      HorasEstimadas: 4,
+      Estado: 'completado',
+      HorasReales: 4,
+      EstadoRevision: 'pendiente_revision',
+      HorasAprobadas: 0,
+    }])
+
+    const updated = harness.context.processRequest({
+      action: 'updateActividadFlujo',
+      token: 'admin-token',
+      id: 'ACT-REV-1',
+      actividad: {
+        estadoRevision: 'aprobado',
+        horasAprobadas: 4,
+        feedbackRevision: 'Actividad cumplida correctamente. Horas aprobadas.',
+      },
+    })
+    const row = harness.objects('ActividadesFlujo')[0]
+
+    expect(updated.success).toBe(true)
+    expect(row.EstadoRevision).toBe('aprobado')
+    expect(row.HorasAprobadas).toBe(4)
+    expect(row.FeedbackRevision).toBe('Actividad cumplida correctamente. Horas aprobadas.')
+    expect(row.RevisadoPor).toBe('admin')
+    expect(row.RevisadoEn).toBeTruthy()
+  })
+
+  it('bloquea al vendedor para aprobar horas administrativas', () => {
+    const harness = createHarness()
+    harness.seed('ActividadesFlujo', [{
+      ID: 'ACT-REV-2',
+      FlujoID: 'FLJ-1',
+      Username: 'angel',
+      Titulo: 'Intento de aprobación',
+      DiaSemana: 'Jueves',
+      HorasEstimadas: 3,
+      Estado: 'completado',
+      HorasReales: 3,
+      EstadoRevision: 'pendiente_revision',
+      HorasAprobadas: 0,
+    }])
+
+    const updated = harness.context.processRequest({
+      action: 'updateActividadFlujo',
+      token: 'angel-token',
+      id: 'ACT-REV-2',
+      actividad: {
+        estadoRevision: 'aprobado',
+        horasAprobadas: 3,
+        feedbackRevision: 'Me apruebo solo',
+      },
+    })
+    const row = harness.objects('ActividadesFlujo')[0]
+
+    expect(updated.success).toBe(true)
+    expect(row.EstadoRevision).toBe('pendiente_revision')
+    expect(row.HorasAprobadas).toBe(0)
+    expect(row.FeedbackRevision).toBe('')
+  })
+
+  it('exige observación para no aprobar y permite reprogramar la actividad', () => {
+    const harness = createHarness()
+    harness.seed('ActividadesFlujo', [{
+      ID: 'ACT-REV-3',
+      FlujoID: 'FLJ-1',
+      Username: 'angel',
+      Titulo: 'Enviar informe',
+      DiaSemana: 'Jueves',
+      HorasEstimadas: 2,
+      Estado: 'completado',
+      HorasReales: 2,
+      EstadoRevision: 'pendiente_revision',
+      HorasAprobadas: 0,
+    }])
+
+    const withoutFeedback = harness.context.processRequest({
+      action: 'updateActividadFlujo',
+      token: 'admin-token',
+      id: 'ACT-REV-3',
+      actividad: { estadoRevision: 'rechazado' },
+    })
+    expect(withoutFeedback.success).toBe(false)
+    expect(withoutFeedback.error).toContain('observación')
+
+    const rejected = harness.context.processRequest({
+      action: 'updateActividadFlujo',
+      token: 'admin-token',
+      id: 'ACT-REV-3',
+      actividad: {
+        estadoRevision: 'rechazado',
+        feedbackRevision: 'No se cumplió como fue indicado; falta evidencia.',
+        reprogramadoPara: 'Viernes',
+      },
+    })
+    const row = harness.objects('ActividadesFlujo')[0]
+
+    expect(rejected.success).toBe(true)
+    expect(row.EstadoRevision).toBe('rechazado')
+    expect(row.HorasAprobadas).toBe(0)
+    expect(row.FeedbackRevision).toBe('No se cumplió como fue indicado; falta evidencia.')
+    expect(row.ReprogramadoDesde).toBe('Jueves')
+    expect(row.ReprogramadoPara).toBe('Viernes')
+    expect(row.DiaSemana).toBe('Viernes')
   })
 })

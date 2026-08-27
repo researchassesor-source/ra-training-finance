@@ -205,7 +205,7 @@ const SHEET_HEADERS = {
   Convenios:        ['ID','Organizacion','Representante','Cargo','Objeto','ObligacionesRA','ObligacionesAliado','Vigencia','FechaInicio','FechaFin','Estado','Notas','CreadoPor','FechaCreacion'],
   Asistencia:       ['ID','Username','Nombre','Tipo','Timestamp','Fecha','Notas','FechaCreacion'],
   FlujosSemanales:  ['ID','Username','NombreUsuario','Semana','FechaInicio','FechaFin','TotalHorasPlan','Estado','Notas','CreadoPor','FechaCreacion'],
-  ActividadesFlujo: ['ID','FlujoID','Username','Titulo','Descripcion','DescripcionFormato','DiaSemana','HorasEstimadas','Estado','HorasReales','Notas','Checklist','Evidencia','Imagenes','CompletadoEn','FechaCreacion'],
+  ActividadesFlujo: ['ID','FlujoID','Username','Titulo','Descripcion','DescripcionFormato','DiaSemana','HorasEstimadas','Estado','HorasReales','Notas','Checklist','Evidencia','Imagenes','EstadoRevision','HorasAprobadas','FeedbackRevision','RevisadoPor','RevisadoEn','ReprogramadoDesde','ReprogramadoPara','CompletadoEn','FechaCreacion'],
   AuditoriaCertificados: ['ID','CertificadoID','InscripcionID','Usuario','Rol','Accion','FechaHora','EstadoAnterior','EstadoNuevo','Canal','Resultado','Motivo','Metadatos'],
   Certificados: ['ID','InscripcionID','CodigoCertificado','CertificateVersion','TemplateVersion','PdfHash','PdfStorageReference','OriginalCertificateId','ReissuedCertificateId','CertificateStatus','IssuedAt','IssuedBy','VoidedAt','VoidedBy','VoidReason','ReissueReason','CreatedAt'],
   DescargasCertificados: ['ID','CertificadoID','InscripcionID','Usuario','Rol','Estado','FechaSolicitud','FechaConfirmacion','Motivo','PdfHash','PdfStorageReference','Canal'],
@@ -4486,6 +4486,13 @@ function addActividadFlujo(user, { actividad } = {}) {
     Checklist: actividad.checklist || '[]',
     Evidencia: '',
     Imagenes: actividad.imagenes || '[]',
+    EstadoRevision: 'pendiente_revision',
+    HorasAprobadas: 0,
+    FeedbackRevision: '',
+    RevisadoPor: '',
+    RevisadoEn: '',
+    ReprogramadoDesde: '',
+    ReprogramadoPara: '',
     CompletadoEn: '',
     FechaCreacion: now,
   };
@@ -4540,6 +4547,31 @@ function updateActividadFlujo(user, { id, actividad } = {}) {
     if (actividad.descripcionFormato !== undefined) fields.DescripcionFormato = actividad.descripcionFormato;
     if (actividad.diaSemana     !== undefined) fields.DiaSemana       = actividad.diaSemana;
     if (actividad.horasEstimadas !== undefined) fields.HorasEstimadas = Number(actividad.horasEstimadas) || 0;
+    if (actividad.estadoRevision !== undefined) {
+      var revision = String(actividad.estadoRevision || '').trim();
+      if (['pendiente_revision','aprobado','rechazado'].indexOf(revision) === -1) {
+        throw new Error('Estado de revisión inválido.');
+      }
+      if (revision === 'rechazado' && !String(actividad.feedbackRevision || '').trim()) {
+        throw new Error('Para no aprobar una actividad se debe registrar una observación.');
+      }
+      fields.EstadoRevision = revision;
+      fields.HorasAprobadas = revision === 'aprobado'
+        ? (Number(actividad.horasAprobadas !== undefined ? actividad.horasAprobadas : row.HorasReales) || 0)
+        : 0;
+      fields.FeedbackRevision = actividad.feedbackRevision !== undefined
+        ? String(actividad.feedbackRevision || '')
+        : row.FeedbackRevision || '';
+      fields.RevisadoPor = user.Username;
+      fields.RevisadoEn = new Date().toISOString();
+      if (actividad.reprogramadoPara !== undefined) {
+        fields.ReprogramadoDesde = row.DiaSemana || '';
+        fields.ReprogramadoPara = actividad.reprogramadoPara || '';
+        if (actividad.reprogramadoPara) fields.DiaSemana = actividad.reprogramadoPara;
+      }
+    } else if (actividad.feedbackRevision !== undefined) {
+      fields.FeedbackRevision = String(actividad.feedbackRevision || '');
+    }
   }
   if (actividad.estado      !== undefined) {
     fields.Estado = actividad.estado;

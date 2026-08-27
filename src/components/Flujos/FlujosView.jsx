@@ -9,6 +9,7 @@ import {
   Plus, Pencil, Trash2, CheckCircle, Clock, ChevronLeft, ChevronRight,
   ListChecks, PlayCircle, AlertCircle, Paperclip, ExternalLink,
   Image as ImageIcon, X, Bold, List, ListOrdered, CheckSquare, Save,
+  MessageSquare, XCircle, ShieldCheck,
 } from 'lucide-react'
 
 const DIAS_SEMANA = ['Lunes','Martes','Miércoles','Jueves','Viernes']
@@ -41,6 +42,20 @@ const ESTADO_ACT = {
   en_proceso:  { label: 'En proceso',   css: 'bg-blue-100 text-blue-700',    icon: PlayCircle },
   completado:  { label: 'Completado',   css: 'bg-emerald-100 text-emerald-700', icon: CheckCircle },
   bloqueado:   { label: 'Bloqueado',    css: 'bg-red-100 text-red-700',      icon: AlertCircle },
+}
+
+const REVISION_ACT = {
+  pendiente_revision: { label: 'Pendiente de aprobación', css: 'bg-amber-100 text-amber-700 border-amber-200', icon: Clock },
+  aprobado:           { label: 'Horas aprobadas',         css: 'bg-emerald-100 text-emerald-700 border-emerald-200', icon: ShieldCheck },
+  rechazado:          { label: 'No aprobado',             css: 'bg-red-100 text-red-700 border-red-200', icon: XCircle },
+}
+
+function getRevisionEstado(act) {
+  return act.EstadoRevision || 'pendiente_revision'
+}
+
+function getHorasAprobadas(act) {
+  return getRevisionEstado(act) === 'aprobado' ? (Number(act.HorasAprobadas) || 0) : 0
 }
 
 const MAX_WORKFLOW_IMAGE_CHARS = 42_000
@@ -210,11 +225,16 @@ function ActividadCard({ act, isAdmin, onUpdate, onDelete }) {
   const [editHoras, setEditHoras]       = useState(false)
   const [editEvidencia, setEditEvidencia] = useState(false)
   const [editDetalle, setEditDetalle]   = useState(false)
+  const [editRevision, setEditRevision] = useState(false)
   const [checklist, setChecklist]       = useState(() => normalizeChecklist(act.Checklist))
   const [imagenes, setImagenes]         = useState(() => parseJsonArray(act.Imagenes))
   const [horas, setHoras]               = useState(act.HorasReales || 0)
   const [notas, setNotas]               = useState(act.Notas || '')
   const [evidencia, setEvidencia]       = useState(act.Evidencia || '')
+  const [revisionHoras, setRevisionHoras] = useState(act.HorasAprobadas || act.HorasReales || act.HorasEstimadas || 0)
+  const [revisionFeedback, setRevisionFeedback] = useState(act.FeedbackRevision || '')
+  const [revisionReprogramar, setRevisionReprogramar] = useState('')
+  const [revisionError, setRevisionError] = useState('')
   const [detalle, setDetalle]           = useState({
     titulo: act.Titulo, descripcion: act.Descripcion || '',
     diaSemana: act.DiaSemana, horasEstimadas: act.HorasEstimadas,
@@ -223,6 +243,10 @@ function ActividadCard({ act, isAdmin, onUpdate, onDelete }) {
   const [imageError, setImageError]     = useState('')
   const est = ESTADO_ACT[act.Estado] || ESTADO_ACT.pendiente
   const Icon = est.icon
+  const revisionEstado = getRevisionEstado(act)
+  const revision = REVISION_ACT[revisionEstado] || REVISION_ACT.pendiente_revision
+  const RevisionIcon = revision.icon
+  const horasAprobadas = getHorasAprobadas(act)
 
   async function saveHoras() {
     setSaving(true)
@@ -252,6 +276,24 @@ function ActividadCard({ act, isAdmin, onUpdate, onDelete }) {
   async function saveChecklist(nextChecklist = checklist) {
     setChecklist(nextChecklist)
     await onUpdate(act.ID, { checklist: stringifyWorkflowArray(nextChecklist) })
+  }
+
+  async function saveRevision(estadoRevision) {
+    const feedback = revisionFeedback.trim()
+    if (estadoRevision === 'rechazado' && !feedback) {
+      setRevisionError('Escribe una observación para explicar por qué no se aprueban las horas.')
+      return
+    }
+    setRevisionError('')
+    setSaving(true)
+    await onUpdate(act.ID, {
+      estadoRevision,
+      horasAprobadas: estadoRevision === 'aprobado' ? Number(revisionHoras) : 0,
+      feedbackRevision: feedback,
+      reprogramadoPara: estadoRevision === 'rechazado' ? revisionReprogramar : '',
+    })
+    setSaving(false)
+    setEditRevision(false)
   }
 
   async function handleImageUpload(event) {
@@ -297,7 +339,7 @@ function ActividadCard({ act, isAdmin, onUpdate, onDelete }) {
         <div className="flex gap-1 flex-shrink-0">
           {isAdmin && (
             <>
-              <button onClick={() => { setEditDetalle(v => !v); setEditHoras(false); setEditEvidencia(false) }}
+              <button onClick={() => { setEditDetalle(v => !v); setEditHoras(false); setEditEvidencia(false); setEditRevision(false) }}
                 className="p-1 hover:bg-brand-50 rounded text-gray-400 hover:text-brand-600">
                 <Pencil size={14} />
               </button>
@@ -347,6 +389,34 @@ function ActividadCard({ act, isAdmin, onUpdate, onDelete }) {
         {Number(act.HorasReales) > 0 && (
           <span className="text-emerald-700 font-medium">{act.HorasReales}h reales</span>
         )}
+        {horasAprobadas > 0 && (
+          <span className="text-brand-700 font-semibold">{horasAprobadas}h aprobadas</span>
+        )}
+      </div>
+
+      <div className={`rounded-xl border px-3 py-2 text-xs ${revision.css}`}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="font-semibold flex items-center gap-1.5">
+            <RevisionIcon size={14} /> {revision.label}
+          </span>
+          {revisionEstado === 'aprobado' && (
+            <span>{horasAprobadas}h válidas para prácticas/pago</span>
+          )}
+          {revisionEstado === 'pendiente_revision' && (
+            <span>Las horas aún no cuentan hasta revisión administrativa.</span>
+          )}
+        </div>
+        {act.FeedbackRevision && (
+          <p className="mt-1.5 text-gray-700 flex gap-1.5">
+            <MessageSquare size={13} className="mt-0.5 flex-shrink-0" />
+            <span>{act.FeedbackRevision}</span>
+          </p>
+        )}
+        {act.ReprogramadoPara && (
+          <p className="mt-1 text-gray-600">
+            Reprogramada: {act.ReprogramadoDesde || 'día anterior'} → {act.ReprogramadoPara}
+          </p>
+        )}
       </div>
 
       <WorkflowChecklist items={checklist} onChange={saveChecklist} readOnly={false} />
@@ -392,7 +462,7 @@ function ActividadCard({ act, isAdmin, onUpdate, onDelete }) {
         )}
         {act.Estado === 'en_proceso' && (
           <>
-            <button onClick={() => { setEditHoras(v => !v); setEditEvidencia(false) }}
+            <button onClick={() => { setEditHoras(v => !v); setEditEvidencia(false); setEditRevision(false) }}
               className="text-xs px-2.5 py-1 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 flex items-center gap-1">
               <Clock size={12} /> Horas reales
             </button>
@@ -404,9 +474,15 @@ function ActividadCard({ act, isAdmin, onUpdate, onDelete }) {
         )}
         {/* Evidencia disponible en cualquier estado (excepto pendiente) */}
         {act.Estado !== 'pendiente' && (
-          <button onClick={() => { setEditEvidencia(v => !v); setEditHoras(false) }}
+          <button onClick={() => { setEditEvidencia(v => !v); setEditHoras(false); setEditRevision(false) }}
             className="text-xs px-2.5 py-1 rounded-lg bg-amber-100 text-amber-700 hover:bg-amber-200 flex items-center gap-1">
             <Paperclip size={12} /> {(act.Evidencia || imagenes.length) ? 'Editar evidencia' : 'Agregar evidencia'}
+          </button>
+        )}
+        {isAdmin && (
+          <button onClick={() => { setEditRevision(v => !v); setEditHoras(false); setEditEvidencia(false); setEditDetalle(false) }}
+            className="text-xs px-2.5 py-1 rounded-lg bg-indigo-100 text-indigo-700 hover:bg-indigo-200 flex items-center gap-1">
+            <ShieldCheck size={12} /> Revisión admin
           </button>
         )}
       </div>
@@ -423,6 +499,57 @@ function ActividadCard({ act, isAdmin, onUpdate, onDelete }) {
           </div>
           <textarea className="input text-xs" rows={2} value={notas}
             onChange={e => setNotas(e.target.value)} placeholder="Notas opcionales..." />
+        </div>
+      )}
+
+      {/* Panel: Revisión administrativa */}
+      {editRevision && isAdmin && (
+        <div className="pt-3 space-y-3 border-t border-indigo-100 bg-white/60 rounded-xl p-3">
+          <div>
+            <p className="text-xs font-semibold text-indigo-800 flex items-center gap-1.5">
+              <ShieldCheck size={14} /> Revisión administrativa de horas
+            </p>
+            <p className="text-[11px] text-gray-500 mt-0.5">
+              Solo las horas aprobadas aquí cuentan para prácticas, pago y cumplimiento.
+            </p>
+          </div>
+          <div className="grid sm:grid-cols-2 gap-2">
+            <div>
+              <label className="label">Horas que se aprueban</label>
+              <input type="number" step="0.5" min="0" className="input text-sm"
+                value={revisionHoras} onChange={e => setRevisionHoras(e.target.value)}
+                placeholder="Ej: 4" />
+            </div>
+            <div>
+              <label className="label">Si no cumple, mover a otro día</label>
+              <select className="input text-sm" value={revisionReprogramar}
+                onChange={e => setRevisionReprogramar(e.target.value)}>
+                <option value="">No reprogramar</option>
+                {DIAS_SEMANA.filter(d => d !== act.DiaSemana).map(d => <option key={d}>{d}</option>)}
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className="label">Observación / retroalimentación para la persona</label>
+            <textarea className="input text-sm" rows={3} value={revisionFeedback}
+              onChange={e => setRevisionFeedback(e.target.value)}
+              placeholder="Ej: Actividad aprobada. / No se cumplió lo solicitado: falta adjuntar evidencia..." />
+            {revisionError && <p className="text-xs text-red-600 mt-1">{revisionError}</p>}
+          </div>
+          <div className="grid sm:grid-cols-3 gap-2">
+            <button type="button" onClick={() => saveRevision('aprobado')} disabled={saving}
+              className="text-xs px-3 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 font-semibold flex items-center justify-center gap-1.5">
+              <CheckCircle size={13} /> Aprobar horas
+            </button>
+            <button type="button" onClick={() => saveRevision('rechazado')} disabled={saving}
+              className="text-xs px-3 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 font-semibold flex items-center justify-center gap-1.5">
+              <XCircle size={13} /> No aprobar
+            </button>
+            <button type="button" onClick={() => saveRevision('pendiente_revision')} disabled={saving}
+              className="btn-secondary text-xs">
+              Dejar pendiente
+            </button>
+          </div>
         </div>
       )}
 
@@ -622,7 +749,10 @@ export default function FlujosView() {
   const flujoActual = flujos[0]
   const totalEst   = flujoActual?.actividades?.reduce((s, a) => s + (Number(a.HorasEstimadas) || 0), 0) || 0
   const totalReal  = flujoActual?.actividades?.reduce((s, a) => s + (Number(a.HorasReales) || 0), 0) || 0
+  const totalAprobado = flujoActual?.actividades?.reduce((s, a) => s + getHorasAprobadas(a), 0) || 0
   const completadas = flujoActual?.actividades?.filter(a => a.Estado === 'completado').length || 0
+  const aprobadas = flujoActual?.actividades?.filter(a => getRevisionEstado(a) === 'aprobado').length || 0
+  const rechazadas = flujoActual?.actividades?.filter(a => getRevisionEstado(a) === 'rechazado').length || 0
   const totalActs   = flujoActual?.actividades?.length || 0
 
   // Agrupar actividades por día
@@ -744,11 +874,12 @@ export default function FlujosView() {
               )}
 
               {/* Resumen del flujo */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                 {[
                   { label: 'Horas plan',   val: `${flujoActual.TotalHorasPlan}h`,      css: 'text-brand-700' },
                   { label: 'H. estimadas', val: `${totalEst}h`,                         css: 'text-gray-700' },
-                  { label: 'H. reales',    val: `${totalReal}h`,                        css: 'text-emerald-700' },
+                  { label: 'H. reportadas', val: `${totalReal}h`,                       css: 'text-emerald-700' },
+                  { label: 'H. aprobadas', val: `${totalAprobado}h`,                    css: 'text-indigo-700' },
                   { label: 'Progreso',     val: totalActs ? `${completadas}/${totalActs} tareas` : '0 tareas', css: 'text-amber-700' },
                 ].map(k => (
                   <div key={k.label} className="card py-3 text-center">
@@ -768,6 +899,11 @@ export default function FlujosView() {
                   <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
                     <div className="h-full bg-emerald-500 rounded-full transition-all"
                       style={{ width: `${Math.round(completadas / totalActs * 100)}%` }} />
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-gray-500">
+                    <span className="font-medium text-indigo-700">{aprobadas}/{totalActs} aprobadas</span>
+                    {rechazadas > 0 && <span className="font-medium text-red-600">{rechazadas} no aprobadas</span>}
+                    <span>Las horas solo suman cuando administración aprueba la actividad.</span>
                   </div>
                 </div>
               )}
