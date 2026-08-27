@@ -128,6 +128,7 @@ function processRequest(data) {
     addFlujoSemanal:      () => addFlujoSemanal(user, params),
     updateFlujoSemanal:   () => updateFlujoSemanal(user, params),
     deleteFlujoSemanal:   () => deleteFlujoSemanal(user, params),
+    migrarActividadesFlujoV2: () => migrarActividadesFlujoV2(user, params),
     addActividadFlujo:    () => addActividadFlujo(user, params),
     updateActividadFlujo: () => updateActividadFlujo(user, params),
     deleteActividadFlujo: () => deleteRecord(user, 'ActividadesFlujo', params, false),
@@ -349,6 +350,23 @@ function appendRowPreservandoTexto_(sheet, headers, rowValues) {
   headers.forEach(function(header, index) {
     if (!esEncabezadoTextoSensible_(header)) return;
     escribirCeldaPreservandoTexto_(sheet.getRange(rowNumber, index + 1), header, values[index]);
+  });
+  return rowNumber;
+}
+
+function appendObjectBySheetHeaders_(sheet, valuesByField) {
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  const values = headers.map(function(header) {
+    return valuesByField[header] === undefined || valuesByField[header] === null
+      ? ''
+      : normalizarValorTextoSensible_(header, valuesByField[header]);
+  });
+  sheet.appendRow(values);
+  const rowNumber = sheet.getLastRow();
+  headers.forEach(function(header, index) {
+    if (!esEncabezadoTextoSensible_(header)) return;
+    if (valuesByField[header] === undefined || valuesByField[header] === null) return;
+    escribirCeldaPreservandoTexto_(sheet.getRange(rowNumber, index + 1), header, valuesByField[header]);
   });
   return rowNumber;
 }
@@ -4496,9 +4514,7 @@ function addActividadFlujo(user, { actividad } = {}) {
     CompletadoEn: '',
     FechaCreacion: now,
   };
-  sheet.appendRow(SHEET_HEADERS.ActividadesFlujo.map(function(header) {
-    return registro[header] !== undefined ? registro[header] : '';
-  }));
+  appendObjectBySheetHeaders_(sheet, registro);
   return { success: true, id: id };
 }
 
@@ -4515,6 +4531,60 @@ function normalizarDiaSemanaFlujo_(dia) {
   };
   if (!map[normalized]) throw new Error('Día de actividad inválido.');
   return map[normalized];
+}
+
+function normalizarDiaSemanaFlujoSeguro_(dia) {
+  try {
+    return normalizarDiaSemanaFlujo_(dia);
+  } catch (error) {
+    return '';
+  }
+}
+
+function migrarActividadesFlujoV2(user, { confirmacion } = {}) {
+  requireAdmin(user);
+  if (confirmacion !== 'APLICAR_ACTIVIDADES_FLUJO_V2') {
+    throw new Error('Confirmación inválida para migrar ActividadesFlujo V2.');
+  }
+  const sheet = getSheet('ActividadesFlujo');
+  const lastRow = sheet.getLastRow();
+  const lastCol = sheet.getLastColumn();
+  if (lastRow <= 1 || lastCol === 0) {
+    return { success: true, migrated: 0, message: 'No hay actividades para migrar.' };
+  }
+
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  const expected = SHEET_HEADERS.ActividadesFlujo;
+  let migrated = 0;
+  for (let rowNumber = 2; rowNumber <= lastRow; rowNumber++) {
+    const rowValues = sheet.getRange(rowNumber, 1, 1, lastCol).getValues()[0];
+    const byCurrentHeaders = {};
+    headers.forEach(function(header, index) {
+      byCurrentHeaders[header] = rowValues[index];
+    });
+    const visibleDay = normalizarDiaSemanaFlujoSeguro_(byCurrentHeaders.DiaSemana);
+    if (visibleDay) continue;
+
+    const byCanonicalOrder = {};
+    expected.forEach(function(header, index) {
+      byCanonicalOrder[header] = rowValues[index];
+    });
+    const recoveredDay = normalizarDiaSemanaFlujoSeguro_(byCanonicalOrder.DiaSemana);
+    if (!recoveredDay) continue;
+    if (!String(byCanonicalOrder.ID || '').trim() || !String(byCanonicalOrder.FlujoID || '').trim()) continue;
+
+    byCanonicalOrder.DiaSemana = recoveredDay;
+    if (byCanonicalOrder.ReprogramadoPara) {
+      byCanonicalOrder.ReprogramadoPara = normalizarDiaSemanaFlujoSeguro_(byCanonicalOrder.ReprogramadoPara)
+        || byCanonicalOrder.ReprogramadoPara;
+    }
+    updateRow(sheet, { _row: rowNumber }, byCanonicalOrder);
+    migrated += 1;
+  }
+
+  Logger.log('migrarActividadesFlujoV2: filas reparadas=' + migrated);
+  bustSheet('flujosSemana');
+  return { success: true, migrated: migrated };
 }
 
 function parseChecklistFlujo_(value) {

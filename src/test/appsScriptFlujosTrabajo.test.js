@@ -88,6 +88,113 @@ describe('flujos de trabajo enriquecidos', () => {
     expect(row.DiaSemana).toBe('Martes')
   })
 
+  it('crea actividades alineadas aunque la hoja tenga encabezados legacy con columnas nuevas al final', () => {
+    const harness = createHarness()
+    const sheet = harness.ensureSheet('ActividadesFlujo')
+    const legacyHeaders = [
+      'ID','FlujoID','Username','Titulo','Descripcion','DiaSemana','HorasEstimadas',
+      'Estado','HorasReales','Notas','Checklist','Evidencia','FechaCreacion',
+    ]
+    const expectedHeaders = harness.sourceHeaders('ActividadesFlujo')
+    sheet.rows[0] = [
+      ...legacyHeaders,
+      ...expectedHeaders.filter(header => !legacyHeaders.includes(header)),
+    ]
+
+    const checklist = JSON.stringify([{ id: 'chk-1', text: 'Validar disponibilidad del CRM', done: false }])
+    const created = harness.context.processRequest({
+      action: 'addActividadFlujo',
+      token: 'admin-token',
+      actividad: {
+        flujoId: 'FLJ-1',
+        titulo: 'Revisión y optimización de CRM',
+        descripcion: 'Validar CRM y automatizaciones.',
+        descripcionFormato: 'texto_enriquecido_v1',
+        diaSemana: 'Martes',
+        horasEstimadas: 4,
+        checklist,
+        imagenes: '[]',
+      },
+    })
+    const row = harness.objects('ActividadesFlujo')[0]
+
+    expect(created.success).toBe(true)
+    expect(row.DiaSemana).toBe('Martes')
+    expect(row.HorasEstimadas).toBe(4)
+    expect(row.Estado).toBe('pendiente')
+    expect(row.DescripcionFormato).toBe('texto_enriquecido_v1')
+    expect(row.Checklist).toBe(checklist)
+  })
+
+  it('migra filas de ActividadesFlujo corridas por encabezados legacy de forma idempotente', () => {
+    const harness = createHarness()
+    const sheet = harness.ensureSheet('ActividadesFlujo')
+    const legacyHeaders = [
+      'ID','FlujoID','Username','Titulo','Descripcion','DiaSemana','HorasEstimadas',
+      'Estado','HorasReales','Notas','Checklist','Evidencia','FechaCreacion',
+    ]
+    const expectedHeaders = harness.sourceHeaders('ActividadesFlujo')
+    sheet.rows[0] = [
+      ...legacyHeaders,
+      ...expectedHeaders.filter(header => !legacyHeaders.includes(header)),
+    ]
+    const checklist = JSON.stringify([
+      { id: 'chk-1', text: 'Revisar conexión con base de datos NEO.', done: false },
+      { id: 'chk-2', text: 'Validar disponibilidad del CRM.', done: false },
+    ])
+    const canonicalRow = {
+      ID: 'ACT-SHIFTED-1',
+      FlujoID: 'FLJ-1',
+      Username: 'angel',
+      Titulo: 'Revisión y optimización de CRM, base de datos y automatizaciones',
+      Descripcion: 'Durante la jornada se revisó CRM y NEO.',
+      DescripcionFormato: 'texto_enriquecido_v1',
+      DiaSemana: 'Martes',
+      HorasEstimadas: 4,
+      Estado: 'pendiente',
+      HorasReales: 0,
+      Notas: '',
+      Checklist: checklist,
+      Evidencia: '',
+      Imagenes: '[]',
+      EstadoRevision: 'pendiente_revision',
+      HorasAprobadas: 0,
+      FeedbackRevision: '',
+      RevisadoPor: '',
+      RevisadoEn: '',
+      ReprogramadoDesde: '',
+      ReprogramadoPara: '',
+      CompletadoEn: '',
+      FechaCreacion: '2026-08-27T21:42:46.917Z',
+    }
+    sheet.appendRow(expectedHeaders.map(header => canonicalRow[header] ?? ''))
+
+    expect(harness.objects('ActividadesFlujo')[0].DiaSemana).toBe('texto_enriquecido_v1')
+    expect(harness.objects('ActividadesFlujo')[0].HorasEstimadas).toBe('Martes')
+
+    const migrated = harness.context.processRequest({
+      action: 'migrarActividadesFlujoV2',
+      token: 'admin-token',
+      confirmacion: 'APLICAR_ACTIVIDADES_FLUJO_V2',
+    })
+    const secondRun = harness.context.processRequest({
+      action: 'migrarActividadesFlujoV2',
+      token: 'admin-token',
+      confirmacion: 'APLICAR_ACTIVIDADES_FLUJO_V2',
+    })
+    const row = harness.objects('ActividadesFlujo')[0]
+
+    expect(migrated.success).toBe(true)
+    expect(migrated.migrated).toBe(1)
+    expect(secondRun.success).toBe(true)
+    expect(secondRun.migrated).toBe(0)
+    expect(row.DiaSemana).toBe('Martes')
+    expect(row.HorasEstimadas).toBe(4)
+    expect(row.Estado).toBe('pendiente')
+    expect(row.Checklist).toBe(checklist)
+    expect(row.EstadoRevision).toBe('pendiente_revision')
+  })
+
   it('rechaza días inválidos al crear actividades para evitar registros imposibles de mostrar', () => {
     const harness = createHarness()
 
