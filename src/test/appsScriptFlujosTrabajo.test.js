@@ -6,10 +6,12 @@ function createHarness() {
   harness.seed('Sesiones', [
     { Token: 'admin-token', Username: 'admin', UserID: 'USR-A', Rol: 'admin', Nombre: 'Admin', Expira: '2099-01-01T00:00:00.000Z' },
     { Token: 'angel-token', Username: 'angel', UserID: 'USR-U', Rol: 'vendedor', Nombre: 'Angel Espinoza', Expira: '2099-01-01T00:00:00.000Z' },
+    { Token: 'luis-token', Username: 'luis', UserID: 'USR-L', Rol: 'vendedor', Nombre: 'Luis Coloma', Expira: '2099-01-01T00:00:00.000Z' },
   ])
   harness.seed('Usuarios', [
     { ID: 'USR-A', Nombre: 'Admin', Username: 'admin', Rol: 'admin', Activo: true },
     { ID: 'USR-U', Nombre: 'Angel Espinoza', Username: 'angel', Rol: 'vendedor', Activo: true },
+    { ID: 'USR-L', Nombre: 'Luis Coloma', Username: 'luis', Rol: 'vendedor', Activo: true },
   ])
   harness.seed('FlujosSemanales', [{
     ID: 'FLJ-1',
@@ -201,6 +203,73 @@ describe('flujos de trabajo enriquecidos', () => {
     expect(row.EstadoRevision).toBe('pendiente_revision')
     expect(row.HorasAprobadas).toBe(0)
     expect(row.FeedbackRevision).toBe('')
+  })
+
+  it('permite al encargado marcar checks pero no cambiar los puntos definidos por administración', () => {
+    const harness = createHarness()
+    harness.seed('ActividadesFlujo', [{
+      ID: 'ACT-CHK-1',
+      FlujoID: 'FLJ-1',
+      Username: 'angel',
+      Titulo: 'Checklist controlado',
+      DiaSemana: 'Jueves',
+      HorasEstimadas: 3,
+      Estado: 'en_proceso',
+      HorasReales: 0,
+      Checklist: JSON.stringify([{ id: 'chk-1', text: 'Adjuntar evidencia', done: false }]),
+    }])
+
+    const marked = harness.context.processRequest({
+      action: 'updateActividadFlujo',
+      token: 'angel-token',
+      id: 'ACT-CHK-1',
+      actividad: {
+        checklist: JSON.stringify([{ id: 'chk-1', text: 'Adjuntar evidencia', done: true }]),
+      },
+    })
+    expect(marked.success).toBe(true)
+    expect(JSON.parse(harness.objects('ActividadesFlujo')[0].Checklist)[0].done).toBe(true)
+
+    const tampered = harness.context.processRequest({
+      action: 'updateActividadFlujo',
+      token: 'angel-token',
+      id: 'ACT-CHK-1',
+      actividad: {
+        checklist: JSON.stringify([
+          { id: 'chk-1', text: 'Adjuntar evidencia', done: true },
+          { id: 'chk-2', text: 'Me agrego otro punto', done: true },
+        ]),
+      },
+    })
+    expect(tampered.success).toBe(false)
+    expect(tampered.error).toContain('Solo administración')
+  })
+
+  it('bloquea que un vendedor actualice actividades asignadas a otro usuario', () => {
+    const harness = createHarness()
+    harness.seed('ActividadesFlujo', [{
+      ID: 'ACT-OWNER-1',
+      FlujoID: 'FLJ-1',
+      Username: 'angel',
+      Titulo: 'Actividad de Angel',
+      DiaSemana: 'Jueves',
+      HorasEstimadas: 2,
+      Estado: 'en_proceso',
+      HorasReales: 0,
+      Checklist: '[]',
+    }])
+
+    const updated = harness.context.processRequest({
+      action: 'updateActividadFlujo',
+      token: 'luis-token',
+      id: 'ACT-OWNER-1',
+      actividad: { evidencia: 'Intento tocar tarea ajena' },
+    })
+    const row = harness.objects('ActividadesFlujo')[0]
+
+    expect(updated.success).toBe(false)
+    expect(updated.error).toContain('tus propias actividades')
+    expect(row.Evidencia).toBe('')
   })
 
   it('exige observación para no aprobar y permite reprogramar la actividad', () => {

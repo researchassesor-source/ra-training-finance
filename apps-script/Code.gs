@@ -4502,6 +4502,31 @@ function addActividadFlujo(user, { actividad } = {}) {
   return { success: true, id: id };
 }
 
+function parseChecklistFlujo_(value) {
+  if (Array.isArray(value)) return value;
+  if (!value) return [];
+  try {
+    var parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    return [];
+  }
+}
+
+function assertSoloMarcaChecklistAsignado_(actual, siguiente) {
+  var before = parseChecklistFlujo_(actual);
+  var after = parseChecklistFlujo_(siguiente);
+  if (before.length !== after.length) {
+    throw new Error('Solo administración puede agregar o quitar puntos del checklist.');
+  }
+  for (var i = 0; i < before.length; i++) {
+    if (String(before[i].id || '') !== String(after[i].id || '')
+      || String(before[i].text || '') !== String(after[i].text || '')) {
+      throw new Error('Solo administración puede cambiar los puntos del checklist.');
+    }
+  }
+}
+
 function deleteFlujoSemanal(user, { id } = {}) {
   requireAdmin(user);
   // Eliminar todas las actividades del flujo primero
@@ -4540,6 +4565,7 @@ function updateActividadFlujo(user, { id, actividad } = {}) {
   const sheet = getSheet('ActividadesFlujo');
   const row   = sheetToObjects(sheet).find(function(a) { return a.ID === id; });
   if (!row) return { success: false, error: 'Actividad no encontrada.' };
+  if (!isAdmin(user) && row.Username !== user.Username) throw new Error('Solo puedes actualizar tus propias actividades asignadas.');
   var fields = {};
   if (isAdmin(user)) {
     if (actividad.titulo        !== undefined) fields.Titulo          = actividad.titulo;
@@ -4580,7 +4606,10 @@ function updateActividadFlujo(user, { id, actividad } = {}) {
   }
   if (actividad.horasReales !== undefined) fields.HorasReales = Number(actividad.horasReales) || 0;
   if (actividad.notas       !== undefined) fields.Notas     = actividad.notas;
-  if (actividad.checklist   !== undefined) fields.Checklist = actividad.checklist;
+  if (actividad.checklist   !== undefined) {
+    if (!isAdmin(user)) assertSoloMarcaChecklistAsignado_(row.Checklist, actividad.checklist);
+    fields.Checklist = actividad.checklist;
+  }
   if (actividad.evidencia   !== undefined) fields.Evidencia = actividad.evidencia;
   if (actividad.imagenes    !== undefined) fields.Imagenes  = actividad.imagenes;
   updateRow(sheet, row, fields);

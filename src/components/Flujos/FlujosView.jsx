@@ -130,10 +130,11 @@ function normalizeChecklist(items) {
     .filter(item => item.text)
 }
 
-function WorkflowChecklist({ items, onChange, readOnly = false }) {
+function WorkflowChecklist({ items, onChange, readOnly = false, canManageItems = true }) {
   const [draft, setDraft] = useState('')
   const checklist = normalizeChecklist(items)
   const update = (next) => onChange(next)
+  const canEdit = !readOnly
   const toggle = (id) => update(checklist.map(item => item.id === id ? { ...item, done: !item.done } : item))
   const remove = (id) => update(checklist.filter(item => item.id !== id))
   const add = () => {
@@ -159,14 +160,14 @@ function WorkflowChecklist({ items, onChange, readOnly = false }) {
         <div className="space-y-1.5">
           {checklist.map(item => (
             <div key={item.id} className="flex items-start gap-2 text-xs">
-              <button type="button" disabled={readOnly} onClick={() => toggle(item.id)}
+              <button type="button" disabled={!canEdit} onClick={() => toggle(item.id)}
                 className={`mt-0.5 h-4 w-4 rounded border flex items-center justify-center ${
                   item.done ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-gray-300 bg-white'
-                } ${readOnly ? 'cursor-default' : 'hover:border-emerald-500'}`}>
+                } ${!canEdit ? 'cursor-default' : 'hover:border-emerald-500'}`}>
                 {item.done && <CheckCircle size={11} />}
               </button>
               <span className={`flex-1 ${item.done ? 'line-through text-gray-400' : 'text-gray-700'}`}>{item.text}</span>
-              {!readOnly && (
+              {canEdit && canManageItems && (
                 <button type="button" onClick={() => remove(item.id)}
                   className="text-gray-300 hover:text-red-500"><X size={12} /></button>
               )}
@@ -174,12 +175,17 @@ function WorkflowChecklist({ items, onChange, readOnly = false }) {
           ))}
         </div>
       )}
-      {!readOnly && (
+      {canEdit && canManageItems && (
         <div className="flex gap-2 pt-1">
           <input className="input text-xs flex-1" value={draft}
             onChange={e => setDraft(e.target.value)} placeholder="Nuevo punto de verificación..." />
           <button type="button" onClick={add} className="btn-secondary text-xs px-3">Agregar</button>
         </div>
+      )}
+      {canEdit && !canManageItems && (
+        <p className="text-[11px] text-gray-400">
+          Puedes marcar avances, pero los puntos de verificación los define administración.
+        </p>
       )}
     </div>
   )
@@ -419,7 +425,7 @@ function ActividadCard({ act, isAdmin, onUpdate, onDelete }) {
         )}
       </div>
 
-      <WorkflowChecklist items={checklist} onChange={saveChecklist} readOnly={false} />
+      <WorkflowChecklist items={checklist} onChange={saveChecklist} readOnly={false} canManageItems={isAdmin} />
 
       {/* Evidencia adjunta */}
       {(act.Evidencia || imagenes.length > 0) && (
@@ -594,16 +600,18 @@ function ActividadCard({ act, isAdmin, onUpdate, onDelete }) {
   )
 }
 
-function NuevaActividadForm({ flujoId, username, onSave, onCancel }) {
+function NuevaActividadForm({ flujoId, username, onSave, onCancel, diaInicial = 'Lunes' }) {
   const [form, setForm] = useState({
-    titulo: '', descripcion: '', diaSemana: 'Lunes', horasEstimadas: 1, checklist: [],
+    titulo: '', descripcion: '', diaSemana: diaInicial, horasEstimadas: 1, checklist: [],
   })
   const [saving, setSaving] = useState(false)
+  const [formError, setFormError] = useState('')
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
   async function handleSubmit(e) {
     e.preventDefault()
     setSaving(true)
+    setFormError('')
     try {
       await api.addActividadFlujo({
         ...form,
@@ -614,7 +622,9 @@ function NuevaActividadForm({ flujoId, username, onSave, onCancel }) {
         imagenes: '[]',
       })
       onSave()
-    } catch (err) { /* ignore */ }
+    } catch (err) {
+      setFormError(err?.message || 'No se pudo guardar la actividad.')
+    }
     finally { setSaving(false) }
   }
 
@@ -626,6 +636,7 @@ function NuevaActividadForm({ flujoId, username, onSave, onCancel }) {
       <RichTextBox value={form.descripcion} onChange={value => set('descripcion', value)} rows={3}
         placeholder="Describe objetivos, pasos, responsables o referencias de esta actividad..." />
       <WorkflowChecklist items={form.checklist} onChange={items => set('checklist', items)} />
+      {formError && <p className="text-xs text-red-600 bg-red-50 rounded-lg p-2">{formError}</p>}
       <div className="flex gap-2">
         <select className="input text-sm flex-1" value={form.diaSemana} onChange={e => set('diaSemana', e.target.value)}>
           {DIAS_SEMANA.map(d => <option key={d}>{d}</option>)}
@@ -935,6 +946,7 @@ export default function FlujosView() {
                         <NuevaActividadForm
                           flujoId={flujoActual.ID}
                           username={targetUser}
+                          diaInicial={dia}
                           onSave={() => { setShowNuevaAct(null); load() }}
                           onCancel={() => setShowNuevaAct(null)}
                         />

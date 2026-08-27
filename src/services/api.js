@@ -369,16 +369,28 @@ export const api = {
   // ── Flujos semanales de trabajo ──
   getFlujosSemana: (params = {}) =>
     call('getFlujosSemana', params, getToken()),
-  addFlujoSemanal: (flujo) =>
-    call('addFlujoSemanal', { flujo }, getToken()),
-  updateFlujoSemanal: (id, flujo) =>
-    call('updateFlujoSemanal', { id, flujo }, getToken()),
-  deleteFlujoSemanal: (id) =>
-    call('deleteFlujoSemanal', { id }, getToken()),
-  addActividadFlujo: (actividad) =>
-    call('addActividadFlujo', { actividad }, getToken()),
-  updateActividadFlujo: (id, actividad) =>
-    call('updateActividadFlujo', { id, actividad }, getToken()),
-  deleteActividadFlujo: (id) =>
-    call('deleteActividadFlujo', { id }, getToken()),
+  addFlujoSemanal: (flujo) => {
+    bust('getFlujosSemana', 'getReporteFlujosTrabajo')
+    return call('addFlujoSemanal', { flujo }, getToken())
+  },
+  updateFlujoSemanal: (id, flujo) => {
+    bust('getFlujosSemana', 'getReporteFlujosTrabajo')
+    return call('updateFlujoSemanal', { id, flujo }, getToken())
+  },
+  deleteFlujoSemanal: (id) => {
+    bust('getFlujosSemana', 'getReporteFlujosTrabajo')
+    return call('deleteFlujoSemanal', { id }, getToken())
+  },
+  addActividadFlujo: (actividad) => {
+    bust('getFlujosSemana', 'getReporteFlujosTrabajo')
+    return call('addActividadFlujo', { actividad }, getToken())
+  },
+  updateActividadFlujo: (id, actividad) => {
+    bust('getFlujosSemana', 'getReporteFlujosTrabajo')
+    return call('updateActividadFlujo', { id, actividad }, getToken())
+  },
+  deleteActividadFlujo: (id) => {
+    bust('getFlujosSemana', 'getReporteFlujosTrabajo')
+    return call('deleteActividadFlujo', { id }, getToken())
+  },
 }
