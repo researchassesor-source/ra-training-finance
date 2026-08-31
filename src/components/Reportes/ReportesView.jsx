@@ -40,7 +40,7 @@ function ReportCard({ icon: Icon, title, description, onPDF, onWord, loading }) 
 }
 
 export default function ReportesView() {
-  const { isAdmin, user } = useAuth()
+  const { isAdmin, isContador, user } = useAuth()
   const [year, setYear]     = useState(YEAR)
   const [desde, setDesde]   = useState('')
   const [hasta, setHasta]   = useState('')
@@ -49,15 +49,17 @@ export default function ReportesView() {
   const [usuarios, setUsuarios] = useState([])
   const [usuarioReporte, setUsuarioReporte] = useState('')
 
+  const canSelectUsuarios = isAdmin || isContador
+
   useEffect(() => {
-    if (!isAdmin) return
+    if (!canSelectUsuarios) return
     api.getUsuarios()
       .then(r => {
         const activos = (r.data || []).filter(u => u.Activo === true || u.Activo === 'TRUE')
         setUsuarios(activos)
       })
       .catch(() => {})
-  }, [isAdmin])
+  }, [canSelectUsuarios])
 
   const periodo = useMemo(() => ({
     desde: desde || `${year}-01-01`,
@@ -65,10 +67,10 @@ export default function ReportesView() {
   }), [desde, hasta, year])
 
   const usuariosObjetivo = useMemo(() => {
-    if (!isAdmin) return [{ Username: user?.username, Nombre: user?.nombre || user?.username }]
+    if (!canSelectUsuarios) return [{ Username: user?.username, Nombre: user?.nombre || user?.username }]
     if (usuarioReporte) return usuarios.filter(u => u.Username === usuarioReporte)
     return usuarios
-  }, [isAdmin, user, usuarios, usuarioReporte])
+  }, [canSelectUsuarios, user, usuarios, usuarioReporte])
 
   function setLoad(key, val) { setLoading(l => ({ ...l, [key]: val })) }
 
@@ -131,7 +133,7 @@ export default function ReportesView() {
   }
 
   function usuarioLabel() {
-    if (!isAdmin) return user?.nombre || user?.username || 'Mi usuario'
+    if (!canSelectUsuarios) return user?.nombre || user?.username || 'Mi usuario'
     if (usuarioReporte) {
       const u = usuarios.find(item => item.Username === usuarioReporte)
       return u ? `${u.Nombre} (@${u.Username})` : usuarioReporte
@@ -143,7 +145,7 @@ export default function ReportesView() {
     setLoad('flu', true)
     setError('')
     try {
-      if (isAdmin && usuarios.length === 0) throw new Error('No hay usuarios activos para generar el reporte.')
+      if (canSelectUsuarios && usuarios.length === 0) throw new Error('No hay usuarios activos para generar el reporte.')
       const r = await api.getReporteFlujosTrabajo({
         ...(usuarioReporte ? { username: usuarioReporte } : {}),
         desde: periodo.desde,
@@ -159,7 +161,7 @@ export default function ReportesView() {
     setLoad('asi', true)
     setError('')
     try {
-      if (isAdmin && usuarios.length === 0) throw new Error('No hay usuarios activos para generar el reporte.')
+      if (canSelectUsuarios && usuarios.length === 0) throw new Error('No hay usuarios activos para generar el reporte.')
       const r = await api.getReporteAsistencia({
         ...(usuarioReporte ? { username: usuarioReporte } : {}),
         desde: periodo.desde,
@@ -198,7 +200,7 @@ export default function ReportesView() {
           </div>
           <div>
             <label className="label">Usuario interno</label>
-            {isAdmin ? (
+            {canSelectUsuarios ? (
               <select className="input" value={usuarioReporte} onChange={e => setUsuarioReporte(e.target.value)}>
                 <option value="">Todos los usuarios</option>
                 {usuarios.map(u => <option key={u.ID} value={u.Username}>{u.Nombre}</option>)}
@@ -217,46 +219,50 @@ export default function ReportesView() {
 
       {/* Report cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <ReportCard
-          icon={FileText}
-          title="Informe Ejecutivo Anual"
-          description={`Resumen completo con KPIs, tablas mensuales y detalle de ingresos/egresos para el año ${year}.`}
-          onPDF={() => genResumen('pdf')}
-          onWord={() => genResumen('word')}
-          loading={loading.res}
-        />
-        <ReportCard
-          icon={FileText}
-          title="Reporte de Ingresos"
-          description="Listado detallado de todos los ingresos en el período seleccionado."
-          onPDF={genIngresosPDF}
-          loading={loading.ing}
-        />
-        <ReportCard
-          icon={FileText}
-          title="Reporte de Egresos"
-          description="Listado de gastos por categoría con estado de aprobación."
-          onPDF={genEgresosPDF}
-          loading={loading.egr}
-        />
-        <ReportCard
-          icon={FileText}
-          title="Reporte de Pagos"
-          description="Historial de pagos a proveedores, facturas y transferencias."
-          onPDF={genPagosPDF}
-          loading={loading.pag}
-        />
-        <ReportCard
-          icon={FileText}
-          title="Reporte de Contratos"
-          description="Estado actual de todos los contratos con clientes y proveedores."
-          onPDF={genContratosPDF}
-          loading={loading.con}
-        />
+        {canSelectUsuarios && (
+          <>
+            <ReportCard
+              icon={FileText}
+              title="Informe Ejecutivo Anual"
+              description={`Resumen completo con KPIs, tablas mensuales y detalle de ingresos/egresos para el año ${year}.`}
+              onPDF={() => genResumen('pdf')}
+              onWord={() => genResumen('word')}
+              loading={loading.res}
+            />
+            <ReportCard
+              icon={FileText}
+              title="Reporte de Ingresos"
+              description="Listado detallado de todos los ingresos en el período seleccionado."
+              onPDF={genIngresosPDF}
+              loading={loading.ing}
+            />
+            <ReportCard
+              icon={FileText}
+              title="Reporte de Egresos"
+              description="Listado de gastos por categoría con estado de aprobación."
+              onPDF={genEgresosPDF}
+              loading={loading.egr}
+            />
+            <ReportCard
+              icon={FileText}
+              title="Reporte de Pagos"
+              description="Historial de pagos a proveedores, facturas y transferencias."
+              onPDF={genPagosPDF}
+              loading={loading.pag}
+            />
+            <ReportCard
+              icon={FileText}
+              title="Reporte de Contratos"
+              description="Estado actual de todos los contratos con clientes y proveedores."
+              onPDF={genContratosPDF}
+              loading={loading.con}
+            />
+          </>
+        )}
         <ReportCard
           icon={ClipboardList}
           title="Reporte de Flujo de Trabajo"
-          description="Actividades planificadas, estados, evidencias y horas reales por usuario y período."
+          description="Actividades planificadas, evidencias y horas aprobadas por administración."
           onPDF={genFlujosPDF}
           loading={loading.flu}
         />

@@ -8,10 +8,12 @@ function seededHarness() {
   harness.seed('Sesiones', [
     { Token: 'admin-token', Username: 'admin.test', UserID: 'USR-A', Rol: 'admin', Nombre: 'Admin Test', Expira: FUTURE },
     { Token: 'seller-token', Username: 'seller.test', UserID: 'USR-V', Rol: 'vendedor', Nombre: 'Seller Test', Expira: FUTURE },
+    { Token: 'contador-token', Username: 'contador.test', UserID: 'USR-C', Rol: 'contador', Nombre: 'Contador Test', Expira: FUTURE },
   ])
   harness.seed('Usuarios', [
     { ID: 'USR-A', Nombre: 'Admin Test', Username: 'admin.test', Rol: 'admin', Activo: true },
     { ID: 'USR-V', Nombre: 'Seller Test', Username: 'seller.test', Rol: 'vendedor', Activo: true },
+    { ID: 'USR-C', Nombre: 'Contador Test', Username: 'contador.test', Rol: 'contador', Activo: true },
   ])
   harness.seed('AuditoriaFiscal', [])
   harness.seed('FacturasFiscales', [])
@@ -1395,5 +1397,25 @@ describe('F. caso real reproducido: DRAFT test + contadores/facturas físicament
 
     const despuesTestDraft = JSON.stringify(harness.objects('FacturasFiscales').find(f => f.ID === 'FACT-TEST-DRAFT'))
     expect(despuesTestDraft).toBe(antesTestDraft)
+  })
+})
+
+describe('permisos fiscales para contador', () => {
+  it('contador puede consultar facturación pero no reservar secuenciales', () => {
+    const harness = seededHarness()
+    const list = harness.context.processRequest({
+      action: 'getFacturasFiscales',
+      token: 'contador-token',
+      environment: 'production',
+    })
+    const reserve = harness.context.processRequest({
+      action: 'reservarSecuencialFiscal',
+      token: 'contador-token',
+      facturaId: 'FACT-NOPE',
+    })
+
+    expect(list.success).toBe(true)
+    expect(reserve.success).toBe(false)
+    expect(reserve.error).toMatch(/administrador/i)
   })
 })

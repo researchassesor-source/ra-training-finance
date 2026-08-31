@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { saveAs } from 'file-saver'
-import { Download, Eye, FileCode2, FileText, RefreshCw, Search, UserSearch } from 'lucide-react'
+import { Download, Eye, FileCode2, FileText, Mail, MessageCircle, RefreshCw, Search, UserSearch } from 'lucide-react'
 import { api } from '../../services/api'
+import { useAuth } from '../../context/AuthContext'
 import Modal from '../UI/Modal'
 import TableSkeleton from '../UI/TableSkeleton'
 import {
@@ -73,6 +74,7 @@ function readDeepLinkParams() {
 }
 
 export default function FacturacionView() {
+  const { isAdmin } = useAuth()
   const navigate = useNavigate()
   const deepLink = useMemo(readDeepLinkParams, [])
   const deepLinkTarget = deepLink.factura || deepLink.inscripcion
@@ -140,6 +142,30 @@ export default function FacturacionView() {
     } finally {
       setBusy('')
     }
+  }
+
+  async function sendInvoiceEmail(factura) {
+    setBusy(`email:${factura.id}`)
+    setError('')
+    setNotice('')
+    try {
+      await api.enviarFacturaFiscalEmail(factura.id, factura.buyerEmail || '')
+      setNotice('Factura enviada por email con XML y RIDE adjuntos.')
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setBusy('')
+    }
+  }
+
+  function openInvoiceWhatsapp(factura) {
+    const numero = documentNumberOf(factura) || factura.id
+    const text = [
+      `Hola ${factura.buyerName || ''}.`,
+      `Tu factura electrónica R.A. Training ${numero} ya fue autorizada por el SRI.`,
+      'Desde Finance se puede descargar el RIDE y el XML autorizado para compartirlos.',
+    ].join(' ')
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer')
   }
 
   async function refreshInvoice(factura) {
@@ -234,7 +260,7 @@ export default function FacturacionView() {
                     const status = fiscalHumanStatus(factura.status)
                     const sri = fiscalSriStatus(factura)
                     const rawStatus = String(factura.status || '').toUpperCase()
-                    const showAdvanceAction = ADVANCEABLE_FISCAL_STATUSES.has(rawStatus)
+                    const showAdvanceAction = isAdmin && ADVANCEABLE_FISCAL_STATUSES.has(rawStatus)
                     const advanceActionTitle = DELIVERY_READY_STATUSES.has(rawStatus) ? 'Preparar documentos' : 'Actualizar estado'
                     return (
                       <tr key={factura.id} className="border-b border-gray-50 align-top last:border-0">
@@ -337,6 +363,17 @@ export default function FacturacionView() {
               <div className="flex flex-wrap gap-2">
                 <button className="btn-secondary" disabled={!selected.xmlAvailable} onClick={() => downloadDocument(selected, 'XML_AUTORIZADO')}><FileCode2 size={16} /> Descargar XML</button>
                 <button className="btn-secondary" disabled={!selected.rideAvailable} onClick={() => downloadDocument(selected, 'RIDE')}><FileText size={16} /> Descargar RIDE</button>
+                <button
+                  className="btn-secondary"
+                  disabled={!selected.xmlAvailable || !selected.rideAvailable || busy === `email:${selected.id}`}
+                  onClick={() => sendInvoiceEmail(selected)}
+                  title={selected.buyerEmail ? 'Enviar factura por email' : 'La factura no tiene correo para entrega automática'}
+                >
+                  <Mail size={16} /> Enviar email
+                </button>
+                <button className="btn-secondary" disabled={!selected.xmlAvailable || !selected.rideAvailable} onClick={() => openInvoiceWhatsapp(selected)}>
+                  <MessageCircle size={16} /> WhatsApp
+                </button>
               </div>
             </section>
             <section>

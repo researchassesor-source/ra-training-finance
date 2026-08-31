@@ -153,6 +153,7 @@ function processRequest(data) {
     backfillSriPaymentCodeFacturaAutorizada: () => backfillSriPaymentCodeFacturaAutorizada(user, params),
     guardarRideFiscal:              () => guardarRideFiscal(user, params),
     getDocumentoFiscalParaDescarga: () => getDocumentoFiscalParaDescarga(user, params),
+    enviarFacturaFiscalEmail:       () => enviarFacturaFiscalEmail(user, params),
     cerrarEntregaFiscal:            () => cerrarEntregaFiscal(user, params),
     // Modulo comercial CRM (aditivo) -- ver seccion MODULO COMERCIAL CRM
     importCrmPurchase:        () => importCrmPurchase(user, params),
@@ -468,6 +469,7 @@ function requireCertificateAdmin(user, action, context) {
 function isAdmin(user)    { return !!user && user.Rol === 'admin'; }
 function isVendedor(user) { return !!user && (user.Rol === 'vendedor' || user.Rol === 'admin'); }
 function isAval(user)     { return !!user && user.Rol === 'aval'; }
+function isContador(user) { return !!user && user.Rol === 'contador'; }
 
 function esVerdadero(value) {
   return value === true || String(value).toLowerCase() === 'true';
@@ -984,7 +986,7 @@ function handleVerificarCertificado({ id } = {}) {
 // ─────────────────────────────────────────────
 
 function getDashboard(user, { year } = {}) {
-  requireAdmin(user);
+  if (!isAdmin(user) && !isContador(user)) throw new Error('Acceso denegado: se requiere rol administrativo o contable.');
   const now         = new Date();
   const filterYear  = year || now.getFullYear();
 
@@ -1094,7 +1096,7 @@ function getDashboard(user, { year } = {}) {
 
 function getIngresos(user, { filtros = {} } = {}) {
   let data = sheetToObjects(getSheet('Ingresos'));
-  if (!isAdmin(user)) data = data.filter(i => i.CreadoPor === user.Username);
+  if (!isAdmin(user) && !isContador(user)) data = data.filter(i => i.CreadoPor === user.Username);
   if (filtros.tipo)   data = data.filter(i => i.Tipo === filtros.tipo);
   if (filtros.estado) data = data.filter(i => i.Estado === filtros.estado);
   const desde = fechaLimite(filtros.desde, false);
@@ -1157,7 +1159,7 @@ function updateIngreso(user, { id, ingreso }) {
 
 function getEgresos(user, { filtros = {} } = {}) {
   let data = sheetToObjects(getSheet('Egresos'));
-  if (!isAdmin(user)) data = data.filter(e => e.CreadoPor === user.Username);
+  if (!isAdmin(user) && !isContador(user)) data = data.filter(e => e.CreadoPor === user.Username);
   if (filtros.categoria) data = data.filter(e => e.Categoria === filtros.categoria);
   if (filtros.estado)    data = data.filter(e => e.Estado === filtros.estado);
   if (filtros.desde)     data = data.filter(e => new Date(e.Fecha) >= new Date(filtros.desde));
@@ -1204,7 +1206,7 @@ function updateEgreso(user, { id, egreso }) {
 // ─────────────────────────────────────────────
 
 function getPagos(user, { filtros = {} } = {}) {
-  requireAdmin(user);
+  if (!isAdmin(user) && !isContador(user)) throw new Error('Acceso denegado: se requiere rol administrativo o contable.');
   let data = sheetToObjects(getSheet('Pagos'));
   if (filtros.tipo)     data = data.filter(p => p.Tipo === filtros.tipo);
   if (filtros.estado)   data = data.filter(p => p.Estado === filtros.estado);
@@ -1286,7 +1288,7 @@ function deletePagoConSync(user, { id }) {
 // ─────────────────────────────────────────────
 
 function getContratos(user, { filtros = {} } = {}) {
-  requireAdmin(user);
+  if (!isAdmin(user) && !isContador(user)) throw new Error('Acceso denegado: se requiere rol administrativo o contable.');
   let data = sheetCache('contratos', 120, function() {
     return sheetToObjects(getSheet('Contratos'));
   });
@@ -1387,7 +1389,7 @@ function addCategoria(user, { categoria }) {
 // ─────────────────────────────────────────────
 
 function getUsuarios(user) {
-  requireAdmin(user);
+  if (!isAdmin(user) && !isContador(user)) throw new Error('Acceso denegado: se requiere rol administrativo o contable.');
   const data = sheetToObjects(getSheet('Usuarios')).map(u => ({
     ID: u.ID, Nombre: u.Nombre, Email: u.Email, Username: u.Username,
     Rol: u.Rol, Activo: u.Activo, FechaCreacion: u.FechaCreacion,
@@ -1402,8 +1404,6 @@ function addUsuario(user, { usuario }) {
   const existing = sheetToObjects(sheet);
   if (existing.find(u => u.Username === usuario.username))
     return { success: false, error: 'El nombre de usuario ya existe.' };
-  if (existing.length >= 10)
-    return { success: false, error: 'Límite máximo de 10 usuarios alcanzado.' };
   const rol = usuario.rol || 'usuario';
   const institucionAval = rol === 'aval' ? String(usuario.institucionAval || '').trim() : '';
   if (rol === 'aval' && !institucionAval) {
@@ -1559,6 +1559,7 @@ function getCalendario(user, { year, month } = {}) {
   }
 
   const eventos = [];
+  const servicioEventos = {};
 
   // Servicios con fechaEvento programada
   const servicios = sheetToObjects(getSheet('Servicios'));
@@ -1570,7 +1571,7 @@ function getCalendario(user, { year, month } = {}) {
     if (s.Tipo) detalle.push(s.Tipo);
     if (s.Capacitador) detalle.push('Capacitador: ' + s.Capacitador);
     if (s.LugarEvento) detalle.push(s.LugarEvento);
-    eventos.push({
+    const evento = {
       id:     s.ID,
       fecha:  s.FechaEvento,
       fechaFin: s.FechaFinEvento || s.FechaEvento,
@@ -1581,22 +1582,45 @@ function getCalendario(user, { year, month } = {}) {
       estadoEvento: estadoEvento,
       cursoActivo: s.Activo === true || s.Activo === 'TRUE',
       color:  'blue',
-    });
+      inscritos: 0,
+    };
+    eventos.push(evento);
+    servicioEventos[String(s.ID || '')] = evento;
   });
 
-  // Inscripciones (FechaInicio = evento del cliente)
+  // Inscripciones: no se muestran una por una para evitar saturar el calendario.
+  // Se agregan como conteo por curso/fecha, visible en el evento del servicio o
+  // como resumen si la inscripción no tiene un servicio fechado asociado.
   const inscripciones = sheetToObjects(getSheet('Inscripciones'));
+  const resumenInscripciones = {};
   inscripciones.forEach(function(i) {
     if (!rangeOverlaps(i.FechaInicio, i.FechaInicio)) return;
-    eventos.push({
-      id:     i.ID,
-      fecha:  i.FechaInicio,
-      fechaFin: i.FechaInicio,
-      titulo: i.ServicioNombre || i.ServicioID,
-      tipo:   'Inscripcion',
-      sub:    i.ClienteNombre,
-      color:  'green',
-    });
+    const servicioId = String(i.ServicioID || '');
+    const servicioEvento = servicioEventos[servicioId];
+    if (servicioEvento) {
+      servicioEvento.inscritos = (Number(servicioEvento.inscritos) || 0) + 1;
+      return;
+    }
+    const fecha = ds(i.FechaInicio);
+    const nombre = String(i.ServicioNombre || i.ServicioID || 'Curso sin nombre');
+    const key = fecha + '|' + nombre;
+    if (!resumenInscripciones[key]) {
+      resumenInscripciones[key] = {
+        id:     'INS_RESUMEN_' + key,
+        fecha:  fecha,
+        fechaFin: fecha,
+        titulo: nombre,
+        tipo:   'ResumenInscripciones',
+        sub:    '0 inscritos',
+        inscritos: 0,
+        color:  'green',
+      };
+    }
+    resumenInscripciones[key].inscritos += 1;
+    resumenInscripciones[key].sub = resumenInscripciones[key].inscritos + ' inscritos';
+  });
+  Object.keys(resumenInscripciones).forEach(function(key) {
+    eventos.push(resumenInscripciones[key]);
   });
 
   // Proyecciones futuras
@@ -4266,8 +4290,8 @@ function getAsistencia(user, { username, desde, hasta } = {}) {
 }
 
 function usuariosObjetivoReporteInterno(user, username) {
-  if (!isVendedor(user)) throw new Error('Acceso denegado.');
-  if (!isAdmin(user)) {
+  if (!isVendedor(user) && !isContador(user)) throw new Error('Acceso denegado.');
+  if (!isAdmin(user) && !isContador(user)) {
     return [{ Username: user.Username, Nombre: user.Nombre || user.Username }];
   }
   const usuarios = sheetToObjects(getSheet('Usuarios'))

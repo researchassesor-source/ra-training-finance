@@ -152,19 +152,21 @@ export function exportFlujosTrabajoPDF({ usuarioLabel, desde, hasta, flujos }) {
   const totalPlan = flujos.reduce((s, f) => s + (Number(f.TotalHorasPlan) || 0), 0)
   const totalEst = actividades.reduce((s, a) => s + (Number(a.HorasEstimadas) || 0), 0)
   const totalReal = actividades.reduce((s, a) => s + (Number(a.HorasReales) || 0), 0)
+  const totalAprobado = actividades.reduce((s, a) => s + (String(a.EstadoRevision || '') === 'aprobado' ? (Number(a.HorasAprobadas) || 0) : 0), 0)
   const completadas = actividades.filter(a => a.Estado === 'completado').length
+  const aprobadas = actividades.filter(a => String(a.EstadoRevision || '') === 'aprobado').length
 
   doc.setFontSize(9)
   doc.setTextColor(70, 70, 70)
   doc.text(
-    `Flujos: ${flujos.length}  |  Actividades: ${actividades.length}  |  Completadas: ${completadas}  |  Horas plan: ${totalPlan}  |  Horas estimadas: ${totalEst}  |  Horas reales: ${totalReal}`,
+    `Flujos: ${flujos.length}  |  Actividades: ${actividades.length}  |  Completadas: ${completadas}  |  Aprobadas: ${aprobadas}  |  Horas plan: ${totalPlan}  |  Horas reales: ${totalReal}  |  Horas aprobadas: ${totalAprobado}`,
     14,
     y,
   )
 
   autoTable(doc, {
     startY: y + 6,
-    head: [['Semana', 'Usuario', 'Día', 'Actividad', 'Estado', 'H. estimadas', 'H. reales', 'Evidencia / notas']],
+    head: [['Semana', 'Usuario', 'Día', 'Actividad', 'Estado', 'H. estimadas', 'H. reales', 'H. aprobadas', 'Revisión / evidencia']],
     body: actividades.map(a => [
       fmt.date(a.Semana),
       a.NombreUsuario || a.Username || '—',
@@ -173,9 +175,10 @@ export function exportFlujosTrabajoPDF({ usuarioLabel, desde, hasta, flujos }) {
       a.Estado || '—',
       String(a.HorasEstimadas || 0),
       String(a.HorasReales || 0),
-      a.Evidencia || a.Notas || '—',
+      String(String(a.EstadoRevision || '') === 'aprobado' ? (Number(a.HorasAprobadas) || 0) : 0),
+      [a.EstadoRevision || 'pendiente_revision', a.FeedbackRevision, a.Evidencia || a.Notas].filter(Boolean).join(' · ') || '—',
     ]),
-    foot: [['', '', '', '', 'TOTALES', String(totalEst), String(totalReal), `Plan semanal acumulado: ${totalPlan}h`]],
+    foot: [['', '', '', '', 'TOTALES', String(totalEst), String(totalReal), String(totalAprobado), `Plan semanal acumulado: ${totalPlan}h`]],
     headStyles: { fillColor: BRAND_COLOR, fontSize: 7 },
     footStyles: { fillColor: [240, 240, 255], fontStyle: 'bold', fontSize: 8 },
     bodyStyles: { fontSize: 7, overflow: 'linebreak' },
@@ -184,7 +187,8 @@ export function exportFlujosTrabajoPDF({ usuarioLabel, desde, hasta, flujos }) {
       3: { cellWidth: 70 },
       5: { halign: 'right', cellWidth: 22 },
       6: { halign: 'right', cellWidth: 22 },
-      7: { cellWidth: 60 },
+      7: { halign: 'right', cellWidth: 22 },
+      8: { cellWidth: 52 },
     },
   })
 

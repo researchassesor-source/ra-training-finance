@@ -31,12 +31,14 @@ const apiMock = vi.hoisted(() => ({
     },
   })),
   descargarDocumentoFiscal: vi.fn(async () => ({ blob: new Blob(['doc']), filename: 'documento.xml' })),
+  enviarFacturaFiscalEmail: vi.fn(async () => ({ success: true })),
   procesarFacturaFiscal: vi.fn(async () => ({ success: true })),
   cerrarEntregaFiscal: vi.fn(async () => ({ success: true })),
 }))
 
 vi.mock('../../services/api', () => ({ api: apiMock }))
 vi.mock('file-saver', () => ({ saveAs: state.saveAs }))
+vi.mock('../../context/AuthContext', () => ({ useAuth: () => ({ isAdmin: true }) }))
 
 const deliveredInvoice = {
   id: 'FACT_1786658883540_SUNGG',
@@ -84,10 +86,14 @@ describe('FacturacionView', () => {
     state.saveAs.mockClear()
     navigateMock.mockClear()
     Object.values(apiMock).forEach(mock => mock.mockClear())
+    vi.spyOn(window, 'open').mockImplementation(() => null)
     window.history.replaceState({}, '', '/facturacion')
   })
 
-  afterEach(() => cleanup())
+  afterEach(() => {
+    cleanup()
+    vi.restoreAllMocks()
+  })
 
   it('muestra estado vacío usando el entorno Producción por defecto', async () => {
     renderView()
@@ -121,6 +127,28 @@ describe('FacturacionView', () => {
     fireEvent.click(screen.getByTitle('Descargar XML'))
     await waitFor(() => expect(apiMock.descargarDocumentoFiscal).toHaveBeenCalledWith('FACT_1786658883540_SUNGG', 'XML_AUTORIZADO'))
     expect(state.saveAs).toHaveBeenCalled()
+  })
+
+  it('envía por email solo desde el detalle con XML/RIDE disponibles', async () => {
+    state.items = [{ ...deliveredInvoice, buyerEmail: 'cliente@example.com' }]
+    renderView()
+    await screen.findByText('001-002-000000001')
+    fireEvent.click(screen.getByTitle('Ver detalle'))
+
+    fireEvent.click(await screen.findByRole('button', { name: /Enviar email/i }))
+    await waitFor(() => expect(apiMock.enviarFacturaFiscalEmail).toHaveBeenCalledWith('FACT_1786658883540_SUNGG', 'cliente@example.com'))
+    expect(await screen.findByText('Factura enviada por email con XML y RIDE adjuntos.')).toBeInTheDocument()
+  })
+
+  it('prepara mensaje de WhatsApp sin regenerar ni reenviar al SRI', async () => {
+    state.items = [deliveredInvoice]
+    renderView()
+    await screen.findByText('001-002-000000001')
+    fireEvent.click(screen.getByTitle('Ver detalle'))
+
+    fireEvent.click(await screen.findByRole('button', { name: /WhatsApp/i }))
+    expect(window.open).toHaveBeenCalledWith(expect.stringContaining('https://wa.me/?text='), '_blank', 'noopener,noreferrer')
+    expect(apiMock.procesarFacturaFiscal).not.toHaveBeenCalled()
   })
 
   it('14a. sin parámetros, /facturacion funciona exactamente igual que antes', async () => {

@@ -144,4 +144,28 @@ describe('servicios y calendario operativo', () => {
     expect(capIndexes.map(i => sheet.rows[1][i])).toEqual(['Omar', 'Omar'])
     expect(servicios.data[0].Capacitador).toBe('Omar')
   })
+
+  it('resume inscripciones por curso en calendario sin crear un evento por cada participante', () => {
+    const harness = createHarness()
+    harness.seed('Servicios', [{
+      ID: 'SRV-1', Nombre: 'Curso con inscritos', Tipo: 'Curso', Modalidad: 'Virtual',
+      Precio: 10, Duracion: '10 horas', Activo: true, FechaEvento: '2026-09-10',
+      FechaFinEvento: '2026-09-10', EstadoEvento: 'programado',
+    }])
+    harness.seed('Inscripciones', [
+      { ID: 'INS-1', ServicioID: 'SRV-1', ServicioNombre: 'Curso con inscritos', ClienteNombre: 'Cliente Uno', FechaInicio: '2026-09-10' },
+      { ID: 'INS-2', ServicioID: 'SRV-1', ServicioNombre: 'Curso con inscritos', ClienteNombre: 'Cliente Dos', FechaInicio: '2026-09-10' },
+    ])
+
+    const result = harness.context.processRequest({ action: 'getCalendario', token: 'admin-token', year: 2026, month: 9 })
+
+    expect(result.success).toBe(true)
+    expect(result.data).toHaveLength(1)
+    expect(result.data[0]).toMatchObject({
+      id: 'SRV-1',
+      tipo: 'Servicio',
+      inscritos: 2,
+    })
+    expect(result.data.some(ev => ev.sub === 'Cliente Uno')).toBe(false)
+  })
 })

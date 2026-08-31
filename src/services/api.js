@@ -316,6 +316,8 @@ export const api = {
       blob: true,
       fallbackFilename: `${tipo === 'XML_AUTORIZADO' ? 'factura' : 'ride'}_${facturaId}`,
     }),
+  enviarFacturaFiscalEmail: (facturaId, email) =>
+    fiscalFetch('/api/fiscal/email', { method: 'POST', body: { facturaId, email } }),
   procesarFacturaFiscal: (facturaId) =>
     fiscalFetch('/api/fiscal/process', { method: 'POST', body: { facturaId } }),
   cerrarEntregaFiscal: (facturaId) =>

@@ -236,6 +236,14 @@ function registrarAuditoriaFiscal(evento) {
 
 function requireFiscalAdmin(user, action, context) {
   if (isAdmin(user)) return;
+  var accionesContablesSoloLectura = [
+    'FACTURAS_LIST',
+    'AUDITORIA_LIST',
+    'FACTURA_READ_FULL',
+    'FISCAL_DOCUMENT_DOWNLOAD',
+    'FISCAL_EMAIL_SEND',
+  ];
+  if (isContador(user) && accionesContablesSoloLectura.indexOf(String(action || '')) !== -1) return;
   context = context || {};
   registrarAuditoriaFiscal({
     facturaId: context.facturaId,
@@ -1070,6 +1078,15 @@ function fiscalDecodeBase64_(value) {
   }
 }
 
+function fiscalEscapeHtml_(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function fiscalSafeFilename_(value, fallback) {
   var name = String(value || fallback || 'documento-fiscal.pdf').trim();
   name = name.replace(/[\\/:*?"<>|]+/g, '_').slice(0, 140);
@@ -1211,6 +1228,52 @@ function getDocumentoFiscalParaDescarga(user, params) {
     sha256: sha,
     contentBase64: fiscalEncodeBase64_(bytes),
   } };
+}
+
+function enviarFacturaFiscalEmail(user, params) {
+  const p = params || {};
+  requireFiscalAdmin(user, 'FISCAL_EMAIL_SEND', { facturaId: p.facturaId });
+  if (!p.facturaId) throw new Error('facturaId es obligatorio.');
+  const { row: factura } = facturaFiscalPorId_(p.facturaId);
+  if (!factura) throw new Error('Factura no encontrada: ' + p.facturaId);
+  const email = String(p.email || factura.BuyerEmail || '').trim();
+  if (!email) throw new Error('La factura no tiene correo registrado para entrega automática.');
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('El correo de entrega no tiene un formato válido.');
+  if (factura.SriAuthorizationStatus !== 'AUTORIZADO' || !factura.AuthorizationNumber) {
+    throw new Error('Solo se puede enviar por email una factura autorizada.');
+  }
+
+  const xmlDoc = getDocumentoFiscalParaDescarga(user, { facturaId: p.facturaId, tipo: 'XML_AUTORIZADO' }).data;
+  const rideDoc = getDocumentoFiscalParaDescarga(user, { facturaId: p.facturaId, tipo: 'RIDE' }).data;
+  const attachments = [
+    Utilities.newBlob(fiscalDecodeBase64_(xmlDoc.contentBase64), xmlDoc.mimeType || 'application/xml', xmlDoc.filename || 'factura.xml'),
+    Utilities.newBlob(fiscalDecodeBase64_(rideDoc.contentBase64), rideDoc.mimeType || 'application/pdf', rideDoc.filename || 'ride.pdf'),
+  ];
+  const numero = factura.DocumentNumber || factura.ID;
+  MailApp.sendEmail({
+    to: email,
+    subject: 'Factura electrónica R.A. Training Finance ' + numero,
+    htmlBody: [
+      '<p>Estimado/a ' + fiscalEscapeHtml_(factura.BuyerName || 'cliente') + ',</p>',
+      '<p>Adjuntamos su factura electrónica autorizada por el SRI.</p>',
+      '<p><strong>Factura:</strong> ' + fiscalEscapeHtml_(numero) + '</p>',
+      '<p>Gracias por confiar en R.A. Training.</p>',
+    ].join(''),
+    attachments: attachments,
+  });
+
+  registrarAuditoriaFiscal({
+    facturaId: p.facturaId,
+    usuario: user.Username,
+    rol: user.Rol,
+    accion: 'FISCAL_EMAIL_SENT',
+    estadoAnterior: factura.Status,
+    estadoNuevo: factura.Status,
+    canal: 'email',
+    resultado: 'ok',
+    metadatos: { email: email, documentNumber: numero, xmlSha256: xmlDoc.sha256, rideSha256: rideDoc.sha256 },
+  });
+  return { success: true, data: { facturaId: p.facturaId, email: email } };
 }
 
 function cerrarEntregaFiscal(user, params) {

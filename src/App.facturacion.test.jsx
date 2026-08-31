@@ -14,6 +14,7 @@ vi.mock('./context/AuthContext', () => ({
     isAdmin: state.user?.rol === 'admin',
     isVendedor: state.user?.rol === 'vendedor' || state.user?.rol === 'admin',
     isAval: state.user?.rol === 'aval',
+    isContador: state.user?.rol === 'contador',
   }),
 }))
 
@@ -39,5 +40,11 @@ describe('ruta /facturacion', () => {
     state.user = { rol: 'vendedor', username: 'seller' }
     render(<MemoryRouter initialEntries={['/facturacion']}><App /></MemoryRouter>)
     expect(screen.queryByText('Vista de Facturación')).not.toBeInTheDocument()
+  })
+
+  it('queda disponible para contador en modo lectura operativa', () => {
+    state.user = { rol: 'contador', username: 'contador' }
+    render(<MemoryRouter initialEntries={['/facturacion']}><App /></MemoryRouter>)
+    expect(screen.getByText('Vista de Facturación')).toBeInTheDocument()
   })
 })

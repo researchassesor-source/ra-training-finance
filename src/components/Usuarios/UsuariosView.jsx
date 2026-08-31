@@ -12,6 +12,7 @@ const EMPTY = { nombre: '', email: '', username: '', password: '', rol: 'usuario
 const ROLE_META = {
   admin: { label: 'Administrador', css: 'badge-blue' },
   vendedor: { label: 'Vendedor', css: 'badge-green' },
+  contador: { label: 'Contador', css: 'badge-blue' },
   aval: { label: 'Aval externo', css: 'badge-yellow' },
   usuario: { label: 'Usuario', css: 'badge-gray' },
 }
@@ -87,6 +88,7 @@ function UsuarioForm({ initial, onSave, onCancel }) {
           }}>
             <option value="usuario">Usuario (solo gastos)</option>
             <option value="vendedor">Vendedor (ingresos + gastos + inscripciones)</option>
+            <option value="contador">Contador (facturación + reportes contables)</option>
             <option value="aval">Aval Externo (solo certificados con aval)</option>
             <option value="admin">Administrador (acceso total)</option>
           </select>
@@ -152,9 +154,8 @@ export default function UsuariosView() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <p className="text-sm text-gray-500">Máximo 10 usuarios permitidos ({data.length}/10)</p>
+        <p className="text-sm text-gray-500">Usuarios registrados: {data.length}. Administra roles y accesos sin límite operativo fijo.</p>
         <button onClick={() => { setSelected(null); setModal('new') }}
-          disabled={data.length >= 10}
           className="btn-primary text-sm">
           <Plus size={15} /> Nuevo Usuario
         </button>

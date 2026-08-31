@@ -126,9 +126,44 @@ function RichTextBox({ value, onChange, rows = 4, placeholder = 'Describe la act
 
 function FormattedDescription({ text }) {
   if (!text) return null
+  const lines = String(text).split(/\r?\n/)
+  const renderInline = (value, keyPrefix) => {
+    const parts = String(value || '').split(/(\*\*[^*]+\*\*)/g)
+    return parts.map((part, index) => {
+      const key = `${keyPrefix}-${index}`
+      if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
+        return <strong key={key} className="font-semibold text-gray-800">{part.slice(2, -2)}</strong>
+      }
+      return <span key={key}>{part}</span>
+    })
+  }
   return (
-    <div className="mt-2 rounded-lg bg-white/70 border border-gray-100 px-3 py-2 text-xs text-gray-600 whitespace-pre-wrap leading-relaxed">
-      {text}
+    <div className="mt-2 rounded-lg bg-white/70 border border-gray-100 px-3 py-2 text-xs text-gray-600 leading-relaxed space-y-1.5">
+      {lines.map((line, index) => {
+        const trimmed = line.trim()
+        const checklist = trimmed.match(/^\[( |x|X)\]\s+(.+)$/)
+        const bullet = trimmed.match(/^(?:•|-)\s+(.+)$/)
+        const step = trimmed.match(/^(\d+)\.\s+(.+)$/)
+        if (!trimmed) return <div key={index} className="h-1" />
+        if (checklist) {
+          const checked = checklist[1].toLowerCase() === 'x'
+          return (
+            <div key={index} className="flex items-start gap-2">
+              <span className={`mt-0.5 flex h-4 w-4 items-center justify-center rounded border ${checked ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-gray-300 bg-white'}`}>
+                {checked && <CheckCircle size={11} />}
+              </span>
+              <span className={checked ? 'line-through text-gray-400' : ''}>{renderInline(checklist[2], `chk-${index}`)}</span>
+            </div>
+          )
+        }
+        if (bullet) {
+          return <div key={index} className="flex gap-2"><span className="text-brand-500">•</span><span>{renderInline(bullet[1], `bul-${index}`)}</span></div>
+        }
+        if (step) {
+          return <div key={index} className="flex gap-2"><span className="font-semibold text-brand-600">{step[1]}.</span><span>{renderInline(step[2], `step-${index}`)}</span></div>
+        }
+        return <p key={index}>{renderInline(trimmed, `p-${index}`)}</p>
+      })}
     </div>
   )
 }
@@ -296,7 +331,7 @@ function ActividadCard({ act, isAdmin, onUpdate, onDelete }) {
 
   async function saveChecklist(nextChecklist = checklist) {
     setChecklist(nextChecklist)
-    await onUpdate(act.ID, { checklist: stringifyWorkflowArray(nextChecklist) })
+    await onUpdate(act.ID, { checklist: stringifyWorkflowArray(nextChecklist) }, { preserveScroll: true })
   }
 
   async function saveRevision(estadoRevision) {
@@ -493,8 +528,8 @@ function ActividadCard({ act, isAdmin, onUpdate, onDelete }) {
             </button>
           </>
         )}
-        {/* Evidencia disponible en cualquier estado (excepto pendiente) */}
-        {act.Estado !== 'pendiente' && (
+        {/* La administración puede adjuntar guía/evidencia desde el inicio; el usuario agrega evidencia al avanzar la actividad. */}
+        {(isAdmin || act.Estado !== 'pendiente') && (
           <button onClick={() => { setEditEvidencia(v => !v); setEditHoras(false); setEditRevision(false) }}
             className="text-xs px-2.5 py-1 rounded-lg bg-amber-100 text-amber-700 hover:bg-amber-200 flex items-center gap-1">
             <Paperclip size={12} /> {(act.Evidencia || imagenes.length) ? 'Editar evidencia' : 'Agregar evidencia'}
@@ -694,13 +729,19 @@ export default function FlujosView() {
     ? usuarioSel   // no fallback: esperar a que setUsuarioSel se inicialice
     : (user?.username || '')
 
-  const load = useCallback(() => {
+  const load = useCallback(({ preserveScroll = false } = {}) => {
     if (!targetUser) return  // evita carga con usuario vacío
+    const scrollY = typeof window !== 'undefined' ? window.scrollY : 0
     setLoading(true)
     api.getFlujosSemana({ username: targetUser, semana })
       .then(r => setFlujos(r.data || []))
       .catch(e => setError(e.message))
-      .finally(() => setLoading(false))
+      .finally(() => {
+        setLoading(false)
+        if (preserveScroll && typeof window !== 'undefined') {
+          window.requestAnimationFrame(() => window.scrollTo({ top: scrollY }))
+        }
+      })
   }, [semana, targetUser])
 
   useEffect(() => { load() }, [load])
@@ -734,8 +775,8 @@ export default function FlujosView() {
     finally { setSaving(false) }
   }
 
-  async function handleUpdateAct(id, data) {
-    try { await api.updateActividadFlujo(id, data); load() }
+  async function handleUpdateAct(id, data, options = {}) {
+    try { await api.updateActividadFlujo(id, data); load({ preserveScroll: options.preserveScroll === true }) }
     catch (e) { setError(e.message) }
   }
 

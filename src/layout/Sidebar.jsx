@@ -40,6 +40,11 @@ const vendedorLinks = [
   { to: '/mis-reportes',   icon: BookOpen,        label: 'Mis Reportes' },
 ]
 
+const contadorLinks = [
+  { to: '/facturacion',    icon: FileText,        label: 'Facturación' },
+  { to: '/reportes',       icon: BookOpen,        label: 'Reportes' },
+]
+
 const userLinks = [
   { to: '/mis-egresos',    icon: TrendingDown,    label: 'Reportar Gasto' },
   { to: '/mis-reportes',   icon: BookOpen,        label: 'Mis Reportes' },
@@ -50,8 +55,8 @@ const avalLinks = [
 ]
 
 export default function Sidebar({ open, onClose }) {
-  const { isAdmin, isVendedor, isAval, user } = useAuth()
-  const links = isAdmin ? adminLinks : isVendedor ? vendedorLinks : isAval ? avalLinks : userLinks
+  const { isAdmin, isVendedor, isAval, isContador, user } = useAuth()
+  const links = isAdmin ? adminLinks : isContador ? contadorLinks : isVendedor ? vendedorLinks : isAval ? avalLinks : userLinks
 
   return (
     <>

@@ -3,7 +3,6 @@ import { AuthProvider, useAuth } from './context/AuthContext'
 import Layout from './layout/Layout'
 import Login from './components/Auth/Login'
 import AdminDashboard from './components/Dashboard/AdminDashboard'
-import UserDashboard from './components/Dashboard/UserDashboard'
 import IngresosList from './components/Ingresos/IngresosList'
 import FacturacionView from './components/Facturacion/FacturacionView'
 import EgresosList from './components/Egresos/EgresosList'
@@ -41,6 +40,13 @@ function RequireVendedor({ children }) {
   return children
 }
 
+function RequireContador({ children }) {
+  const { user, isAdmin, isContador, isAval } = useAuth()
+  if (!user) return <Navigate to="/login" replace />
+  if (!isAdmin && !isContador) return <Navigate to={isAval ? '/aval-externo' : '/mis-egresos'} replace />
+  return children
+}
+
 function RequireAval({ children }) {
   const { user, isAdmin, isAval } = useAuth()
   if (!user) return <Navigate to="/login" replace />
@@ -58,22 +64,23 @@ function RequireGeneral({ children }) {
 }
 
 function HomeRedirect() {
-  const { user, isAdmin, isVendedor, isAval } = useAuth()
+  const { user, isAdmin, isVendedor, isAval, isContador } = useAuth()
   if (!user) return <Navigate to="/login" replace />
   if (isAdmin)    return <Navigate to="/dashboard" replace />
+  if (isContador) return <Navigate to="/facturacion" replace />
   if (isVendedor) return <Navigate to="/mis-ingresos" replace />
   if (isAval)     return <Navigate to="/aval-externo" replace />
   return <Navigate to="/mis-egresos" replace />
 }
 
 function AppRoutes() {
-  const { user, isAdmin, isVendedor, isAval } = useAuth()
+  const { user, isAdmin, isVendedor, isAval, isContador } = useAuth()
 
   return (
     <Routes>
       <Route path="/login" element={
         user
-          ? <Navigate to={isAdmin ? '/dashboard' : isVendedor ? '/mis-ingresos' : isAval ? '/aval-externo' : '/mis-egresos'} replace />
+          ? <Navigate to={isAdmin ? '/dashboard' : isContador ? '/facturacion' : isVendedor ? '/mis-ingresos' : isAval ? '/aval-externo' : '/mis-egresos'} replace />
           : <Login />
       } />
 
@@ -84,12 +91,12 @@ function AppRoutes() {
         {/* Admin routes */}
         <Route path="/dashboard"     element={<RequireAdmin><AdminDashboard /></RequireAdmin>} />
         <Route path="/ingresos"      element={<RequireAdmin><IngresosList /></RequireAdmin>} />
-        <Route path="/facturacion"   element={<RequireAdmin><FacturacionView /></RequireAdmin>} />
+        <Route path="/facturacion"   element={<RequireContador><FacturacionView /></RequireContador>} />
         <Route path="/egresos"       element={<RequireAdmin><EgresosList /></RequireAdmin>} />
         <Route path="/pagos"         element={<RequireAdmin><PagosList /></RequireAdmin>} />
         <Route path="/contratos"     element={<RequireAdmin><ContratosList /></RequireAdmin>} />
         <Route path="/proyecciones"  element={<RequireAdmin><ProyeccionesView /></RequireAdmin>} />
-        <Route path="/reportes"      element={<RequireAdmin><ReportesView /></RequireAdmin>} />
+        <Route path="/reportes"      element={<RequireContador><ReportesView /></RequireContador>} />
         <Route path="/usuarios"      element={<RequireAdmin><UsuariosView /></RequireAdmin>} />
         <Route path="/config-pagos"  element={<RequireAdmin><ConfigPagosView /></RequireAdmin>} />
         <Route path="/convenios"     element={<RequireAdmin><ConveniosList /></RequireAdmin>} />
@@ -107,7 +114,7 @@ function AppRoutes() {
 
         {/* Cualquier autenticado, excepto el rol 'aval' */}
         <Route path="/mis-egresos"   element={<RequireGeneral><EgresosList /></RequireGeneral>} />
-        <Route path="/mis-reportes"  element={<RequireGeneral><UserDashboard /></RequireGeneral>} />
+        <Route path="/mis-reportes"  element={<RequireGeneral><ReportesView /></RequireGeneral>} />
       </Route>
 
       <Route path="/" element={<RequireAuth><HomeRedirect /></RequireAuth>} />
