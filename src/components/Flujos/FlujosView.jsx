@@ -71,7 +71,9 @@ function getHorasAprobadas(act) {
   return getRevisionEstado(act) === 'aprobado' ? (Number(act.HorasAprobadas) || 0) : 0
 }
 
-const MAX_WORKFLOW_IMAGE_CHARS = 42_000
+// Google Sheets limita cada celda a ~50k caracteres. Las capturas se guardan
+// comprimidas dentro de la actividad, así que dejamos margen para el JSON/nombre.
+const MAX_WORKFLOW_IMAGE_CHARS = 48_000
 const MAX_WORKFLOW_IMAGES = 3
 
 function parseJsonArray(value) {
@@ -168,6 +170,28 @@ function FormattedDescription({ text }) {
   )
 }
 
+function EvidenceImagePreview({ image, onClose }) {
+  return (
+    <Modal open={!!image} onClose={onClose} title={image?.title || 'Evidencia visual'} size="xl">
+      {image && (
+        <div className="space-y-3">
+          <div className="rounded-2xl border border-gray-200 bg-gray-50 p-3">
+            <img
+              src={image.dataUrl}
+              alt={image.name || 'Evidencia visual'}
+              className="max-h-[70vh] w-full rounded-xl object-contain"
+            />
+          </div>
+          <div className="rounded-xl bg-brand-50 px-4 py-3 text-sm text-gray-700">
+            <p className="font-semibold text-brand-800">{image.name || 'Captura de evidencia'}</p>
+            {image.description && <p className="mt-1 whitespace-pre-wrap">{image.description}</p>}
+          </div>
+        </div>
+      )}
+    </Modal>
+  )
+}
+
 function normalizeChecklist(items) {
   return parseJsonArray(items)
     .map((item, index) => ({
@@ -255,16 +279,31 @@ async function compressWorkflowImage(file) {
     image.onerror = () => reject(new Error('No se pudo procesar la imagen.'))
     image.src = dataUrl
   })
-  const maxWidth = 900
-  const scale = Math.min(1, maxWidth / img.width)
-  const canvas = document.createElement('canvas')
-  canvas.width = Math.max(1, Math.round(img.width * scale))
-  canvas.height = Math.max(1, Math.round(img.height * scale))
-  const ctx = canvas.getContext('2d')
-  ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
-  const compressed = canvas.toDataURL('image/jpeg', 0.72)
+  let maxWidth = 1400
+  let quality = 0.82
+  let compressed = ''
+
+  for (let attempt = 0; attempt < 14; attempt += 1) {
+    const scale = Math.min(1, maxWidth / img.width)
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.max(1, Math.round(img.width * scale))
+    canvas.height = Math.max(1, Math.round(img.height * scale))
+    const ctx = canvas.getContext('2d')
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+    compressed = canvas.toDataURL('image/jpeg', quality)
+    if (compressed.length <= MAX_WORKFLOW_IMAGE_CHARS) break
+    if (quality > 0.5) {
+      quality = Math.max(0.5, quality - 0.08)
+    } else {
+      maxWidth = Math.max(520, Math.round(maxWidth * 0.72))
+      quality = 0.7
+    }
+  }
+
   if (compressed.length > MAX_WORKFLOW_IMAGE_CHARS) {
-    throw new Error('La imagen sigue siendo muy pesada. Usa una captura más pequeña o súbela a Drive y pega el enlace.')
+    throw new Error('La captura es demasiado pesada para guardarse segura en Sheets. Recórtala o pega un enlace de Drive.')
   }
   return {
     id: `img-${Date.now()}`,
@@ -291,6 +330,7 @@ function ActividadCard({ act, isAdmin, onUpdate, onDelete }) {
   const [revisionImagenes, setRevisionImagenes] = useState(() => parseJsonArray(act.ImagenesRevision))
   const [revisionReprogramar, setRevisionReprogramar] = useState('')
   const [revisionError, setRevisionError] = useState('')
+  const [previewImage, setPreviewImage]   = useState(null)
   const [detalle, setDetalle]           = useState({
     titulo: act.Titulo, descripcion: act.Descripcion || '',
     diaSemana: normalizeDiaSemana(act.DiaSemana) || 'Lunes', horasEstimadas: act.HorasEstimadas,
@@ -513,12 +553,17 @@ function ActividadCard({ act, isAdmin, onUpdate, onDelete }) {
             {adminRevisionImages.length > 0 && (
               <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-2">
                 {adminRevisionImages.map(img => (
-                  <a key={img.id} href={img.dataUrl} target="_blank" rel="noopener noreferrer"
+                  <button key={img.id} type="button"
+                    onClick={() => setPreviewImage({
+                      ...img,
+                      title: 'Evidencia de revisión administrativa',
+                      description: act.FeedbackRevision || act.EvidenciaRevision || 'Captura enviada por administración.',
+                    })}
                     className="group block rounded-lg overflow-hidden border border-gray-200 bg-white">
                     <img src={img.dataUrl} alt={img.name || 'Evidencia de revisión'}
                       className="h-24 w-full object-cover group-hover:opacity-90" />
                     <span className="block truncate px-2 py-1 text-[11px] text-gray-500">{img.name || 'Captura admin'}</span>
-                  </a>
+                  </button>
                 ))}
               </div>
             )}
@@ -552,12 +597,17 @@ function ActividadCard({ act, isAdmin, onUpdate, onDelete }) {
           {imagenes.length > 0 && (
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               {imagenes.map(img => (
-                <a key={img.id} href={img.dataUrl} target="_blank" rel="noopener noreferrer"
+                <button key={img.id} type="button"
+                  onClick={() => setPreviewImage({
+                    ...img,
+                    title: isAdmin ? 'Evidencia del trabajador' : 'Mi evidencia enviada',
+                    description: act.Evidencia || 'Captura adjunta a la actividad.',
+                  })}
                   className="group block rounded-lg overflow-hidden border border-gray-200 bg-white">
                   <img src={img.dataUrl} alt={img.name || 'Evidencia visual'}
                     className="h-24 w-full object-cover group-hover:opacity-90" />
                   <span className="block truncate px-2 py-1 text-[11px] text-gray-500">{img.name || 'Captura'}</span>
-                </a>
+                </button>
               ))}
             </div>
           )}
@@ -730,6 +780,8 @@ function ActividadCard({ act, isAdmin, onUpdate, onDelete }) {
           </div>
         </div>
       )}
+
+      <EvidenceImagePreview image={previewImage} onClose={() => setPreviewImage(null)} />
     </div>
   )
 }
