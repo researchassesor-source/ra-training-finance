@@ -318,6 +318,8 @@ export const api = {
     }),
   enviarFacturaFiscalEmail: (facturaId, email) =>
     fiscalFetch('/api/fiscal/email', { method: 'POST', body: { facturaId, email } }),
+  generarLinksFacturaFiscal: (facturaId) =>
+    fiscalFetch('/api/fiscal/share-document', { method: 'POST', body: { facturaId } }),
   procesarFacturaFiscal: (facturaId) =>
     fiscalFetch('/api/fiscal/process', { method: 'POST', body: { facturaId } }),
   cerrarEntregaFiscal: (facturaId) =>

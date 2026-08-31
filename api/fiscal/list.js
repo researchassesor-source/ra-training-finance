@@ -51,6 +51,7 @@ function sanitizeOrigin(inscripcion) {
     numeroComprobante: inscripcion.NumeroComprobante || '',
     fechaPago: inscripcion.FechaPago || '',
     metodoPago: inscripcion.MetodoPago || '',
+    clienteTelefono: inscripcion.ClienteTelefono || '',
   }
 }
 
@@ -71,6 +72,7 @@ function sanitizeFactura(row = {}, items = [], inscripcionPorId = {}) {
     buyerName: row.BuyerName || '',
     buyerIdentification: row.BuyerIdentification || '',
     buyerEmail: row.BuyerEmail || '',
+    buyerPhone: row.BuyerPhone || inscripcionPorId[row.InscripcionID]?.ClienteTelefono || '',
     buyerAddress: row.BuyerAddress || '',
     subtotalWithoutTax: Number(row.SubtotalWithoutTax) || 0,
     subtotal0: Number(row.Subtotal0) || 0,

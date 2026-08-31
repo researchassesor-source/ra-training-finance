@@ -287,6 +287,8 @@ function ActividadCard({ act, isAdmin, onUpdate, onDelete }) {
   const [evidencia, setEvidencia]       = useState(act.Evidencia || '')
   const [revisionHoras, setRevisionHoras] = useState(act.HorasAprobadas || act.HorasReales || act.HorasEstimadas || 0)
   const [revisionFeedback, setRevisionFeedback] = useState(act.FeedbackRevision || '')
+  const [revisionEvidencia, setRevisionEvidencia] = useState(act.EvidenciaRevision || '')
+  const [revisionImagenes, setRevisionImagenes] = useState(() => parseJsonArray(act.ImagenesRevision))
   const [revisionReprogramar, setRevisionReprogramar] = useState('')
   const [revisionError, setRevisionError] = useState('')
   const [detalle, setDetalle]           = useState({
@@ -346,6 +348,8 @@ function ActividadCard({ act, isAdmin, onUpdate, onDelete }) {
       estadoRevision,
       horasAprobadas: estadoRevision === 'aprobado' ? Number(revisionHoras) : 0,
       feedbackRevision: feedback,
+      evidenciaRevision: revisionEvidencia,
+      imagenesRevision: stringifyWorkflowArray(revisionImagenes),
       reprogramadoPara: estadoRevision === 'rechazado' ? revisionReprogramar : '',
     })
     setSaving(false)
@@ -375,9 +379,34 @@ function ActividadCard({ act, isAdmin, onUpdate, onDelete }) {
     setImagenes(prev => prev.filter(img => img.id !== id))
   }
 
+  async function handleRevisionImageUpload(event) {
+    const files = Array.from(event.target.files || [])
+    if (files.length === 0) return
+    setImageError('')
+    try {
+      const disponibles = Math.max(0, MAX_WORKFLOW_IMAGES - revisionImagenes.length)
+      if (disponibles === 0) throw new Error(`Máximo ${MAX_WORKFLOW_IMAGES} imágenes por revisión.`)
+      const nuevas = []
+      for (const file of files.slice(0, disponibles)) {
+        nuevas.push(await compressWorkflowImage(file))
+      }
+      setRevisionImagenes(prev => [...prev, ...nuevas])
+    } catch (err) {
+      setImageError(err.message || 'No se pudo cargar la evidencia de revisión.')
+    } finally {
+      event.target.value = ''
+    }
+  }
+
+  function removeRevisionImage(id) {
+    setRevisionImagenes(prev => prev.filter(img => img.id !== id))
+  }
+
   const isUrl = (s) => s && (s.startsWith('http://') || s.startsWith('https://'))
   const checklistDone = checklist.filter(item => item.done).length
   const checklistTotal = checklist.length
+  const adminRevisionImages = parseJsonArray(act.ImagenesRevision)
+  const hasAdminFeedback = Boolean(act.FeedbackRevision || act.EvidenciaRevision || adminRevisionImages.length > 0 || act.RevisadoPor)
 
   return (
     <div className={`border rounded-xl p-4 space-y-3 transition-all
@@ -462,11 +491,38 @@ function ActividadCard({ act, isAdmin, onUpdate, onDelete }) {
             <span>Las horas aún no cuentan hasta revisión administrativa.</span>
           )}
         </div>
-        {act.FeedbackRevision && (
-          <p className="mt-1.5 text-gray-700 flex gap-1.5">
-            <MessageSquare size={13} className="mt-0.5 flex-shrink-0" />
-            <span>{act.FeedbackRevision}</span>
-          </p>
+        {hasAdminFeedback && (
+          <div className="mt-2 rounded-lg border border-white/70 bg-white/70 p-2">
+            <p className="mb-1.5 flex items-center gap-1.5 font-semibold text-gray-700">
+              <MessageSquare size={13} /> {isAdmin ? 'Evidencia de revisión' : 'Retroalimentación administrativa'}
+            </p>
+            {act.FeedbackRevision && <p className="text-gray-700">{act.FeedbackRevision}</p>}
+            {act.EvidenciaRevision && (
+              <div className="mt-2 flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-gray-600">
+                <Paperclip size={12} className="text-gray-400 flex-shrink-0" />
+                {isUrl(act.EvidenciaRevision) ? (
+                  <a href={act.EvidenciaRevision} target="_blank" rel="noopener noreferrer"
+                    className="text-brand-600 hover:underline flex items-center gap-1 truncate">
+                    Ver evidencia del admin <ExternalLink size={11} />
+                  </a>
+                ) : (
+                  <span className="truncate">{act.EvidenciaRevision}</span>
+                )}
+              </div>
+            )}
+            {adminRevisionImages.length > 0 && (
+              <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {adminRevisionImages.map(img => (
+                  <a key={img.id} href={img.dataUrl} target="_blank" rel="noopener noreferrer"
+                    className="group block rounded-lg overflow-hidden border border-gray-200 bg-white">
+                    <img src={img.dataUrl} alt={img.name || 'Evidencia de revisión'}
+                      className="h-24 w-full object-cover group-hover:opacity-90" />
+                    <span className="block truncate px-2 py-1 text-[11px] text-gray-500">{img.name || 'Captura admin'}</span>
+                  </a>
+                ))}
+              </div>
+            )}
+          </div>
         )}
         {act.ReprogramadoPara && (
           <p className="mt-1 text-gray-600">
@@ -591,6 +647,34 @@ function ActividadCard({ act, isAdmin, onUpdate, onDelete }) {
               onChange={e => setRevisionFeedback(e.target.value)}
               placeholder="Ej: Actividad aprobada. / No se cumplió lo solicitado: falta adjuntar evidencia..." />
             {revisionError && <p className="text-xs text-red-600 mt-1">{revisionError}</p>}
+          </div>
+          <div className="rounded-xl border border-dashed border-indigo-200 bg-indigo-50/50 p-3 space-y-2">
+            <label className="text-xs font-semibold text-indigo-800 flex items-center gap-1.5">
+              <ImageIcon size={13} /> Evidencia de revisión para el trabajador
+            </label>
+            <p className="text-[11px] text-gray-500">
+              Úsalo para adjuntar capturas de lo que falta, errores encontrados o referencias que la persona debe corregir.
+            </p>
+            <textarea className="input text-xs" rows={2} value={revisionEvidencia}
+              onChange={e => setRevisionEvidencia(e.target.value)}
+              placeholder="Enlace, nota breve o explicación de la captura..." />
+            <input type="file" accept="image/*" multiple onChange={handleRevisionImageUpload}
+              className="block w-full text-xs text-gray-500 file:mr-3 file:rounded-lg file:border-0 file:bg-white file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-indigo-700 hover:file:bg-indigo-50" />
+            {imageError && <p className="text-xs text-red-600">{imageError}</p>}
+            {revisionImagenes.length > 0 && (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {revisionImagenes.map(img => (
+                  <div key={img.id} className="relative rounded-lg overflow-hidden border border-indigo-100 bg-white">
+                    <img src={img.dataUrl} alt={img.name || 'Evidencia de revisión'} className="h-24 w-full object-cover" />
+                    <button type="button" onClick={() => removeRevisionImage(img.id)}
+                      className="absolute top-1 right-1 rounded-full bg-white/90 p-1 text-gray-500 hover:text-red-600">
+                      <X size={12} />
+                    </button>
+                    <p className="truncate px-2 py-1 text-[11px] text-gray-500">{img.name || 'Captura admin'}</p>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
           <div className="grid sm:grid-cols-3 gap-2">
             <button type="button" onClick={() => saveRevision('aprobado')} disabled={saving}

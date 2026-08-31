@@ -207,7 +207,7 @@ const SHEET_HEADERS = {
   Convenios:        ['ID','Organizacion','Representante','Cargo','Objeto','ObligacionesRA','ObligacionesAliado','Vigencia','FechaInicio','FechaFin','Estado','Notas','CreadoPor','FechaCreacion'],
   Asistencia:       ['ID','Username','Nombre','Tipo','Timestamp','Fecha','Notas','FechaCreacion'],
   FlujosSemanales:  ['ID','Username','NombreUsuario','Semana','FechaInicio','FechaFin','TotalHorasPlan','Estado','Notas','CreadoPor','FechaCreacion'],
-  ActividadesFlujo: ['ID','FlujoID','Username','Titulo','Descripcion','DescripcionFormato','DiaSemana','HorasEstimadas','Estado','HorasReales','Notas','Checklist','Evidencia','Imagenes','EstadoRevision','HorasAprobadas','FeedbackRevision','RevisadoPor','RevisadoEn','ReprogramadoDesde','ReprogramadoPara','CompletadoEn','FechaCreacion'],
+  ActividadesFlujo: ['ID','FlujoID','Username','Titulo','Descripcion','DescripcionFormato','DiaSemana','HorasEstimadas','Estado','HorasReales','Notas','Checklist','Evidencia','Imagenes','EstadoRevision','HorasAprobadas','FeedbackRevision','EvidenciaRevision','ImagenesRevision','RevisadoPor','RevisadoEn','ReprogramadoDesde','ReprogramadoPara','CompletadoEn','FechaCreacion'],
   AuditoriaCertificados: ['ID','CertificadoID','InscripcionID','Usuario','Rol','Accion','FechaHora','EstadoAnterior','EstadoNuevo','Canal','Resultado','Motivo','Metadatos'],
   Certificados: ['ID','InscripcionID','CodigoCertificado','CertificateVersion','TemplateVersion','PdfHash','PdfStorageReference','OriginalCertificateId','ReissuedCertificateId','CertificateStatus','IssuedAt','IssuedBy','VoidedAt','VoidedBy','VoidReason','ReissueReason','CreatedAt'],
   DescargasCertificados: ['ID','CertificadoID','InscripcionID','Usuario','Rol','Estado','FechaSolicitud','FechaConfirmacion','Motivo','PdfHash','PdfStorageReference','Canal'],
@@ -4531,6 +4531,8 @@ function addActividadFlujo(user, { actividad } = {}) {
     EstadoRevision: 'pendiente_revision',
     HorasAprobadas: 0,
     FeedbackRevision: '',
+    EvidenciaRevision: '',
+    ImagenesRevision: '[]',
     RevisadoPor: '',
     RevisadoEn: '',
     ReprogramadoDesde: '',
@@ -4706,6 +4708,8 @@ function updateActividadFlujo(user, { id, actividad } = {}) {
       fields.FeedbackRevision = actividad.feedbackRevision !== undefined
         ? String(actividad.feedbackRevision || '')
         : row.FeedbackRevision || '';
+      if (actividad.evidenciaRevision !== undefined) fields.EvidenciaRevision = String(actividad.evidenciaRevision || '');
+      if (actividad.imagenesRevision !== undefined) fields.ImagenesRevision = actividad.imagenesRevision || '[]';
       fields.RevisadoPor = user.Username;
       fields.RevisadoEn = new Date().toISOString();
       if (actividad.reprogramadoPara !== undefined) {
@@ -4718,6 +4722,8 @@ function updateActividadFlujo(user, { id, actividad } = {}) {
     } else if (actividad.feedbackRevision !== undefined) {
       fields.FeedbackRevision = String(actividad.feedbackRevision || '');
     }
+    if (actividad.evidenciaRevision !== undefined) fields.EvidenciaRevision = String(actividad.evidenciaRevision || '');
+    if (actividad.imagenesRevision !== undefined) fields.ImagenesRevision = actividad.imagenesRevision || '[]';
   }
   if (actividad.estado      !== undefined) {
     fields.Estado = actividad.estado;

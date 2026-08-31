@@ -1087,6 +1087,10 @@ function fiscalEscapeHtml_(value) {
     .replace(/'/g, '&#39;');
 }
 
+function fiscalFormatUsd_(cents) {
+  return '$' + (Number(cents || 0) / 100).toFixed(2);
+}
+
 function fiscalSafeFilename_(value, fallback) {
   var name = String(value || fallback || 'documento-fiscal.pdf').trim();
   name = name.replace(/[\\/:*?"<>|]+/g, '_').slice(0, 140);
@@ -1245,6 +1249,10 @@ function enviarFacturaFiscalEmail(user, params) {
 
   const xmlDoc = getDocumentoFiscalParaDescarga(user, { facturaId: p.facturaId, tipo: 'XML_AUTORIZADO' }).data;
   const rideDoc = getDocumentoFiscalParaDescarga(user, { facturaId: p.facturaId, tipo: 'RIDE' }).data;
+  const items = sheetToObjects(getSheet('FacturaItems')).filter(function (item) {
+    return item.FacturaID === p.facturaId;
+  });
+  const concepto = items.length ? items[0].Descripcion : '';
   const attachments = [
     Utilities.newBlob(fiscalDecodeBase64_(xmlDoc.contentBase64), xmlDoc.mimeType || 'application/xml', xmlDoc.filename || 'factura.xml'),
     Utilities.newBlob(fiscalDecodeBase64_(rideDoc.contentBase64), rideDoc.mimeType || 'application/pdf', rideDoc.filename || 'ride.pdf'),
@@ -1254,10 +1262,25 @@ function enviarFacturaFiscalEmail(user, params) {
     to: email,
     subject: 'Factura electrónica R.A. Training Finance ' + numero,
     htmlBody: [
-      '<p>Estimado/a ' + fiscalEscapeHtml_(factura.BuyerName || 'cliente') + ',</p>',
-      '<p>Adjuntamos su factura electrónica autorizada por el SRI.</p>',
-      '<p><strong>Factura:</strong> ' + fiscalEscapeHtml_(numero) + '</p>',
-      '<p>Gracias por confiar en R.A. Training.</p>',
+      '<div style="font-family:Arial,sans-serif;color:#0f172a;line-height:1.55;max-width:640px">',
+      '<div style="background:#062a55;color:white;padding:18px 22px;border-radius:14px 14px 0 0">',
+      '<div style="font-size:13px;letter-spacing:.08em;color:#ff8a00;font-weight:700">R.A. TRAINING FINANCE</div>',
+      '<h2 style="margin:6px 0 0;font-size:22px">Factura electrónica autorizada</h2>',
+      '</div>',
+      '<div style="border:1px solid #e5e7eb;border-top:0;padding:22px;border-radius:0 0 14px 14px;background:#ffffff">',
+      '<p>Estimado/a <strong>' + fiscalEscapeHtml_(factura.BuyerName || 'cliente') + '</strong>,</p>',
+      '<p>Le compartimos su factura electrónica autorizada por el Servicio de Rentas Internas. En este correo encontrará adjuntos el <strong>RIDE en PDF</strong> y el <strong>XML autorizado</strong>.</p>',
+      '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:14px 16px;margin:18px 0">',
+      '<p style="margin:0 0 6px"><strong>Factura:</strong> ' + fiscalEscapeHtml_(numero) + '</p>',
+      concepto ? '<p style="margin:0 0 6px"><strong>Curso/servicio:</strong> ' + fiscalEscapeHtml_(concepto) + '</p>' : '',
+      '<p style="margin:0 0 6px"><strong>Total:</strong> ' + fiscalEscapeHtml_(fiscalFormatUsd_(factura.GrandTotal)) + '</p>',
+      '<p style="margin:0"><strong>Autorización:</strong> ' + fiscalEscapeHtml_(factura.AuthorizationNumber || 'Registrada') + '</p>',
+      '</div>',
+      '<p>Si necesita reenviar o descargar nuevamente sus documentos, puede solicitarlo a nuestro equipo administrativo.</p>',
+      '<p style="margin-top:20px">Gracias por confiar en <strong>R.A. Training</strong>.</p>',
+      '<p style="font-size:12px;color:#64748b;margin-top:22px">Este mensaje fue generado desde R.A. Training Finance. No comparta el XML ni el RIDE en canales no autorizados.</p>',
+      '</div>',
+      '</div>',
     ].join(''),
     attachments: attachments,
   });

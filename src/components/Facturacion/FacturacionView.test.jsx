@@ -32,6 +32,15 @@ const apiMock = vi.hoisted(() => ({
   })),
   descargarDocumentoFiscal: vi.fn(async () => ({ blob: new Blob(['doc']), filename: 'documento.xml' })),
   enviarFacturaFiscalEmail: vi.fn(async () => ({ success: true })),
+  generarLinksFacturaFiscal: vi.fn(async () => ({
+    success: true,
+    data: {
+      links: {
+        ride: 'https://ra-training-finance.vercel.app/api/fiscal/public-document?token=ride-token',
+        xml: 'https://ra-training-finance.vercel.app/api/fiscal/public-document?token=xml-token',
+      },
+    },
+  })),
   procesarFacturaFiscal: vi.fn(async () => ({ success: true })),
   cerrarEntregaFiscal: vi.fn(async () => ({ success: true })),
 }))
@@ -49,6 +58,7 @@ const deliveredInvoice = {
   buyerName: 'Andrea Carolina Hinostroza Medina',
   buyerIdentification: '1804417424',
   buyerEmail: '',
+  buyerPhone: '0999999999',
   grandTotal: 800,
   taxTotal: 0,
   paymentMethodInternal: '',
@@ -140,14 +150,19 @@ describe('FacturacionView', () => {
     expect(await screen.findByText('Factura enviada por email con XML y RIDE adjuntos.')).toBeInTheDocument()
   })
 
-  it('prepara mensaje de WhatsApp sin regenerar ni reenviar al SRI', async () => {
+  it('prepara WhatsApp al número del cliente con mensaje bonito y links seguros, sin reenviar al SRI', async () => {
     state.items = [deliveredInvoice]
     renderView()
     await screen.findByText('001-002-000000001')
     fireEvent.click(screen.getByTitle('Ver detalle'))
 
     fireEvent.click(await screen.findByRole('button', { name: /WhatsApp/i }))
-    expect(window.open).toHaveBeenCalledWith(expect.stringContaining('https://wa.me/?text='), '_blank', 'noopener,noreferrer')
+    await waitFor(() => expect(apiMock.generarLinksFacturaFiscal).toHaveBeenCalledWith('FACT_1786658883540_SUNGG'))
+    const opened = window.open.mock.calls[0][0]
+    expect(opened).toContain('https://wa.me/593999999999?text=')
+    expect(decodeURIComponent(opened)).toContain('Le compartimos su factura electrónica autorizada por el SRI.')
+    expect(decodeURIComponent(opened)).toContain('RIDE PDF: https://ra-training-finance.vercel.app/api/fiscal/public-document?token=ride-token')
+    expect(decodeURIComponent(opened)).toContain('XML autorizado: https://ra-training-finance.vercel.app/api/fiscal/public-document?token=xml-token')
     expect(apiMock.procesarFacturaFiscal).not.toHaveBeenCalled()
   })
 

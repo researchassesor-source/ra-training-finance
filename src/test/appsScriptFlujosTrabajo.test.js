@@ -64,6 +64,8 @@ describe('flujos de trabajo enriquecidos', () => {
       Estado: 'pendiente',
       EstadoRevision: 'pendiente_revision',
       HorasAprobadas: 0,
+      EvidenciaRevision: '',
+      ImagenesRevision: '[]',
     })
   })
 
@@ -307,6 +309,8 @@ describe('flujos de trabajo enriquecidos', () => {
         estadoRevision: 'aprobado',
         horasAprobadas: 4,
         feedbackRevision: 'Actividad cumplida correctamente. Horas aprobadas.',
+        evidenciaRevision: 'Captura revisada por administración.',
+        imagenesRevision: JSON.stringify([{ id: 'img-admin-1', name: 'revision.jpg', type: 'image/jpeg', dataUrl: 'data:image/jpeg;base64,admin', createdAt: '2026-08-27T11:00:00.000Z' }]),
       },
     })
     const row = harness.objects('ActividadesFlujo')[0]
@@ -315,6 +319,8 @@ describe('flujos de trabajo enriquecidos', () => {
     expect(row.EstadoRevision).toBe('aprobado')
     expect(row.HorasAprobadas).toBe(4)
     expect(row.FeedbackRevision).toBe('Actividad cumplida correctamente. Horas aprobadas.')
+    expect(row.EvidenciaRevision).toBe('Captura revisada por administración.')
+    expect(JSON.parse(row.ImagenesRevision)[0].name).toBe('revision.jpg')
     expect(row.RevisadoPor).toBe('admin')
     expect(row.RevisadoEn).toBeTruthy()
   })

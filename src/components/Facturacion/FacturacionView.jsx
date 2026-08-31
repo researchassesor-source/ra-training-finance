@@ -62,6 +62,40 @@ function SummaryCard({ label, value, tone = 'text-gray-900' }) {
   )
 }
 
+function normalizeWhatsappPhone(value) {
+  const digits = String(value || '').replace(/\D/g, '')
+  if (!digits) return ''
+  if (digits.startsWith('00')) return digits.slice(2)
+  if (digits.startsWith('593')) return digits
+  if (digits.length === 10 && digits.startsWith('0')) return `593${digits.slice(1)}`
+  return digits
+}
+
+function invoiceCourse(factura) {
+  return factura.items?.[0]?.descripcion || factura.originInscripcion?.servicioNombre || factura.concept || factura.course || ''
+}
+
+function buildFiscalDeliveryMessage(factura, links = {}) {
+  const numero = documentNumberOf(factura) || factura.id
+  const curso = invoiceCourse(factura)
+  const lines = [
+    `Hola ${factura.buyerName || 'estimado/a'} 👋`,
+    '',
+    'Le compartimos su factura electrónica autorizada por el SRI.',
+    '',
+    `Factura: ${numero}`,
+    curso ? `Curso/servicio: ${curso}` : '',
+    `Total: ${centsToUsd(factura.grandTotal)}`,
+    factura.authorizationNumber ? `Autorización: ${factura.authorizationNumber}` : '',
+    '',
+    links.ride ? `RIDE PDF: ${links.ride}` : '',
+    links.xml ? `XML autorizado: ${links.xml}` : '',
+    '',
+    'Gracias por confiar en R.A. Training Finance.',
+  ].filter(line => line !== '')
+  return lines.join('\n')
+}
+
 /** Deep link desde Inscripciones: /facturacion?factura=<ID> o ?inscripcion=<ID>.
  * Sin parámetros, el comportamiento es exactamente el de antes. */
 function readDeepLinkParams() {
@@ -158,14 +192,27 @@ export default function FacturacionView() {
     }
   }
 
-  function openInvoiceWhatsapp(factura) {
-    const numero = documentNumberOf(factura) || factura.id
-    const text = [
-      `Hola ${factura.buyerName || ''}.`,
-      `Tu factura electrónica R.A. Training ${numero} ya fue autorizada por el SRI.`,
-      'Desde Finance se puede descargar el RIDE y el XML autorizado para compartirlos.',
-    ].join(' ')
-    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer')
+  async function openInvoiceWhatsapp(factura) {
+    setBusy(`whatsapp:${factura.id}`)
+    setError('')
+    setNotice('')
+    try {
+      const shared = await api.generarLinksFacturaFiscal(factura.id)
+      const links = shared.data?.links || {}
+      const phone = normalizeWhatsappPhone(factura.buyerPhone || factura.originInscripcion?.clienteTelefono)
+      const text = buildFiscalDeliveryMessage(factura, { ride: links.ride, xml: links.xml })
+      const url = phone
+        ? `https://wa.me/${phone}?text=${encodeURIComponent(text)}`
+        : `https://wa.me/?text=${encodeURIComponent(text)}`
+      window.open(url, '_blank', 'noopener,noreferrer')
+      setNotice(phone
+        ? 'WhatsApp abierto con mensaje y enlaces seguros listos para enviar.'
+        : 'WhatsApp abierto con mensaje y enlaces seguros. Selecciona el contacto porque la factura no tiene teléfono.')
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setBusy('')
+    }
   }
 
   async function refreshInvoice(factura) {
@@ -371,7 +418,12 @@ export default function FacturacionView() {
                 >
                   <Mail size={16} /> Enviar email
                 </button>
-                <button className="btn-secondary" disabled={!selected.xmlAvailable || !selected.rideAvailable} onClick={() => openInvoiceWhatsapp(selected)}>
+                <button
+                  className="btn-secondary"
+                  disabled={!selected.xmlAvailable || !selected.rideAvailable || busy === `whatsapp:${selected.id}`}
+                  onClick={() => openInvoiceWhatsapp(selected)}
+                  title={selected.buyerPhone || selected.originInscripcion?.clienteTelefono ? 'Abrir WhatsApp del cliente con enlaces' : 'Abrir WhatsApp con mensaje listo'}
+                >
                   <MessageCircle size={16} /> WhatsApp
                 </button>
               </div>

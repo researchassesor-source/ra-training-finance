@@ -24,6 +24,7 @@ const FACTURA_ROW = {
 }
 const INSCRIPCION_ROW = {
   ID: 'INS-1', ServicioNombre: 'Curso Demo', NumeroComprobante: 'TRX-998877', FechaPago: '2026-08-01', MetodoPago: 'Transferencia',
+  ClienteTelefono: '0999999999',
 }
 
 function installGasRouter({ inscripcionesThrows = false } = {}) {
@@ -57,7 +58,9 @@ describe('GET /api/fiscal/list — trazabilidad de origen (solo lectura)', () =>
     expect(item.inscripcionId).toBe('INS-1')
     expect(item.originInscripcion).toEqual({
       id: 'INS-1', servicioNombre: 'Curso Demo', numeroComprobante: 'TRX-998877', fechaPago: '2026-08-01', metodoPago: 'Transferencia',
+      clienteTelefono: '0999999999',
     })
+    expect(item.buyerPhone).toBe('0999999999')
   })
 
   it('degrada a originInscripcion=null (nunca inventa datos) si getInscripciones falla', async () => {
