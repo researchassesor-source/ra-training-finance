@@ -187,7 +187,7 @@ function respond(data) {
 const SHEET_HEADERS = {
   Usuarios:         ['ID','Nombre','Email','Username','PasswordHash','Rol','Activo','FechaCreacion','InstitucionAval'],
   Ingresos:         ['ID','Fecha','Tipo','Modalidad','Concepto','Cliente','ContratoID','Monto','MetodoPago','Estado','Notas','CreadoPor','FechaCreacion','ClienteTelefono','Referencia'],
-  Egresos:          ['ID','Fecha','Categoria','Concepto','Proveedor','Monto','Estado','AprobadoPor','FechaAprobacion','Notas','CreadoPor','FechaCreacion'],
+  Egresos:          ['ID','Fecha','Categoria','Concepto','Proveedor','Monto','Estado','AprobadoPor','FechaAprobacion','Notas','CreadoPor','FechaCreacion','ProveedorIdentificacion','FacturaCompraNumero','AutorizacionCompra','FechaEmisionFactura','BaseImponible0','BaseImponible15','IvaCompra','FormaPagoCompra','ReferenciaPagoCompra'],
   Pagos:            ['ID','Fecha','Tipo','Beneficiario','Concepto','Referencia','Monto','MetodoPago','EgresoID','ContratoID','Estado','Notas','CreadoPor','FechaCreacion'],
   Contratos:        ['ID','Tipo','Nombre','Concepto','ValorTotal','FechaInicio','FechaFin','Estado','Notas','CreadoPor','FechaCreacion'],
   Proyecciones:     ['ID','Evento','Tipo','FechaEstimada','MontoProyectado','MontoReal','Estado','Notas','CreadoPor','FechaCreacion'],
@@ -301,7 +301,10 @@ const TEXT_SENSITIVE_HEADERS = {
   ClienteID: true,
   ClienteTelefono: true,
   RUC: true,
+  ProveedorIdentificacion: true,
   NumeroComprobante: true,
+  FacturaCompraNumero: true,
+  AutorizacionCompra: true,
   IngresoID: true,
   ServicioID: true,
   ContratoID: true,
@@ -1172,10 +1175,29 @@ function addEgreso(user, { egreso }) {
   const id     = generateId('EGR');
   const now    = new Date().toISOString();
   const estado = isAdmin(user) ? (egreso.estado || 'aprobado') : 'pendiente';
-  sheet.appendRow([
-    id, egreso.fecha, egreso.categoria, egreso.concepto, egreso.proveedor || '',
-    Number(egreso.monto) || 0, estado, '', '', egreso.notas || '', user.Username, now,
-  ]);
+  appendObjectBySheetHeaders_(sheet, {
+    ID: id,
+    Fecha: egreso.fecha,
+    Categoria: egreso.categoria,
+    Concepto: egreso.concepto,
+    Proveedor: egreso.proveedor || '',
+    Monto: Number(egreso.monto) || 0,
+    Estado: estado,
+    AprobadoPor: '',
+    FechaAprobacion: '',
+    Notas: egreso.notas || '',
+    CreadoPor: user.Username,
+    FechaCreacion: now,
+    ProveedorIdentificacion: egreso.proveedorIdentificacion || '',
+    FacturaCompraNumero: egreso.facturaCompraNumero || '',
+    AutorizacionCompra: egreso.autorizacionCompra || '',
+    FechaEmisionFactura: egreso.fechaEmisionFactura || egreso.fecha || '',
+    BaseImponible0: Number(egreso.baseImponible0) || 0,
+    BaseImponible15: Number(egreso.baseImponible15) || 0,
+    IvaCompra: Number(egreso.ivaCompra) || 0,
+    FormaPagoCompra: egreso.formaPagoCompra || '',
+    ReferenciaPagoCompra: egreso.referenciaPagoCompra || '',
+  });
   return { success: true, id };
 }
 
@@ -1195,6 +1217,15 @@ function updateEgreso(user, { id, egreso }) {
     Fecha: egreso.fecha, Categoria: egreso.categoria, Concepto: egreso.concepto,
     Proveedor: egreso.proveedor, Monto: Number(egreso.monto) || 0,
     Estado: nuevoEstado, Notas: egreso.notas,
+    ProveedorIdentificacion: egreso.proveedorIdentificacion,
+    FacturaCompraNumero: egreso.facturaCompraNumero,
+    AutorizacionCompra: egreso.autorizacionCompra,
+    FechaEmisionFactura: egreso.fechaEmisionFactura,
+    BaseImponible0: egreso.baseImponible0 === undefined ? undefined : Number(egreso.baseImponible0) || 0,
+    BaseImponible15: egreso.baseImponible15 === undefined ? undefined : Number(egreso.baseImponible15) || 0,
+    IvaCompra: egreso.ivaCompra === undefined ? undefined : Number(egreso.ivaCompra) || 0,
+    FormaPagoCompra: egreso.formaPagoCompra,
+    ReferenciaPagoCompra: egreso.referenciaPagoCompra,
     AprobadoPor:      nuevoEstado === 'aprobado' ? user.Username : row.AprobadoPor,
     FechaAprobacion:  nuevoEstado === 'aprobado' ? now : row.FechaAprobacion,
   });

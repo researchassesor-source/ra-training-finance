@@ -95,6 +95,79 @@ export function exportEgresosPDF(data, filtros = {}) {
   doc.save('egresos_ra_training.pdf')
 }
 
+function csvCell(value) {
+  return `"${String(value ?? '').replace(/"/g, '""')}"`
+}
+
+function saveCsvExcel(headers, rows, filename) {
+  const csv = [headers, ...rows]
+    .map(row => row.map(csvCell).join(','))
+    .join('\n')
+  saveAs(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' }), filename)
+}
+
+function centsToNumber(value) {
+  return ((Number(value) || 0) / 100).toFixed(2)
+}
+
+function facturaContableStatus(factura) {
+  return String(factura.status || factura.Status || '').toUpperCase()
+}
+
+function facturaNumero(factura) {
+  return factura.documentNumber || factura.DocumentNumber || [
+    factura.establishment || factura.Establishment,
+    factura.emissionPoint || factura.EmissionPoint,
+    factura.sequential || factura.Sequential,
+  ].filter(Boolean).join('-')
+}
+
+function facturaDetalle(factura) {
+  const items = factura.items || []
+  if (items.length) return items.map(item => item.descripcion || item.Descripcion).filter(Boolean).join(' / ')
+  return factura.concept || factura.course || factura.Concepto || 'Factura emitida'
+}
+
+export function exportFacturasEmitidasContableCSV(facturas = [], filtros = {}) {
+  const headers = ['FECHA','DETALLE','FACT. No.','AUTORIZACION','BASE IMPONIBLE 0%','BASE IMPONIBLE 15%','IVA','TOTAL']
+  const rows = facturas
+    .filter(factura => ['AUTHORIZED', 'DELIVERY_PENDING', 'DELIVERED'].includes(facturaContableStatus(factura)) || factura.authorizationNumber || factura.AuthorizationNumber)
+    .map(factura => [
+      fmt.date(factura.issueDate || factura.IssueDate || factura.createdAt || factura.CreatedAt),
+      facturaDetalle(factura),
+      facturaNumero(factura),
+      factura.authorizationNumber || factura.AuthorizationNumber || '',
+      centsToNumber(factura.subtotal0 ?? factura.Subtotal0),
+      centsToNumber(factura.subtotalTaxed ?? factura.SubtotalTaxed),
+      centsToNumber(factura.taxTotal ?? factura.TaxTotal),
+      centsToNumber(factura.grandTotal ?? factura.GrandTotal),
+    ])
+  const label = filtros.label ? `_${String(filtros.label).replace(/[^\w-]+/g, '_')}` : ''
+  saveCsvExcel(headers, rows, `facturas_emitidas_contable_ra_training${label}.csv`)
+}
+
+export function exportFacturasRecibidasContableCSV(egresos = [], filtros = {}) {
+  const headers = ['FECHA','DETALLE','FACT. No.','AUTORIZACION','BASE IMPONIBLE 0%','BASE IMPONIBLE 15%','IVA','TOTAL']
+  const rows = egresos.map(egreso => {
+    const base0 = Number(egreso.BaseImponible0 || 0)
+    const base15 = Number(egreso.BaseImponible15 || 0)
+    const iva = Number(egreso.IvaCompra || 0)
+    const totalTributario = base0 + base15 + iva
+    return [
+      fmt.date(egreso.FechaEmisionFactura || egreso.Fecha),
+      egreso.Concepto || '',
+      egreso.FacturaCompraNumero || '',
+      egreso.AutorizacionCompra || '',
+      base0.toFixed(2),
+      base15.toFixed(2),
+      iva.toFixed(2),
+      (totalTributario || Number(egreso.Monto || 0)).toFixed(2),
+    ]
+  })
+  const label = filtros.label ? `_${String(filtros.label).replace(/[^\w-]+/g, '_')}` : ''
+  saveCsvExcel(headers, rows, `facturas_recibidas_contable_ra_training${label}.csv`)
+}
+
 export function exportPagosPDF(data) {
   const doc = new jsPDF()
   const y = addHeader(doc, 'Reporte de Pagos')

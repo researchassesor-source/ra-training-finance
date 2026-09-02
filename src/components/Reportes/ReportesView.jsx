@@ -3,15 +3,16 @@ import { api } from '../../services/api'
 import {
   exportIngresosPDF, exportEgresosPDF, exportPagosPDF, exportContratosPDF,
   exportResumenPDF, exportResumenWord, exportFlujosTrabajoPDF, exportAsistenciaPDF,
+  exportFacturasEmitidasContableCSV, exportFacturasRecibidasContableCSV,
 } from '../../utils/exporters'
-import { FileText, Download, Loader2, ClipboardList, CalendarCheck } from 'lucide-react'
+import { FileText, Download, Loader2, ClipboardList, CalendarCheck, FileSpreadsheet } from 'lucide-react'
 import { fmt } from '../../utils/formatters'
 import { useAuth } from '../../context/AuthContext'
 
 const YEAR = new Date().getFullYear()
 const YEARS = Array.from({ length: 5 }, (_, i) => YEAR - i)
 
-function ReportCard({ icon: Icon, title, description, onPDF, onWord, loading }) {
+function ReportCard({ icon: Icon, title, description, onPDF, onWord, onExcel, loading }) {
   return (
     <div className="card flex items-start gap-4">
       <div className="w-10 h-10 bg-brand-50 rounded-xl flex items-center justify-center flex-shrink-0">
@@ -26,6 +27,13 @@ function ReportCard({ icon: Icon, title, description, onPDF, onWord, loading }) 
             {loading ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
             PDF
           </button>
+          {onExcel && (
+            <button onClick={onExcel} disabled={loading}
+              className="btn-secondary text-xs py-1.5 px-3">
+              {loading ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
+              Excel
+            </button>
+          )}
           {onWord && (
             <button onClick={onWord} disabled={loading}
               className="btn-secondary text-xs py-1.5 px-3">
@@ -49,7 +57,9 @@ export default function ReportesView() {
   const [usuarios, setUsuarios] = useState([])
   const [usuarioReporte, setUsuarioReporte] = useState('')
 
-  const canSelectUsuarios = isAdmin || isContador
+  const canSelectUsuarios = isAdmin
+  const canSeeAccountingReports = isAdmin || isContador
+  const canSeeAdminReports = isAdmin
 
   useEffect(() => {
     if (!canSelectUsuarios) return
@@ -90,6 +100,26 @@ export default function ReportesView() {
       exportEgresosPDF(r.data || [], { label: desde && hasta ? `${desde} al ${hasta}` : year })
     } catch (e) { setError(e.message) }
     finally { setLoad('egr', false) }
+  }
+
+  async function genFacturasEmitidasExcel() {
+    setLoad('facEmitidasExcel', true)
+    setError('')
+    try {
+      const r = await api.getFacturasFiscales({ environment: 'production', desde: periodo.desde, hasta: periodo.hasta })
+      exportFacturasEmitidasContableCSV(r.data?.items || [], { label: `${periodo.desde}_a_${periodo.hasta}` })
+    } catch (e) { setError(e.message) }
+    finally { setLoad('facEmitidasExcel', false) }
+  }
+
+  async function genFacturasRecibidasExcel() {
+    setLoad('facRecibidasExcel', true)
+    setError('')
+    try {
+      const r = await api.getEgresos({ desde: periodo.desde, hasta: periodo.hasta })
+      exportFacturasRecibidasContableCSV(r.data || [], { label: `${periodo.desde}_a_${periodo.hasta}` })
+    } catch (e) { setError(e.message) }
+    finally { setLoad('facRecibidasExcel', false) }
   }
 
   async function genPagosPDF() {
@@ -183,7 +213,7 @@ export default function ReportesView() {
       {/* Filters */}
       <div className="card">
         <h3 className="font-semibold text-gray-900 mb-4">Filtros de Período</h3>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div className={`grid grid-cols-2 gap-4 ${canSelectUsuarios ? 'sm:grid-cols-4' : 'sm:grid-cols-3'}`}>
           <div>
             <label className="label">Año fiscal</label>
             <select className="input" value={year} onChange={e => setYear(Number(e.target.value))}>
@@ -198,20 +228,18 @@ export default function ReportesView() {
             <label className="label">Hasta (opcional)</label>
             <input className="input" type="date" value={hasta} onChange={e => setHasta(e.target.value)} />
           </div>
-          <div>
-            <label className="label">Usuario interno</label>
-            {canSelectUsuarios ? (
+          {canSelectUsuarios && (
+            <div>
+              <label className="label">Usuario interno</label>
               <select className="input" value={usuarioReporte} onChange={e => setUsuarioReporte(e.target.value)}>
                 <option value="">Todos los usuarios</option>
                 {usuarios.map(u => <option key={u.ID} value={u.Username}>{u.Nombre}</option>)}
               </select>
-            ) : (
-              <input className="input" disabled value={user?.nombre || user?.username || 'Mi usuario'} />
-            )}
-          </div>
+            </div>
+          )}
         </div>
         <p className="text-xs text-gray-400 mt-2">
-          El informe ejecutivo usa el año fiscal completo. Los demás reportes usan el rango de fechas si se especifica.
+          El informe ejecutivo usa el año fiscal completo. Los reportes contables y operativos usan el rango de fechas seleccionado.
         </p>
       </div>
 
@@ -219,7 +247,34 @@ export default function ReportesView() {
 
       {/* Report cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        {canSelectUsuarios && (
+        {canSeeAccountingReports && (
+          <>
+            <ReportCard
+              icon={FileSpreadsheet}
+              title="Excel contable — facturas emitidas"
+              description="Formato para contador con fecha, detalle, factura, autorización, bases imponibles, IVA y total."
+              onPDF={genIngresosPDF}
+              onExcel={genFacturasEmitidasExcel}
+              loading={loading.facEmitidasExcel || loading.ing}
+            />
+            <ReportCard
+              icon={FileSpreadsheet}
+              title="Excel contable — facturas recibidas"
+              description="Compras y egresos registrados con datos de factura del proveedor para revisión contable."
+              onPDF={genEgresosPDF}
+              onExcel={genFacturasRecibidasExcel}
+              loading={loading.facRecibidasExcel || loading.egr}
+            />
+            <ReportCard
+              icon={FileText}
+              title="Reporte de Pagos"
+              description="Historial de pagos a proveedores, facturas y transferencias."
+              onPDF={genPagosPDF}
+              loading={loading.pag}
+            />
+          </>
+        )}
+        {canSeeAdminReports && (
           <>
             <ReportCard
               icon={FileText}
@@ -231,24 +286,17 @@ export default function ReportesView() {
             />
             <ReportCard
               icon={FileText}
-              title="Reporte de Ingresos"
+              title="Reporte de Ingresos operativo"
               description="Listado detallado de todos los ingresos en el período seleccionado."
               onPDF={genIngresosPDF}
               loading={loading.ing}
             />
             <ReportCard
               icon={FileText}
-              title="Reporte de Egresos"
+              title="Reporte de Egresos operativo"
               description="Listado de gastos por categoría con estado de aprobación."
               onPDF={genEgresosPDF}
               loading={loading.egr}
-            />
-            <ReportCard
-              icon={FileText}
-              title="Reporte de Pagos"
-              description="Historial de pagos a proveedores, facturas y transferencias."
-              onPDF={genPagosPDF}
-              loading={loading.pag}
             />
             <ReportCard
               icon={FileText}
@@ -259,20 +307,24 @@ export default function ReportesView() {
             />
           </>
         )}
-        <ReportCard
-          icon={ClipboardList}
-          title="Reporte de Flujo de Trabajo"
-          description="Actividades planificadas, evidencias y horas aprobadas por administración."
-          onPDF={genFlujosPDF}
-          loading={loading.flu}
-        />
-        <ReportCard
-          icon={CalendarCheck}
-          title="Reporte de Asistencia"
-          description="Timbradas de entrada/salida y horas contabilizadas por usuario, semana o rango de fechas."
-          onPDF={genAsistenciaPDF}
-          loading={loading.asi}
-        />
+        {canSeeAdminReports && (
+          <>
+            <ReportCard
+              icon={ClipboardList}
+              title="Reporte de Flujo de Trabajo"
+              description="Actividades planificadas, evidencias y horas aprobadas por administración."
+              onPDF={genFlujosPDF}
+              loading={loading.flu}
+            />
+            <ReportCard
+              icon={CalendarCheck}
+              title="Reporte de Asistencia"
+              description="Timbradas de entrada/salida y horas contabilizadas por usuario, semana o rango de fechas."
+              onPDF={genAsistenciaPDF}
+              loading={loading.asi}
+            />
+          </>
+        )}
       </div>
     </div>
   )
