@@ -40,6 +40,13 @@ function RequireVendedor({ children }) {
   return children
 }
 
+function RequireInscripciones({ children }) {
+  const { user, isVendedor, isMoodle, isAval } = useAuth()
+  if (!user) return <Navigate to="/login" replace />
+  if (!isVendedor && !isMoodle) return <Navigate to={isAval ? '/aval-externo' : '/mis-egresos'} replace />
+  return children
+}
+
 function RequireContador({ children }) {
   const { user, isAdmin, isContador, isAval } = useAuth()
   if (!user) return <Navigate to="/login" replace />
@@ -57,30 +64,32 @@ function RequireAval({ children }) {
 // Rutas "para cualquier autenticado" que no deben quedar visibles al rol
 // restringido 'aval' (solo debe ver /aval-externo).
 function RequireGeneral({ children }) {
-  const { user, isAval } = useAuth()
+  const { user, isAval, isMoodle } = useAuth()
   if (!user) return <Navigate to="/login" replace />
   if (isAval) return <Navigate to="/aval-externo" replace />
+  if (isMoodle) return <Navigate to="/inscripciones" replace />
   return children
 }
 
 function HomeRedirect() {
-  const { user, isAdmin, isVendedor, isAval, isContador } = useAuth()
+  const { user, isAdmin, isVendedor, isAval, isContador, isMoodle } = useAuth()
   if (!user) return <Navigate to="/login" replace />
   if (isAdmin)    return <Navigate to="/dashboard" replace />
   if (isContador) return <Navigate to="/facturacion" replace />
+  if (isMoodle)   return <Navigate to="/inscripciones" replace />
   if (isVendedor) return <Navigate to="/mis-ingresos" replace />
   if (isAval)     return <Navigate to="/aval-externo" replace />
   return <Navigate to="/mis-egresos" replace />
 }
 
 function AppRoutes() {
-  const { user, isAdmin, isVendedor, isAval, isContador } = useAuth()
+  const { user, isAdmin, isVendedor, isAval, isContador, isMoodle } = useAuth()
 
   return (
     <Routes>
       <Route path="/login" element={
         user
-          ? <Navigate to={isAdmin ? '/dashboard' : isContador ? '/facturacion' : isVendedor ? '/mis-ingresos' : isAval ? '/aval-externo' : '/mis-egresos'} replace />
+          ? <Navigate to={isAdmin ? '/dashboard' : isContador ? '/facturacion' : isMoodle ? '/inscripciones' : isVendedor ? '/mis-ingresos' : isAval ? '/aval-externo' : '/mis-egresos'} replace />
           : <Login />
       } />
 
@@ -104,7 +113,7 @@ function AppRoutes() {
 
         {/* Vendedor + Admin routes */}
         <Route path="/mis-ingresos"  element={<RequireVendedor><IngresosList soloMios /></RequireVendedor>} />
-        <Route path="/inscripciones" element={<RequireVendedor><InscripcionesList /></RequireVendedor>} />
+        <Route path="/inscripciones" element={<RequireInscripciones><InscripcionesList /></RequireInscripciones>} />
         <Route path="/servicios"     element={<RequireVendedor><ServiciosView /></RequireVendedor>} />
         <Route path="/asistencia"    element={<RequireVendedor><AsistenciaView /></RequireVendedor>} />
         <Route path="/flujos"        element={<RequireVendedor><FlujosView /></RequireVendedor>} />

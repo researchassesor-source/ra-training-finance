@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { api } from '../../services/api'
 import { useAuth } from '../../context/AuthContext'
 import { fmt } from '../../utils/formatters'
@@ -9,6 +9,7 @@ import {
   Plus, Pencil, Trash2, CheckCircle, Clock, ChevronLeft, ChevronRight,
   ListChecks, PlayCircle, AlertCircle, Paperclip, ExternalLink,
   Image as ImageIcon, X, Bold, List, ListOrdered, CheckSquare, Save,
+  Link2, Highlighter, Underline, Quote,
   MessageSquare, XCircle, ShieldCheck,
 } from 'lucide-react'
 
@@ -96,32 +97,106 @@ function insertSnippet(text, snippet) {
 }
 
 function RichTextBox({ value, onChange, rows = 4, placeholder = 'Describe la actividad...' }) {
-  const insert = (snippet) => onChange(insertSnippet(value, snippet))
+  const [open, setOpen] = useState(false)
+  const [draft, setDraft] = useState(value || '')
+  const [color, setColor] = useState('brand')
+  const textareaRef = useRef(null)
+
+  function openEditor() {
+    setDraft(value || '')
+    setOpen(true)
+  }
+
+  function selectionOrEnd() {
+    const textarea = textareaRef.current
+    if (!textarea) return { start: draft.length, end: draft.length }
+    return { start: textarea.selectionStart, end: textarea.selectionEnd }
+  }
+
+  function applyFormat(prefix, suffix = '', fallback = 'Texto') {
+    const { start, end } = selectionOrEnd()
+    const selected = draft.slice(start, end) || fallback
+    const next = `${draft.slice(0, start)}${prefix}${selected}${suffix}${draft.slice(end)}`
+    setDraft(next)
+    requestAnimationFrame(() => {
+      if (!textareaRef.current) return
+      textareaRef.current.focus()
+      const nextStart = start + prefix.length
+      textareaRef.current.setSelectionRange(nextStart, nextStart + selected.length)
+    })
+  }
+
+  function insertLine(snippet) {
+    const { start, end } = selectionOrEnd()
+    const before = draft.slice(0, start)
+    const needsBreak = before && !before.endsWith('\n') ? '\n' : ''
+    const next = `${before}${needsBreak}${snippet}${draft.slice(end)}`
+    setDraft(next)
+    requestAnimationFrame(() => textareaRef.current?.focus())
+  }
+
+  function saveEditor() {
+    onChange(draft)
+    setOpen(false)
+  }
+
   return (
     <div className="space-y-2">
-      <div className="flex flex-wrap gap-1.5">
-        <button type="button" onClick={() => insert('**texto importante**')}
-          className="text-xs px-2 py-1 rounded-lg bg-white border border-gray-200 hover:bg-gray-50 flex items-center gap-1">
-          <Bold size={12} /> Negrita
-        </button>
-        <button type="button" onClick={() => insert('• Punto clave')}
-          className="text-xs px-2 py-1 rounded-lg bg-white border border-gray-200 hover:bg-gray-50 flex items-center gap-1">
-          <List size={12} /> Lista
-        </button>
-        <button type="button" onClick={() => insert('1. Paso a realizar')}
-          className="text-xs px-2 py-1 rounded-lg bg-white border border-gray-200 hover:bg-gray-50 flex items-center gap-1">
-          <ListOrdered size={12} /> Pasos
-        </button>
-        <button type="button" onClick={() => insert('[ ] Actividad verificable')}
-          className="text-xs px-2 py-1 rounded-lg bg-white border border-gray-200 hover:bg-gray-50 flex items-center gap-1">
-          <CheckSquare size={12} /> Checklist
-        </button>
+      <button type="button" onClick={openEditor}
+        className="w-full rounded-xl border border-brand-200 bg-brand-50/60 px-3 py-2 text-left text-sm text-brand-800 hover:bg-brand-50 flex items-center justify-between gap-3">
+        <span className="flex items-center gap-2"><Pencil size={14} /> Abrir editor de texto</span>
+        <span className="text-[11px] text-brand-600">Formato, colores y vista previa</span>
+      </button>
+      <div className="rounded-xl border border-gray-200 bg-white/70 p-2">
+        {value ? <FormattedDescription text={value} /> : <p className="px-2 py-1 text-xs italic text-gray-400">Aún no hay contenido. Abre el editor para escribir.</p>}
       </div>
-      <textarea className="input text-sm font-mono leading-relaxed" rows={rows} value={value}
-        onChange={e => onChange(e.target.value)} placeholder={placeholder} />
-      <p className="text-[11px] text-gray-400">
-        Usa saltos de línea, listas y marcas [ ] / [x] para estructurar la explicación.
-      </p>
+      <p className="text-[11px] text-gray-400">El contenido se guarda en el mismo campo y conserva compatibilidad con los flujos existentes.</p>
+
+      <Modal open={open} onClose={() => setOpen(false)} title="Editor de actividad" size="xl">
+        <div className="space-y-4">
+          <div className="rounded-xl border border-brand-100 bg-brand-50/50 p-3">
+            <p className="text-sm font-semibold text-brand-900">Organiza la indicación de forma clara</p>
+            <p className="mt-1 text-xs text-brand-700">Selecciona texto para aplicarle formato. Los cambios se aplican al guardar.</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-gray-200 bg-gray-50 p-2">
+            <button type="button" onClick={() => applyFormat('**', '**', 'Texto importante')} className="editor-tool"><Bold size={13} /> Negrita</button>
+            <button type="button" onClick={() => applyFormat('*', '*', 'Texto destacado')} className="editor-tool"><span className="italic font-semibold">I</span> Cursiva</button>
+            <button type="button" onClick={() => applyFormat('__', '__', 'Texto subrayado')} className="editor-tool"><Underline size={13} /> Subrayado</button>
+            <button type="button" onClick={() => applyFormat('# ', '', 'Título')} className="editor-tool"><span className="font-bold">H</span> Título</button>
+            <button type="button" onClick={() => insertLine('• Punto clave')} className="editor-tool"><List size={13} /> Lista</button>
+            <button type="button" onClick={() => insertLine('1. Paso a realizar')} className="editor-tool"><ListOrdered size={13} /> Pasos</button>
+            <button type="button" onClick={() => insertLine('[ ] Actividad verificable')} className="editor-tool"><CheckSquare size={13} /> Checklist</button>
+            <button type="button" onClick={() => insertLine('> Nota importante')} className="editor-tool"><Quote size={13} /> Nota</button>
+            <span className="mx-1 h-5 w-px bg-gray-200" />
+            <label className="flex items-center gap-1 text-xs text-gray-600">
+              Color
+              <select className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs" value={color} onChange={e => setColor(e.target.value)}>
+                <option value="brand">Azul</option><option value="red">Rojo</option><option value="green">Verde</option><option value="orange">Naranja</option><option value="purple">Morado</option>
+              </select>
+            </label>
+            <button type="button" onClick={() => applyFormat(`{{color:${color}}}`, '{{/color}}', 'Texto con color')} className="editor-tool"><span className="font-bold text-brand-600">A</span> Aplicar color</button>
+            <button type="button" onClick={() => applyFormat('==', '==', 'Texto resaltado')} className="editor-tool"><Highlighter size={13} /> Resaltar</button>
+            <button type="button" onClick={() => applyFormat('[', '](https://ejemplo.com)', 'Enlace')} className="editor-tool"><Link2 size={13} /> Enlace</button>
+          </div>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <div>
+              <label className="label">Contenido</label>
+              <textarea ref={textareaRef} className="input min-h-[360px] resize-y text-sm leading-7" value={draft}
+                onChange={e => setDraft(e.target.value)} placeholder={placeholder} autoFocus rows={Math.max(rows, 12)} />
+            </div>
+            <div>
+              <label className="label">Vista previa</label>
+              <div className="min-h-[360px] rounded-xl border border-gray-200 bg-white p-3">
+                {draft ? <FormattedDescription text={draft} /> : <p className="text-sm italic text-gray-400">La vista previa aparecerá aquí.</p>}
+              </div>
+            </div>
+          </div>
+          <div className="flex gap-3">
+            <button type="button" className="btn-secondary flex-1" onClick={() => setOpen(false)}>Cancelar</button>
+            <button type="button" className="btn-primary flex-1" onClick={saveEditor}><Save size={14} /> Guardar contenido</button>
+          </div>
+        </div>
+      </Modal>
     </div>
   )
 }
@@ -130,11 +205,29 @@ function FormattedDescription({ text }) {
   if (!text) return null
   const lines = String(text).split(/\r?\n/)
   const renderInline = (value, keyPrefix) => {
-    const parts = String(value || '').split(/(\*\*[^*]+\*\*)/g)
+    const parts = String(value || '').split(/(\*\*[^*]+\*\*|\*[^*]+\*|__[^_]+__|==[^=]+==|\{\{color:[a-z]+\}\}[^{}]*\{\{\/color\}\}|\[[^\]]+\]\(https?:\/\/[^)\s]+\))/gi)
     return parts.map((part, index) => {
       const key = `${keyPrefix}-${index}`
       if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
         return <strong key={key} className="font-semibold text-gray-800">{part.slice(2, -2)}</strong>
+      }
+      if (part.startsWith('*') && part.endsWith('*') && part.length > 2) {
+        return <em key={key} className="italic text-gray-700">{part.slice(1, -1)}</em>
+      }
+      if (part.startsWith('__') && part.endsWith('__') && part.length > 4) {
+        return <u key={key} className="underline decoration-brand-400 underline-offset-2">{part.slice(2, -2)}</u>
+      }
+      if (part.startsWith('==') && part.endsWith('==') && part.length > 4) {
+        return <mark key={key} className="rounded bg-amber-100 px-0.5 text-gray-800">{part.slice(2, -2)}</mark>
+      }
+      const colorMatch = part.match(/^\{\{color:([a-z]+)\}\}([\s\S]*)\{\{\/color\}\}$/)
+      if (colorMatch) {
+        const colors = { brand: 'text-brand-700', red: 'text-red-600', green: 'text-emerald-700', orange: 'text-orange-600', purple: 'text-purple-700' }
+        return <span key={key} className={`font-medium ${colors[colorMatch[1]] || colors.brand}`}>{colorMatch[2]}</span>
+      }
+      const linkMatch = part.match(/^\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)$/i)
+      if (linkMatch) {
+        return <a key={key} href={linkMatch[2]} target="_blank" rel="noreferrer" className="font-medium text-brand-700 underline underline-offset-2 hover:text-brand-900">{linkMatch[1]}</a>
       }
       return <span key={key}>{part}</span>
     })
@@ -146,7 +239,16 @@ function FormattedDescription({ text }) {
         const checklist = trimmed.match(/^\[( |x|X)\]\s+(.+)$/)
         const bullet = trimmed.match(/^(?:•|-)\s+(.+)$/)
         const step = trimmed.match(/^(\d+)\.\s+(.+)$/)
+        const heading = trimmed.match(/^(#{1,3})\s+(.+)$/)
+        const quote = trimmed.match(/^>\s+(.+)$/)
         if (!trimmed) return <div key={index} className="h-1" />
+        if (heading) {
+          const Heading = heading[1].length === 1 ? 'h4' : 'h5'
+          return <Heading key={index} className={`${heading[1].length === 1 ? 'text-sm' : 'text-xs'} font-semibold text-brand-900`}>{renderInline(heading[2], `heading-${index}`)}</Heading>
+        }
+        if (quote) {
+          return <blockquote key={index} className="border-l-2 border-brand-300 bg-brand-50/70 px-3 py-1.5 text-gray-700">{renderInline(quote[1], `quote-${index}`)}</blockquote>
+        }
         if (checklist) {
           const checked = checklist[1].toLowerCase() === 'x'
           return (
@@ -693,8 +795,7 @@ function ActividadCard({ act, isAdmin, onUpdate, onDelete }) {
           </div>
           <div>
             <label className="label">Observación / retroalimentación para la persona</label>
-            <textarea className="input text-sm" rows={3} value={revisionFeedback}
-              onChange={e => setRevisionFeedback(e.target.value)}
+            <RichTextBox value={revisionFeedback} onChange={setRevisionFeedback} rows={3}
               placeholder="Ej: Actividad aprobada. / No se cumplió lo solicitado: falta adjuntar evidencia..." />
             {revisionError && <p className="text-xs text-red-600 mt-1">{revisionError}</p>}
           </div>
@@ -705,8 +806,7 @@ function ActividadCard({ act, isAdmin, onUpdate, onDelete }) {
             <p className="text-[11px] text-gray-500">
               Úsalo para adjuntar capturas de lo que falta, errores encontrados o referencias que la persona debe corregir.
             </p>
-            <textarea className="input text-xs" rows={2} value={revisionEvidencia}
-              onChange={e => setRevisionEvidencia(e.target.value)}
+            <RichTextBox value={revisionEvidencia} onChange={setRevisionEvidencia} rows={2}
               placeholder="Enlace, nota breve o explicación de la captura..." />
             <input type="file" accept="image/*" multiple onChange={handleRevisionImageUpload}
               className="block w-full text-xs text-gray-500 file:mr-3 file:rounded-lg file:border-0 file:bg-white file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-indigo-700 hover:file:bg-indigo-50" />
@@ -746,9 +846,8 @@ function ActividadCard({ act, isAdmin, onUpdate, onDelete }) {
       {/* Panel: Evidencia */}
       {editEvidencia && (
         <div className="pt-2 space-y-2">
-          <p className="text-xs text-gray-500">Pega un enlace, escribe una nota o carga capturas pequeñas como evidencia visual.</p>
-          <textarea className="input text-xs" rows={3} value={evidencia}
-            onChange={e => setEvidencia(e.target.value)}
+          <p className="text-xs text-gray-500">Escribe una explicación ordenada, pega un enlace o usa el editor flotante para dar formato a la evidencia.</p>
+          <RichTextBox value={evidencia} onChange={setEvidencia} rows={3}
             placeholder="https://drive.google.com/... o descripción de lo que se realizó" />
           <div className="rounded-lg border border-dashed border-gray-300 bg-white/70 p-3 space-y-2">
             <label className="text-xs font-medium text-gray-700 flex items-center gap-1.5">

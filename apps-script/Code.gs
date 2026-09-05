@@ -95,6 +95,8 @@ function processRequest(data) {
     addServicio:        () => addServicio(user, params),
     updateServicio:     () => updateServicio(user, params),
     getInscripciones:   () => getInscripciones(user, params),
+    updateMoodleCredentials: () => updateMoodleCredentials(user, params),
+    registrarEnvioMoodle: () => registrarEnvioMoodle(user, params),
     addInscripcion:     () => addInscripcion(user, params),
     updateInscripcion:  () => updateInscripcion(user, params),
     verificarPagoInscripcion: () => verificarPagoInscripcion(user, params),
@@ -200,6 +202,10 @@ const SHEET_HEADERS = {
                      // columnas de la hoja; agregar aqui en vez de al final preserva ese
                      // contrato exacto. Vacias para todo registro legacy/manual o CRM sin
                      // oferta comercial: nunca cambia su comportamiento actual.
+                     // Acceso al aula virtual: solo el rol Moodle y administración
+                     // pueden gestionar estos campos. Se mantienen separados de
+                     // pagos, certificados y facturación.
+                     'MoodleUsername','MoodlePassword','MoodleUrl','MoodleStatus','MoodleLoadedBy','MoodleLoadedAt','MoodleLastSentAt','MoodleNotes',
                      'CRMOfferType','CRMParentOrderID','CRMCompletionStatus','CRMCompletedAt',
                      'CRMEnrollmentID','CRMContactID','CRMCourseID','Origen'],
   Sesiones:         ['Token','Username','UserID','Rol','Nombre','Expira'],
@@ -209,6 +215,7 @@ const SHEET_HEADERS = {
   FlujosSemanales:  ['ID','Username','NombreUsuario','Semana','FechaInicio','FechaFin','TotalHorasPlan','Estado','Notas','CreadoPor','FechaCreacion'],
   ActividadesFlujo: ['ID','FlujoID','Username','Titulo','Descripcion','DescripcionFormato','DiaSemana','HorasEstimadas','Estado','HorasReales','Notas','Checklist','Evidencia','Imagenes','EstadoRevision','HorasAprobadas','FeedbackRevision','EvidenciaRevision','ImagenesRevision','RevisadoPor','RevisadoEn','ReprogramadoDesde','ReprogramadoPara','CompletadoEn','FechaCreacion'],
   AuditoriaCertificados: ['ID','CertificadoID','InscripcionID','Usuario','Rol','Accion','FechaHora','EstadoAnterior','EstadoNuevo','Canal','Resultado','Motivo','Metadatos'],
+  AuditoriaMoodle:   ['ID','InscripcionID','Usuario','Rol','Accion','FechaHora','Resultado','Metadatos'],
   Certificados: ['ID','InscripcionID','CodigoCertificado','CertificateVersion','TemplateVersion','PdfHash','PdfStorageReference','OriginalCertificateId','ReissuedCertificateId','CertificateStatus','IssuedAt','IssuedBy','VoidedAt','VoidedBy','VoidReason','ReissueReason','CreatedAt'],
   DescargasCertificados: ['ID','CertificadoID','InscripcionID','Usuario','Rol','Estado','FechaSolicitud','FechaConfirmacion','Motivo','PdfHash','PdfStorageReference','Canal'],
   // Modulo comercial CRM (aditivo). Una compra = una fila, identidad CRMOrderID.
@@ -324,6 +331,11 @@ const TEXT_SENSITIVE_HEADERS = {
   SriPaymentCode: true,
   AuthorizationNumber: true,
   LastSequential: true,
+  // Credenciales del aula: conservar exactamente como texto (incluidos ceros
+  // iniciales y caracteres especiales) y evitar conversiones automáticas de
+  // Google Sheets. Solo se exponen a los roles Moodle/administración.
+  MoodleUsername: true,
+  MoodlePassword: true,
 };
 
 function esEncabezadoTextoSensible_(header) {
@@ -473,6 +485,7 @@ function isAdmin(user)    { return !!user && user.Rol === 'admin'; }
 function isVendedor(user) { return !!user && (user.Rol === 'vendedor' || user.Rol === 'admin'); }
 function isAval(user)     { return !!user && user.Rol === 'aval'; }
 function isContador(user) { return !!user && user.Rol === 'contador'; }
+function isMoodle(user)   { return !!user && user.Rol === 'moodle'; }
 
 function esVerdadero(value) {
   return value === true || String(value).toLowerCase() === 'true';
@@ -1698,6 +1711,14 @@ function inscripcionEnriquecida(row, duracionDe, usuarios) {
 
 function resumenCertificadoParaVendedor(row) {
   var resumen = Object.assign({}, row);
+  // Las credenciales del aula son datos operativos sensibles: el vendedor
+  // puede seguir viendo su inscripción, pero nunca recibe usuario/contraseña,
+  // URL privada ni metadatos de carga. Solo administración y el rol Moodle
+  // obtienen esos campos mediante getInscripciones.
+  ['MoodleUsername','MoodlePassword','MoodleUrl','MoodleStatus','MoodleLoadedBy',
+    'MoodleLoadedAt','MoodleLastSentAt','MoodleNotes'].forEach(function(field) {
+    delete resumen[field];
+  });
   resumen.CodigoCertificado = '';
   resumen.FechaEmisionCertificado = '';
   resumen.EmitidoPor = '';
@@ -1818,10 +1839,12 @@ function facturaResumenParaInscripcion_(factura) {
 }
 
 function getInscripciones(user, { filtros = {} } = {}) {
-  if (!isVendedor(user)) throw new Error('Acceso denegado.');
+  if (!isVendedor(user) && !isMoodle(user)) throw new Error('Acceso denegado.');
   const existingSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Inscripciones');
   let data = existingSheet ? filasInscripcionesDecoradas(existingSheet).rows : [];
-  if (!isAdmin(user)) data = data.filter(i => i.CreadoPor === user.Username);
+  // El encargado Moodle necesita localizar cualquier estudiante; no puede
+  // crear/editar inscripciones generales, solo usar las acciones Moodle.
+  if (!isAdmin(user) && !isMoodle(user)) data = data.filter(i => i.CreadoPor === user.Username);
   if (filtros.vendedor && isAdmin(user)) data = data.filter(i => i.CreadoPor === filtros.vendedor);
   if (filtros.q && normalizarBusquedaInscripcion_(filtros.q)) {
     const q = normalizarBusquedaInscripcion_(filtros.q);
@@ -1851,9 +1874,126 @@ function getInscripciones(user, { filtros = {} } = {}) {
       inscripcionEnriquecida(inscripcionSinMetadatosInternos(i), duracionDe, usuarios),
       facturaResumenParaInscripcion_(facturaIndice[i.ID]),
     );
-    return isAdmin(user) ? enriched : resumenCertificadoParaVendedor(enriched);
+    return isAdmin(user) || isMoodle(user) ? enriched : resumenCertificadoParaVendedor(enriched);
   });
   return { success: true, data };
+}
+
+function requireMoodleEditor_(user) {
+  if (!isAdmin(user) && !isMoodle(user)) {
+    throw new Error('Acceso denegado: se requiere administración o el rol Moodle.');
+  }
+}
+
+function registrarAuditoriaMoodle_(evento) {
+  const metadata = evento.metadatos && typeof evento.metadatos === 'object'
+    ? JSON.stringify(evento.metadatos).slice(0, 1500)
+    : '';
+  getSheet('AuditoriaMoodle').appendRow([
+    generateId('AUDM'),
+    String(evento.inscripcionId || ''),
+    String(evento.usuario || ''),
+    String(evento.rol || ''),
+    String(evento.accion || ''),
+    new Date().toISOString(),
+    String(evento.resultado || 'ok'),
+    metadata,
+  ]);
+}
+
+function updateMoodleCredentials(user, { id, moodle } = {}) {
+  requireMoodleEditor_(user);
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Inscripciones');
+  if (!sheet) return { success: false, error: 'No existe la hoja Inscripciones.' };
+  const row = sheetToObjects(sheet).find(function(item) { return String(item.ID || '') === String(id || ''); });
+  if (!row) return { success: false, error: 'Inscripción no encontrada.' };
+  moodle = moodle && typeof moodle === 'object' ? moodle : {};
+
+  const username = Object.prototype.hasOwnProperty.call(moodle, 'username')
+    ? String(moodle.username || '').trim()
+    : String(row.MoodleUsername || '').trim();
+  // El formulario deja la contraseña en blanco para conservarla. Nunca se
+  // escribe ni se registra en auditoría salvo en la celda protegida de la fila.
+  const submittedPassword = Object.prototype.hasOwnProperty.call(moodle, 'password')
+    ? String(moodle.password || '').trim()
+    : '';
+  const password = submittedPassword || String(row.MoodlePassword || '').trim();
+  const url = Object.prototype.hasOwnProperty.call(moodle, 'url')
+    ? String(moodle.url || '').trim()
+    : String(row.MoodleUrl || '').trim();
+  const notes = Object.prototype.hasOwnProperty.call(moodle, 'notes')
+    ? String(moodle.notes || '').trim()
+    : String(row.MoodleNotes || '').trim();
+
+  if (username && !password) return { success: false, error: 'Ingrese la contraseña Moodle para guardar el acceso.' };
+  if (password && !username) return { success: false, error: 'Ingrese el usuario Moodle para guardar el acceso.' };
+  if ((username || password) && !url) return { success: false, error: 'Ingrese la URL del aula virtual para guardar el acceso completo.' };
+  if (url && !/^https?:\/\//i.test(url)) return { success: false, error: 'La URL del aula virtual debe comenzar con http:// o https://.' };
+
+  const status = username && password ? 'cargado' : 'pendiente';
+  const fields = {
+    MoodleUsername: username,
+    MoodleUrl: url,
+    MoodleStatus: status,
+    MoodleLoadedBy: user.Username,
+    MoodleLoadedAt: new Date().toISOString(),
+    MoodleNotes: notes,
+  };
+  if (submittedPassword) fields.MoodlePassword = submittedPassword;
+  actualizarFilaInscripcionFisica(sheet, row._row, fields);
+  SpreadsheetApp.flush();
+  const updated = filaInscripcionPorNumero(sheet, row._row);
+  const expected = {
+    MoodleUsername: username,
+    MoodleUrl: url,
+    MoodleStatus: status,
+    MoodleNotes: notes,
+  };
+  if (!updated || !camposPersistidosCoinciden(updated, expected)
+      || (submittedPassword && String(updated.MoodlePassword || '') !== submittedPassword)) {
+    throw new Error('No se pudo verificar el guardado de las credenciales Moodle.');
+  }
+  registrarAuditoriaMoodle_({
+    inscripcionId: row.ID,
+    usuario: user.Username,
+    rol: user.Rol,
+    accion: 'MOODLE_CREDENTIALS_UPDATED',
+    resultado: 'ok',
+    metadatos: { status: status, hasUsername: !!username, hasUrl: !!url },
+  });
+  return { success: true, data: inscripcionSinMetadatosInternos(updated), status: status };
+}
+
+function registrarEnvioMoodle(user, { id } = {}) {
+  requireAdmin(user);
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Inscripciones');
+  if (!sheet) return { success: false, error: 'No existe la hoja Inscripciones.' };
+  const row = sheetToObjects(sheet).find(function(item) { return String(item.ID || '') === String(id || ''); });
+  if (!row) return { success: false, error: 'Inscripción no encontrada.' };
+  if (!String(row.MoodleUsername || '').trim() || !String(row.MoodlePassword || '').trim()) {
+    return { success: false, error: 'Cargue usuario y contraseña Moodle antes de preparar el envío.' };
+  }
+  if (!String(row.MoodleUrl || '').trim()) {
+    return { success: false, error: 'Registre la URL del aula virtual antes de preparar el envío.' };
+  }
+  const sentAt = new Date().toISOString();
+  // La acción abre WhatsApp con el mensaje listo; el envío real lo confirma
+  // manualmente el administrador en WhatsApp. No marcar como entregado aún.
+  actualizarFilaInscripcionFisica(sheet, row._row, { MoodleStatus: 'preparado', MoodleLastSentAt: sentAt });
+  SpreadsheetApp.flush();
+  const updated = filaInscripcionPorNumero(sheet, row._row);
+  if (!updated || String(updated.MoodleStatus || '') !== 'preparado' || String(updated.MoodleLastSentAt || '') !== sentAt) {
+    throw new Error('No se pudo verificar el registro del envío Moodle.');
+  }
+  registrarAuditoriaMoodle_({
+    inscripcionId: row.ID,
+    usuario: user.Username,
+    rol: user.Rol,
+    accion: 'MOODLE_WHATSAPP_PREPARED',
+    resultado: 'ok',
+    metadatos: { hasPhone: !!String(row.ClienteTelefono || '').replace(/\D/g, '') },
+  });
+  return { success: true, data: inscripcionSinMetadatosInternos(updated), status: 'preparado' };
 }
 
 function esSolicitudImportacionCrm(params) {
@@ -2387,11 +2527,16 @@ function updateInscripcionBajoBloqueo(user, { id, historicalKey, inscripcion } =
   }
   const duracionDe = mapaDuracionServicios();
   const usuarios = mapaUsuariosPorUsername();
+  const responseData = inscripcionEnriquecida(inscripcionSinMetadatosInternos(updated), duracionDe, usuarios);
   return {
     success: true,
     persistenceVerified: true,
     changedFields: changedFields,
-    data: inscripcionEnriquecida(inscripcionSinMetadatosInternos(updated), duracionDe, usuarios),
+    // Mantener la misma política de exposición que getInscripciones: los
+    // vendedores pueden editar su registro, pero la respuesta nunca incluye
+    // credenciales Moodle ya cargadas. Administración conserva la vista
+    // completa; los roles Moodle no usan este endpoint de edición general.
+    data: isAdmin(user) ? responseData : resumenCertificadoParaVendedor(responseData),
     warning: sync.sincronizado ? '' : sync.motivo,
   };
 }

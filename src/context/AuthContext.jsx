@@ -30,9 +30,10 @@ export function AuthProvider({ children }) {
   const isVendedor = user?.rol === 'vendedor' || user?.rol === 'admin'
   const isAval     = user?.rol === 'aval'
   const isContador = user?.rol === 'contador'
+  const isMoodle   = user?.rol === 'moodle'
 
   return (
-    <AuthContext.Provider value={{ user, isAdmin, isVendedor, isAval, isContador, login, logout }}>
+    <AuthContext.Provider value={{ user, isAdmin, isVendedor, isAval, isContador, isMoodle, login, logout }}>
       {children}
     </AuthContext.Provider>
   )

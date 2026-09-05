@@ -45,6 +45,10 @@ const contadorLinks = [
   { to: '/reportes',       icon: BookOpen,        label: 'Reportes' },
 ]
 
+const moodleLinks = [
+  { to: '/inscripciones',  icon: GraduationCap,   label: 'Inscripciones Moodle' },
+]
+
 const userLinks = [
   { to: '/mis-egresos',    icon: TrendingDown,    label: 'Reportar Gasto' },
   { to: '/mis-reportes',   icon: BookOpen,        label: 'Mis Reportes' },
@@ -55,8 +59,8 @@ const avalLinks = [
 ]
 
 export default function Sidebar({ open, onClose }) {
-  const { isAdmin, isVendedor, isAval, isContador, user } = useAuth()
-  const links = isAdmin ? adminLinks : isContador ? contadorLinks : isVendedor ? vendedorLinks : isAval ? avalLinks : userLinks
+  const { isAdmin, isVendedor, isAval, isContador, isMoodle, user } = useAuth()
+  const links = isAdmin ? adminLinks : isMoodle ? moodleLinks : isContador ? contadorLinks : isVendedor ? vendedorLinks : isAval ? avalLinks : userLinks
 
   return (
     <>

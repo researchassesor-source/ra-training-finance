@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { saveAs } from 'file-saver'
 import {
-  Award, Ban, CheckCircle, DollarSign, Download, FileText, History, MailCheck, MessageCircle,
+  Award, Ban, CheckCircle, DollarSign, Download, FileText, GraduationCap, History, MailCheck, MessageCircle,
   Pencil, Plus, QrCode, Receipt, RefreshCw, Search, ShoppingBag, Trash2, X,
 } from 'lucide-react'
 import { api } from '../../services/api'
@@ -39,6 +39,7 @@ import VentasVendedorModal from './VentasVendedorModal'
 import EntregaCertificadoModal from './EntregaCertificadoModal'
 import EnvioMasivoCertificadosModal from './EnvioMasivoCertificadosModal'
 import AuditoriaCertificadosModal from './AuditoriaCertificadosModal'
+import MoodleCredentialsModal from './MoodleCredentialsModal'
 
 const EMPTY_FILTERS = {
   q: '', servicioId: '', vendedor: '', estadoPago: '', estadoCertificado: '', tipoAval: '', desde: '', hasta: '',
@@ -89,7 +90,7 @@ function fiscalNoticeFromError(err, { justVerified = false } = {}) {
 }
 
 export default function InscripcionesList() {
-  const { isAdmin, user } = useAuth()
+  const { isAdmin, isMoodle, user } = useAuth()
   const navigate = useNavigate()
   const canManage = canManageCertificates(user)
   const qrConfiguration = useMemo(() => certificatePublicUrlStatus(), [])
@@ -128,6 +129,7 @@ export default function InscripcionesList() {
   const [artifactRecovery, setArtifactRecovery] = useState(null)
   const [certificateNotice, setCertificateNotice] = useState('')
   const [fiscalNotice, setFiscalNotice] = useState(null)
+  const [moodleIns, setMoodleIns] = useState(null)
 
   const load = useCallback(() => {
     setLoading(true)
@@ -479,6 +481,16 @@ export default function InscripcionesList() {
       .catch(() => {})
   }
 
+  function openMoodleCredentials(item) {
+    setMoodleIns(item)
+  }
+
+  function handleMoodleUpdated(updated) {
+    if (!updated) return
+    setData(current => current.map(item => item.ID === updated.ID ? { ...item, ...updated } : item))
+    setMoodleIns(current => current && current.ID === updated.ID ? { ...current, ...updated } : current)
+  }
+
   function paymentMessage(item, account) {
     const lines = [
       '*R.A. Training — Datos de Pago*', '',
@@ -573,7 +585,7 @@ export default function InscripcionesList() {
               <button onClick={() => setModal('certificate-audit')} className="btn-secondary text-sm"><History size={15} /> Auditoría de certificados</button>
             </>
           )}
-          <button onClick={() => { setSelected(null); setModal('new') }} className="btn-primary text-sm"><Plus size={15} /> Nueva Inscripción</button>
+          {!isMoodle && <button onClick={() => { setSelected(null); setModal('new') }} className="btn-primary text-sm"><Plus size={15} /> Nueva Inscripción</button>}
         </div>
         {isAdmin && qrConfigurationNotice && (
           <div className={`rounded-lg border px-3 py-2 text-xs ${qrConfigurationNotice.tone === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-red-200 bg-red-50 text-red-800'}`}>
@@ -680,7 +692,11 @@ export default function InscripcionesList() {
                       </td>
                       <td className="px-2 py-2.5 min-w-0">
                         <p className="font-medium leading-tight text-gray-900 break-words" title={item.ClienteNombre}>{item.ClienteNombre}</p>
-                        {item.Origen === 'CRM' && <div className="mt-1 flex flex-wrap gap-1"><span className="badge-blue px-1.5 text-[10px] leading-tight">CRM</span>{item.EstadoPago === 'pendiente' && <span className="badge-yellow px-1.5 text-[10px] leading-tight">Pendiente de completar</span>}</div>}
+                        {(item.Origen === 'CRM' || isAdmin || isMoodle) && <div className="mt-1 flex flex-wrap gap-1">
+                          {item.Origen === 'CRM' && <span className="badge-blue px-1.5 text-[10px] leading-tight">CRM</span>}
+                          {item.EstadoPago === 'pendiente' && item.Origen === 'CRM' && <span className="badge-yellow px-1.5 text-[10px] leading-tight">Pendiente de completar</span>}
+                          {(isAdmin || isMoodle) && <MoodleStatusBadge status={item.MoodleStatus} />}
+                        </div>}
                         <p className="mt-1 truncate text-[10px] text-gray-400" title={item.ClienteEmail || 'Sin email'}>{item.ClienteEmail || 'Sin email'}</p>
                         {item.ClienteID && <p className="truncate text-[10px] text-gray-400" title={`ID: ${item.ClienteID}`}>ID: {item.ClienteID}</p>}
                       </td>
@@ -722,9 +738,12 @@ export default function InscripcionesList() {
                         </div>
                       </td>
                       <td className="px-2 py-2.5"><div className="mx-auto grid w-fit grid-cols-4 gap-1">
-                        <Action icon={MessageCircle} label="Enviar datos de pago por WhatsApp" onClick={() => openPaymentWhatsApp(item)} disabled={rowBusy} css="hover:text-emerald-600 hover:bg-emerald-50" />
-                        <Action icon={Download} label="Descargar comprobante de inscripción" onClick={() => exportInscripcionPDF(item)} disabled={rowBusy} />
-                        <Action icon={Pencil} label="Editar inscripción" onClick={() => { setSelected(item); setModal('edit') }} disabled={rowBusy} />
+                        {(isAdmin || isMoodle) && <Action icon={GraduationCap}
+                          label={item.MoodleStatus === 'preparado' ? 'Ver WhatsApp preparado' : item.MoodleStatus === 'cargado' ? 'Gestionar acceso Moodle' : 'Cargar acceso Moodle'}
+                          onClick={() => openMoodleCredentials(item)} disabled={rowBusy} css="hover:text-violet-600 hover:bg-violet-50" />}
+                        {!isMoodle && <Action icon={MessageCircle} label="Enviar datos de pago por WhatsApp" onClick={() => openPaymentWhatsApp(item)} disabled={rowBusy} css="hover:text-emerald-600 hover:bg-emerald-50" />}
+                        {!isMoodle && <Action icon={Download} label="Descargar comprobante de inscripción" onClick={() => exportInscripcionPDF(item)} disabled={rowBusy} />}
+                        {!isMoodle && <Action icon={Pencil} label="Editar inscripción" onClick={() => { setSelected(item); setModal('edit') }} disabled={rowBusy} />}
                         {isAdmin && canVerifyPayment && <Action icon={CheckCircle} label="Verificar pago" onClick={() => setConfirm({ type: 'verify', item })} disabled={rowBusy} css="hover:text-emerald-600 hover:bg-emerald-50" />}
                         {isAdmin && (
                           item.FacturaID
@@ -748,7 +767,7 @@ export default function InscripcionesList() {
                         {capabilities.canDeliver && <Action icon={MailCheck} label="Entregar certificado" onClick={() => { setSelected(item); setModal('delivery') }} disabled={rowBusy} css="hover:text-emerald-600 hover:bg-emerald-50" />}
                         {capabilities.canVoid && <Action icon={Ban} label="Anular certificado" onClick={() => openLifecycle('void', item)} disabled={rowBusy} css="hover:text-red-600 hover:bg-red-50" />}
                         {capabilities.canReissue && <Action icon={RefreshCw} label="Reemitir certificado" onClick={() => openLifecycle('reissue', item)} disabled={rowBusy} css="hover:text-blue-600 hover:bg-blue-50" />}
-                        {(isAdmin || item.EstadoPago === 'pendiente') && (
+                        {!isMoodle && (isAdmin || item.EstadoPago === 'pendiente') && (
                           isCertificateProtectedAgainstDeletion(item)
                             ? <Action icon={Trash2} label={CERTIFICATE_DELETE_BLOCKED_MESSAGE} disabled css="cursor-not-allowed text-gray-300" />
                             : <Action icon={Trash2} label="Eliminar inscripción" onClick={() => setConfirm({ type: 'delete', item })} disabled={rowBusy} css="hover:text-red-600 hover:bg-red-50" />
@@ -892,6 +911,13 @@ export default function InscripcionesList() {
       <Modal open={Boolean(qrIns)} onClose={() => setQrIns(null)} title="QR de verificación del certificado" size="sm">
         {qrIns && <div className="space-y-4 text-center"><p className="text-sm text-gray-600">Este QR independiente conserva la verificación histórica de esta versión.</p>{qrDataUrl ? <><img src={qrDataUrl} alt="QR de verificación" className="mx-auto rounded-lg border border-gray-200" width={220} height={220} /><p className="text-xs text-gray-400 break-all">{buildVerificationUrl(certificatePublicId(qrIns))}</p><a href={qrDataUrl} download={`qr_certificado_${certificatePublicId(qrIns)}.png`} className="btn-primary w-full justify-center"><Download size={15} /> Descargar PNG</a></> : <Spinner text="Generando QR..." />}</div>}
       </Modal>
+
+      <MoodleCredentialsModal
+        inscripcion={moodleIns}
+        isAdmin={isAdmin}
+        onClose={() => setMoodleIns(null)}
+        onUpdated={handleMoodleUpdated}
+      />
     </div>
   )
 }
@@ -928,6 +954,15 @@ function FacturaBadge({ item }) {
       {estado.label}
     </span>
   )
+}
+
+function MoodleStatusBadge({ status }) {
+  const meta = {
+    pendiente: { label: 'Moodle pendiente', css: 'badge-gray' },
+    cargado: { label: 'Moodle cargado', css: 'badge-blue' },
+    preparado: { label: 'WhatsApp preparado', css: 'badge-green' },
+  }[status] || { label: 'Moodle pendiente', css: 'badge-gray' }
+  return <span className={`${meta.css} px-1.5 text-[10px] leading-tight`}>{meta.label}</span>
 }
 
 function Summary({ label, value, color }) {

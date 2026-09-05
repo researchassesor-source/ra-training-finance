@@ -13,6 +13,7 @@ const ROLE_META = {
   admin: { label: 'Administrador', css: 'badge-blue' },
   vendedor: { label: 'Vendedor', css: 'badge-green' },
   contador: { label: 'Contador', css: 'badge-blue' },
+  moodle: { label: 'Encargado Moodle', css: 'badge-purple' },
   aval: { label: 'Aval externo', css: 'badge-yellow' },
   usuario: { label: 'Usuario', css: 'badge-gray' },
 }
@@ -89,6 +90,7 @@ function UsuarioForm({ initial, onSave, onCancel }) {
             <option value="usuario">Usuario (solo gastos)</option>
             <option value="vendedor">Vendedor (ingresos + gastos + inscripciones)</option>
             <option value="contador">Contador (facturación + reportes contables)</option>
+            <option value="moodle">Encargado Moodle (carga accesos de aula)</option>
             <option value="aval">Aval Externo (solo certificados con aval)</option>
             <option value="admin">Administrador (acceso total)</option>
           </select>

@@ -241,6 +241,14 @@ export const api = {
 
   getInscripciones: (filtros = {}) =>
     callCached('getInscripciones', { filtros }, getToken()),
+  updateMoodleCredentials: (id, moodle) => {
+    bust('getInscripciones')
+    return call('updateMoodleCredentials', { id, moodle }, getToken())
+  },
+  registrarEnvioMoodle: (id) => {
+    bust('getInscripciones')
+    return call('registrarEnvioMoodle', { id }, getToken())
+  },
   addInscripcion: (inscripcion) => {
     bust('getInscripciones', 'getDashboard')
     return call('addInscripcion', { inscripcion }, getToken())
