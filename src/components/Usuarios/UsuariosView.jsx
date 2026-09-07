@@ -6,17 +6,18 @@ import Modal from '../UI/Modal'
 import ConfirmDialog from '../UI/ConfirmDialog'
 import Spinner from '../UI/Spinner'
 import { Plus, Pencil, Trash2, UserCheck, UserX } from 'lucide-react'
+import { ROLE_META, ROLE_ORDER, primaryRole, rolesOf } from '../../utils/roles'
 
-const EMPTY = { nombre: '', email: '', username: '', password: '', rol: 'usuario', activo: true, institucionAval: '' }
+const EMPTY = { nombre: '', email: '', username: '', password: '', roles: ['usuario'], rol: 'usuario', activo: true, institucionAval: '' }
 
-const ROLE_META = {
-  admin: { label: 'Administrador', css: 'badge-blue' },
-  vendedor: { label: 'Vendedor', css: 'badge-green' },
-  contador: { label: 'Contador', css: 'badge-blue' },
-  moodle: { label: 'Encargado Moodle', css: 'badge-purple' },
-  aval: { label: 'Aval externo', css: 'badge-yellow' },
-  usuario: { label: 'Usuario', css: 'badge-gray' },
-}
+const ROLE_OPTIONS = [
+  { value: 'usuario', label: 'Usuario', detail: 'Gastos y reportes propios' },
+  { value: 'vendedor', label: 'Vendedor', detail: 'Ingresos, inscripciones, servicios, asistencia y flujos' },
+  { value: 'contador', label: 'Contador', detail: 'Facturación y reportes contables' },
+  { value: 'moodle', label: 'Encargado Moodle', detail: 'Carga y prepara accesos del aula virtual' },
+  { value: 'aval', label: 'Aval externo', detail: 'Certificados asignados a una institución' },
+  { value: 'admin', label: 'Administrador', detail: 'Acceso total' },
+]
 
 function mapInitial(initial) {
   if (!initial) return EMPTY
@@ -25,7 +26,8 @@ function mapInitial(initial) {
     email:    initial.Email    || initial.email    || '',
     username: initial.Username || initial.username || '',
     password: '',
-    rol:      initial.Rol      || initial.rol      || 'usuario',
+    roles:    rolesOf(initial),
+    rol:      primaryRole(rolesOf(initial)),
     activo:   initial.Activo === true || initial.Activo === 'TRUE' || initial.activo === true,
     institucionAval: initial.InstitucionAval || initial.institucionAval || '',
   }
@@ -36,19 +38,38 @@ function UsuarioForm({ initial, onSave, onCancel }) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+  const hasAvalRole = form.roles.includes('aval')
+
+  function toggleRole(role) {
+    setForm(actual => {
+      let nextRoles = actual.roles.includes(role)
+        ? actual.roles.filter(item => item !== role)
+        : [...actual.roles.filter(item => item !== 'usuario'), role]
+      if (!nextRoles.length) nextRoles = ['usuario']
+      if (role === 'usuario' && !actual.roles.includes('usuario')) nextRoles = ['usuario']
+      nextRoles = ROLE_ORDER.filter(item => nextRoles.includes(item))
+      return {
+        ...actual,
+        roles: nextRoles,
+        rol: primaryRole(nextRoles),
+        institucionAval: nextRoles.includes('aval') ? actual.institucionAval : '',
+      }
+    })
+  }
 
   async function handleSubmit(e) {
     e.preventDefault()
     if (!initial && !form.password) { setError('La contraseña es requerida'); return }
-    if (form.rol === 'aval' && !form.institucionAval.trim()) {
+    if (hasAvalRole && !form.institucionAval.trim()) {
       setError('Ingrese la institución asignada a este usuario de aval.')
       return
     }
+    const payload = { ...form, rol: primaryRole(form.roles) }
     setSaving(true)
     setError('')
     try {
-      if (initial?.ID) await api.updateUsuario(initial.ID, form)
-      else await api.addUsuario(form)
+      if (initial?.ID) await api.updateUsuario(initial.ID, payload)
+      else await api.addUsuario(payload)
       onSave()
     } catch (err) { setError(err.message) }
     finally { setSaving(false) }
@@ -81,21 +102,31 @@ function UsuarioForm({ initial, onSave, onCancel }) {
           <input className="input" type="password" value={form.password}
             onChange={e => set('password', e.target.value)} placeholder="••••••••" />
         </div>
-        <div>
-          <label className="label">Rol</label>
-          <select className="input" value={form.rol} onChange={e => {
-            const rol = e.target.value
-            setForm(actual => ({ ...actual, rol, institucionAval: rol === 'aval' ? actual.institucionAval : '' }))
-          }}>
-            <option value="usuario">Usuario (solo gastos)</option>
-            <option value="vendedor">Vendedor (ingresos + gastos + inscripciones)</option>
-            <option value="contador">Contador (facturación + reportes contables)</option>
-            <option value="moodle">Encargado Moodle (carga accesos de aula)</option>
-            <option value="aval">Aval Externo (solo certificados con aval)</option>
-            <option value="admin">Administrador (acceso total)</option>
-          </select>
+        <div className="sm:col-span-2">
+          <label className="label">Roles</label>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {ROLE_OPTIONS.map(option => (
+              <label key={option.value} className={`border rounded-lg p-3 cursor-pointer transition-colors ${form.roles.includes(option.value) ? 'border-brand-500 bg-brand-50' : 'border-gray-200 hover:border-brand-200'}`}>
+                <span className="flex items-start gap-2">
+                  <input
+                    type="checkbox"
+                    checked={form.roles.includes(option.value)}
+                    onChange={() => toggleRole(option.value)}
+                    className="mt-0.5 w-4 h-4 accent-brand-600"
+                  />
+                  <span>
+                    <span className="block text-sm font-semibold text-gray-900">{option.label}</span>
+                    <span className="block text-xs text-gray-500">{option.detail}</span>
+                  </span>
+                </span>
+              </label>
+            ))}
+          </div>
+          <p className="text-xs text-gray-500 mt-1">
+            Puedes combinar roles, por ejemplo Vendedor + Encargado Moodle. El rol principal se mantiene automáticamente para compatibilidad.
+          </p>
         </div>
-        {form.rol === 'aval' && (
+        {hasAvalRole && (
           <div className="sm:col-span-2">
             <label className="label">Institución asignada *</label>
             <input className="input" required value={form.institucionAval}
@@ -179,15 +210,17 @@ export default function UsuariosView() {
                 <p className="font-semibold text-gray-900 truncate">{u.Nombre}</p>
                 <p className="text-xs text-gray-500">{u.Username}</p>
                 {u.Email && <p className="text-xs text-gray-400 truncate">{u.Email}</p>}
-                <div className="flex items-center gap-2 mt-2">
-                  <span className={ROLE_META[u.Rol]?.css || 'badge-gray'}>
-                    {ROLE_META[u.Rol]?.label || u.Rol}
-                  </span>
+                <div className="flex flex-wrap items-center gap-2 mt-2">
+                  {rolesOf(u).map(role => (
+                    <span key={role} className={ROLE_META[role]?.css || 'badge-gray'}>
+                      {ROLE_META[role]?.label || role}
+                    </span>
+                  ))}
                   <span className={u.Activo ? 'badge-green' : 'badge-red'}>
                     {u.Activo ? 'Activo' : 'Inactivo'}
                   </span>
                 </div>
-                {u.Rol === 'aval' && u.InstitucionAval && (
+                {rolesOf(u).includes('aval') && u.InstitucionAval && (
                   <p className="text-xs text-amber-700 mt-1 truncate" title={u.InstitucionAval}>
                     Institución: {u.InstitucionAval}
                   </p>

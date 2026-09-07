@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useCallback } from 'react'
 import { api } from '../services/api'
+import { hasRole } from '../utils/roles'
 
 const AuthContext = createContext(null)
 
@@ -26,11 +27,11 @@ export function AuthProvider({ children }) {
     setUser(null)
   }, [])
 
-  const isAdmin    = user?.rol === 'admin'
-  const isVendedor = user?.rol === 'vendedor' || user?.rol === 'admin'
-  const isAval     = user?.rol === 'aval'
-  const isContador = user?.rol === 'contador'
-  const isMoodle   = user?.rol === 'moodle'
+  const isAdmin    = hasRole(user, 'admin')
+  const isVendedor = hasRole(user, 'vendedor') || isAdmin
+  const isAval     = hasRole(user, 'aval')
+  const isContador = hasRole(user, 'contador')
+  const isMoodle   = hasRole(user, 'moodle')
 
   return (
     <AuthContext.Provider value={{ user, isAdmin, isVendedor, isAval, isContador, isMoodle, login, logout }}>

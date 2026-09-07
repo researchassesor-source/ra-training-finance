@@ -60,7 +60,22 @@ const avalLinks = [
 
 export default function Sidebar({ open, onClose }) {
   const { isAdmin, isVendedor, isAval, isContador, isMoodle, user } = useAuth()
-  const links = isAdmin ? adminLinks : isMoodle ? moodleLinks : isContador ? contadorLinks : isVendedor ? vendedorLinks : isAval ? avalLinks : userLinks
+  const combineLinks = (...groups) => {
+    const byPath = new Map()
+    groups.flat().forEach(link => {
+      if (!byPath.has(link.to)) byPath.set(link.to, link)
+    })
+    return Array.from(byPath.values())
+  }
+  const links = isAdmin
+    ? adminLinks
+    : combineLinks(
+        isContador ? contadorLinks : [],
+        isVendedor ? vendedorLinks : [],
+        isMoodle ? moodleLinks : [],
+        isAval ? avalLinks : [],
+        (!isContador && !isVendedor && !isMoodle && !isAval) ? userLinks : [],
+      )
 
   return (
     <>

@@ -187,7 +187,7 @@ function respond(data) {
 // ─────────────────────────────────────────────
 
 const SHEET_HEADERS = {
-  Usuarios:         ['ID','Nombre','Email','Username','PasswordHash','Rol','Activo','FechaCreacion','InstitucionAval'],
+  Usuarios:         ['ID','Nombre','Email','Username','PasswordHash','Rol','Activo','FechaCreacion','InstitucionAval','Roles'],
   Ingresos:         ['ID','Fecha','Tipo','Modalidad','Concepto','Cliente','ContratoID','Monto','MetodoPago','Estado','Notas','CreadoPor','FechaCreacion','ClienteTelefono','Referencia'],
   Egresos:          ['ID','Fecha','Categoria','Concepto','Proveedor','Monto','Estado','AprobadoPor','FechaAprobacion','Notas','CreadoPor','FechaCreacion','ProveedorIdentificacion','FacturaCompraNumero','AutorizacionCompra','FechaEmisionFactura','BaseImponible0','BaseImponible15','IvaCompra','FormaPagoCompra','ReferenciaPagoCompra'],
   Pagos:            ['ID','Fecha','Tipo','Beneficiario','Concepto','Referencia','Monto','MetodoPago','EgresoID','ContratoID','Estado','Notas','CreadoPor','FechaCreacion'],
@@ -208,7 +208,7 @@ const SHEET_HEADERS = {
                      'MoodleUsername','MoodlePassword','MoodleUrl','MoodleStatus','MoodleLoadedBy','MoodleLoadedAt','MoodleLastSentAt','MoodleNotes',
                      'CRMOfferType','CRMParentOrderID','CRMCompletionStatus','CRMCompletedAt',
                      'CRMEnrollmentID','CRMContactID','CRMCourseID','Origen'],
-  Sesiones:         ['Token','Username','UserID','Rol','Nombre','Expira'],
+  Sesiones:         ['Token','Username','UserID','Rol','Nombre','Expira','Roles'],
   ConfigPagos:      ['ID','Nombre','Tipo','Detalles','Instrucciones','Activo','FechaCreacion'],
   Convenios:        ['ID','Organizacion','Representante','Cargo','Objeto','ObligacionesRA','ObligacionesAliado','Vigencia','FechaInicio','FechaFin','Estado','Notas','CreadoPor','FechaCreacion'],
   Asistencia:       ['ID','Username','Nombre','Tipo','Timestamp','Fecha','Notas','FechaCreacion'],
@@ -433,7 +433,7 @@ function hashPassword(password) {
 }
 
 function requireAdmin(user) {
-  if (!user || user.Rol !== 'admin') throw new Error('Acceso denegado: se requiere rol de administrador.');
+  if (!isAdmin(user)) throw new Error('Acceso denegado: se requiere rol de administrador.');
 }
 
 function registrarAuditoriaCertificado(evento) {
@@ -481,11 +481,59 @@ function requireCertificateAdmin(user, action, context) {
   throw new Error('Acceso denegado: solo un administrador puede gestionar certificados oficiales.');
 }
 
-function isAdmin(user)    { return !!user && user.Rol === 'admin'; }
-function isVendedor(user) { return !!user && (user.Rol === 'vendedor' || user.Rol === 'admin'); }
-function isAval(user)     { return !!user && user.Rol === 'aval'; }
-function isContador(user) { return !!user && user.Rol === 'contador'; }
-function isMoodle(user)   { return !!user && user.Rol === 'moodle'; }
+function parseRolesValue_(value) {
+  if (Array.isArray(value)) return value;
+  var raw = String(value || '').trim();
+  if (!raw) return [];
+  if (raw.charAt(0) === '[') {
+    try {
+      var parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+    } catch (e) {}
+  }
+  return raw.split(/[,;|]/);
+}
+
+function normalizarRol_(role) {
+  var normalized = String(role || '').trim().toLowerCase();
+  var valid = ['admin','vendedor','contador','moodle','aval','usuario'];
+  return valid.indexOf(normalized) === -1 ? '' : normalized;
+}
+
+function rolesUsuario_(user) {
+  if (!user) return [];
+  var seen = {};
+  var roles = [];
+  parseRolesValue_(user.Roles).concat(parseRolesValue_(user.roles), [user.Rol, user.rol]).forEach(function(role) {
+    var normalized = normalizarRol_(role);
+    if (normalized && !seen[normalized]) {
+      seen[normalized] = true;
+      roles.push(normalized);
+    }
+  });
+  if (roles.length === 0) roles.push('usuario');
+  var order = ['admin','vendedor','contador','moodle','aval','usuario'];
+  return order.filter(function(role) { return seen[role] || roles.indexOf(role) !== -1; });
+}
+
+function rolPrincipal_(roles) {
+  roles = rolesUsuario_({ Roles: roles });
+  return roles[0] || 'usuario';
+}
+
+function serializarRoles_(roles) {
+  return JSON.stringify(rolesUsuario_({ Roles: roles }));
+}
+
+function tieneRol_(user, role) {
+  return rolesUsuario_(user).indexOf(role) !== -1;
+}
+
+function isAdmin(user)    { return tieneRol_(user, 'admin'); }
+function isVendedor(user) { return isAdmin(user) || tieneRol_(user, 'vendedor'); }
+function isAval(user)     { return tieneRol_(user, 'aval'); }
+function isContador(user) { return tieneRol_(user, 'contador'); }
+function isMoodle(user)   { return tieneRol_(user, 'moodle'); }
 
 function esVerdadero(value) {
   return value === true || String(value).toLowerCase() === 'true';
@@ -933,9 +981,13 @@ function handleLogin({ username, password }) {
   const token  = generateId('tok');
   const expiry = new Date();
   expiry.setHours(expiry.getHours() + CONFIG.SESSION_EXPIRY_HOURS);
-  getSheet('Sesiones').appendRow([token, username, user.ID, user.Rol, user.Nombre, expiry.toISOString()]);
+  const roles = rolesUsuario_(user);
+  const rolPrincipal = rolPrincipal_(roles);
+  appendRowPreservandoTexto_(getSheet('Sesiones'), SHEET_HEADERS.Sesiones, [
+    token, username, user.ID, rolPrincipal, user.Nombre, expiry.toISOString(), serializarRoles_(roles),
+  ]);
 
-  return { success: true, token, user: { id: user.ID, nombre: user.Nombre, rol: user.Rol, username } };
+  return { success: true, token, user: { id: user.ID, nombre: user.Nombre, rol: rolPrincipal, roles: roles, username } };
 }
 
 function validateToken(token) {
@@ -948,7 +1000,7 @@ function validateToken(token) {
     sheet.deleteRow(session._row);
     return null;
   }
-  return { ID: session.UserID, Username: session.Username, Rol: session.Rol, Nombre: session.Nombre };
+  return { ID: session.UserID, Username: session.Username, Rol: session.Rol, Roles: session.Roles, Nombre: session.Nombre };
 }
 
 function handleLogout(token) {
@@ -1436,7 +1488,7 @@ function getUsuarios(user) {
   if (!isAdmin(user) && !isContador(user)) throw new Error('Acceso denegado: se requiere rol administrativo o contable.');
   const data = sheetToObjects(getSheet('Usuarios')).map(u => ({
     ID: u.ID, Nombre: u.Nombre, Email: u.Email, Username: u.Username,
-    Rol: u.Rol, Activo: u.Activo, FechaCreacion: u.FechaCreacion,
+    Rol: u.Rol, Roles: u.Roles || serializarRoles_(u.Rol), Activo: u.Activo, FechaCreacion: u.FechaCreacion,
     InstitucionAval: u.InstitucionAval || '',
   }));
   return { success: true, data };
@@ -1448,15 +1500,21 @@ function addUsuario(user, { usuario }) {
   const existing = sheetToObjects(sheet);
   if (existing.find(u => u.Username === usuario.username))
     return { success: false, error: 'El nombre de usuario ya existe.' };
-  const rol = usuario.rol || 'usuario';
-  const institucionAval = rol === 'aval' ? String(usuario.institucionAval || '').trim() : '';
-  if (rol === 'aval' && !institucionAval) {
+  const roles = rolesUsuario_({
+    Roles: usuario.roles,
+    Rol: usuario.roles !== undefined ? '' : (usuario.rol || 'usuario'),
+  });
+  const rol = rolPrincipal_(roles);
+  const institucionAval = roles.indexOf('aval') !== -1 ? String(usuario.institucionAval || '').trim() : '';
+  if (roles.indexOf('aval') !== -1 && !institucionAval) {
     return { success: false, error: 'Asigne una institucion al usuario de aval.' };
   }
   const id   = generateId('USR');
   const hash = hashPassword(usuario.password);
   const now  = new Date().toISOString();
-  sheet.appendRow([id, usuario.nombre, usuario.email || '', usuario.username, hash, rol, true, now, institucionAval]);
+  appendRowPreservandoTexto_(sheet, SHEET_HEADERS.Usuarios, [
+    id, usuario.nombre, usuario.email || '', usuario.username, hash, rol, true, now, institucionAval, serializarRoles_(roles),
+  ]);
   return { success: true, id };
 }
 
@@ -1466,16 +1524,20 @@ function updateUsuario(user, { id, usuario }) {
   const rows  = sheetToObjects(sheet);
   const row   = rows.find(function(u) { return u.ID === id; });
   if (!row) return { success: false, error: 'Usuario no encontrado.' };
-  const rol = usuario.rol || row.Rol;
-  const institucionAval = rol === 'aval'
+  const roles = rolesUsuario_({
+    Roles: usuario.roles !== undefined ? usuario.roles : row.Roles,
+    Rol: usuario.roles !== undefined ? '' : (usuario.rol || row.Rol),
+  });
+  const rol = rolPrincipal_(roles);
+  const institucionAval = roles.indexOf('aval') !== -1
     ? String(usuario.institucionAval !== undefined ? usuario.institucionAval : row.InstitucionAval || '').trim()
     : '';
-  if (rol === 'aval' && !institucionAval) {
+  if (roles.indexOf('aval') !== -1 && !institucionAval) {
     return { success: false, error: 'Asigne una institucion al usuario de aval.' };
   }
   const fields = {
     Nombre: usuario.nombre, Email: usuario.email,
-    Rol: rol, Activo: usuario.activo, InstitucionAval: institucionAval,
+    Rol: rol, Roles: serializarRoles_(roles), Activo: usuario.activo, InstitucionAval: institucionAval,
   };
   // Permitir cambio de username con verificación de unicidad
   if (usuario.username && usuario.username !== row.Username) {
@@ -1496,9 +1558,9 @@ function deleteUsuario(user, { id }) {
   const rows  = sheetToObjects(sheet);
   const row   = rows.find(function(u) { return u.ID === id; });
   if (!row) return { success: false, error: 'Usuario no encontrado.' };
-  if (row.Rol === 'admin') {
+  if (isAdmin(row)) {
     const otrosAdmins = rows.filter(function(u) {
-      return u.Rol === 'admin' && u.ID !== id && (u.Activo === true || u.Activo === 'TRUE');
+      return isAdmin(u) && u.ID !== id && (u.Activo === true || u.Activo === 'TRUE');
     });
     if (otrosAdmins.length === 0) return { success: false, error: 'Debe existir al menos un administrador activo.' };
   }

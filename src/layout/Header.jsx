@@ -1,10 +1,14 @@
 import { Menu, LogOut, User } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useNavigate } from 'react-router-dom'
+import { ROLE_META, rolesOf } from '../utils/roles'
 
 export default function Header({ onMenuClick, title }) {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
+  const roleLabel = rolesOf(user)
+    .map(role => ROLE_META[role]?.shortLabel || role)
+    .join(' + ')
 
   async function handleLogout() {
     await logout()
@@ -26,7 +30,7 @@ export default function Header({ onMenuClick, title }) {
             <User size={14} className="text-brand-700" />
           </div>
           <span className="font-medium">{user?.nombre}</span>
-          <span className="text-xs badge-blue">{user?.rol === 'admin' ? 'Admin' : user?.rol === 'vendedor' ? 'Vendedor' : user?.rol === 'aval' ? 'Aval' : 'Usuario'}</span>
+          <span className="text-xs badge-blue">{roleLabel}</span>
         </div>
         <button onClick={handleLogout}
           className="p-2 rounded-lg hover:bg-red-50 text-gray-500 hover:text-red-600 transition-colors"

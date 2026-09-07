@@ -64,10 +64,9 @@ function RequireAval({ children }) {
 // Rutas "para cualquier autenticado" que no deben quedar visibles al rol
 // restringido 'aval' (solo debe ver /aval-externo).
 function RequireGeneral({ children }) {
-  const { user, isAval, isMoodle } = useAuth()
+  const { user, isAdmin, isVendedor, isAval, isContador, isMoodle } = useAuth()
   if (!user) return <Navigate to="/login" replace />
-  if (isAval) return <Navigate to="/aval-externo" replace />
-  if (isMoodle) return <Navigate to="/inscripciones" replace />
+  if (isAval && !isAdmin && !isVendedor && !isContador && !isMoodle) return <Navigate to="/aval-externo" replace />
   return children
 }
 
@@ -76,8 +75,8 @@ function HomeRedirect() {
   if (!user) return <Navigate to="/login" replace />
   if (isAdmin)    return <Navigate to="/dashboard" replace />
   if (isContador) return <Navigate to="/facturacion" replace />
-  if (isMoodle)   return <Navigate to="/inscripciones" replace />
   if (isVendedor) return <Navigate to="/mis-ingresos" replace />
+  if (isMoodle)   return <Navigate to="/inscripciones" replace />
   if (isAval)     return <Navigate to="/aval-externo" replace />
   return <Navigate to="/mis-egresos" replace />
 }
@@ -89,7 +88,7 @@ function AppRoutes() {
     <Routes>
       <Route path="/login" element={
         user
-          ? <Navigate to={isAdmin ? '/dashboard' : isContador ? '/facturacion' : isMoodle ? '/inscripciones' : isVendedor ? '/mis-ingresos' : isAval ? '/aval-externo' : '/mis-egresos'} replace />
+          ? <Navigate to={isAdmin ? '/dashboard' : isContador ? '/facturacion' : isVendedor ? '/mis-ingresos' : isMoodle ? '/inscripciones' : isAval ? '/aval-externo' : '/mis-egresos'} replace />
           : <Login />
       } />
 

@@ -53,4 +53,30 @@ describe('usuarios y roles internos', () => {
     expect(create.success).toBe(false)
     expect(create.error).toMatch(/administrador/i)
   })
+
+  it('permite combinar vendedor y moodle sin perder permisos al iniciar sesion', () => {
+    const harness = createHarness()
+
+    const create = harness.context.processRequest({
+      action: 'addUsuario',
+      token: 'admin-token',
+      usuario: {
+        nombre: 'Angel Espinoza',
+        username: 'angel',
+        password: 'Temporal123*',
+        roles: ['vendedor', 'moodle'],
+      },
+    })
+    const login = harness.context.processRequest({
+      action: 'login',
+      username: 'angel',
+      password: 'Temporal123*',
+    })
+
+    expect(create.success).toBe(true)
+    expect(login.success).toBe(true)
+    expect(login.user.rol).toBe('vendedor')
+    expect(login.user.roles).toEqual(['vendedor', 'moodle'])
+    expect(harness.objects('Sesiones')[2].Roles).toBe('["vendedor","moodle"]')
+  })
 })
