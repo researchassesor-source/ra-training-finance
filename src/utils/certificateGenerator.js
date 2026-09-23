@@ -291,6 +291,10 @@ function drawAvalBlock(doc, aval) {
 }
 
 export async function buildCertificatePdf(inscripcion, options = {}) {
+  if (String(inscripcion?.TemplateVersion || '').trim() === 'ra-security-2026-v2') {
+    const { buildCertificateV2Pdf } = await import('./certificateGeneratorV2.js')
+    return buildCertificateV2Pdf(inscripcion, options)
+  }
   const certificate = normalizeIssuedCertificate(inscripcion)
   const aval = certificateAvalVisualStatus(certificate)
   if (!aval.valid) throw new Error(aval.error)
