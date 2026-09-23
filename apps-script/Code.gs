@@ -1684,8 +1684,8 @@ function servicioRequiereDuracion(tipo) {
 
 function tipoCertificadoServicio_(value) {
   const normalized = String(value || 'aprobacion').trim().toLowerCase();
-  if (['aprobacion', 'asistencia', 'participacion'].indexOf(normalized) === -1) {
-    throw new Error('Tipo de certificado inválido. Seleccione aprobación, asistencia o participación.');
+  if (['aprobacion', 'asistencia', 'participacion', 'capacitacion'].indexOf(normalized) === -1) {
+    throw new Error('Tipo de certificado inválido. Seleccione aprobación, asistencia, participación o capacitación.');
   }
   return normalized;
 }

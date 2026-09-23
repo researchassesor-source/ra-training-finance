@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createAppsScriptHarness } from './appsScriptHarness'
+import { PARTICIPANT_CERTIFICATE_TYPES } from '../config/certificateTypes'
 
 function createHarness() {
   const harness = createAppsScriptHarness()
@@ -14,6 +15,24 @@ function createHarness() {
 }
 
 describe('servicios y calendario operativo', () => {
+  it('solo admite tipos de certificados de participantes y mantiene sincronizado el catálogo con Apps Script', () => {
+    const harness = createHarness()
+    Object.keys(PARTICIPANT_CERTIFICATE_TYPES).forEach((tipoCertificado, index) => {
+      const result = harness.context.processRequest({
+        action: 'addServicio', token: 'admin-token',
+        servicio: { nombre: `Servicio ${index}`, tipo: 'Evento', tipoCertificado },
+      })
+      expect(result.success).toBe(true)
+    })
+    expect(harness.objects('Servicios').map(row => row.TipoCertificado)).toEqual(Object.keys(PARTICIPANT_CERTIFICATE_TYPES))
+    const staff = harness.context.processRequest({
+      action: 'addServicio', token: 'admin-token',
+      servicio: { nombre: 'Falso ponente', tipo: 'Evento', tipoCertificado: 'ponente' },
+    })
+    expect(staff.success).toBe(false)
+    expect(harness.objects('Servicios')).toHaveLength(Object.keys(PARTICIPANT_CERTIFICATE_TYPES).length)
+  })
+
   it('registra fichas de capacitadores, vincula servicios y propaga cambios sin tocar certificados', () => {
     const harness = createHarness()
     harness.seed('AuditoriaCertificados', [])

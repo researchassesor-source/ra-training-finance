@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { api } from '../../services/api'
 import { fmt, MODALIDADES, TIPOS_SERVICIO } from '../../utils/formatters'
+import { PARTICIPANT_CERTIFICATE_TYPES } from '../../config/certificateTypes'
 import { useAuth } from '../../context/AuthContext'
 import Modal from '../UI/Modal'
 import Spinner from '../UI/Spinner'
@@ -118,9 +119,9 @@ function ServicioForm({ initial, onSave, onCancel, capacitadores }) {
           <label className="label" htmlFor="tipoCertificado">Tipo de certificado del servicio</label>
           <select id="tipoCertificado" className="input" value={form.tipoCertificado}
             onChange={e => set('tipoCertificado', e.target.value)}>
-            <option value="aprobacion">Aprobación - cursos evaluados</option>
-            <option value="asistencia">Asistencia - seminarios y congresos</option>
-            <option value="participacion">Participación - actividades académicas</option>
+            {Object.entries(PARTICIPANT_CERTIFICATE_TYPES).map(([value, type]) => (
+              <option key={value} value={value}>{type.label} - {type.description}</option>
+            ))}
           </select>
           <p className="text-xs text-blue-800">
             Se fija en cada certificado al emitirlo. Los certificados ya emitidos conservan su tipo y PDF original.
@@ -359,7 +360,7 @@ export default function ServiciosView() {
                   </div>
                 )}
                 <p className="text-xs text-slate-500">
-                  Certificado: {s.TipoCertificado === 'asistencia' ? 'Asistencia' : s.TipoCertificado === 'participacion' ? 'Participación' : 'Aprobación'}
+                  Certificado: {PARTICIPANT_CERTIFICATE_TYPES[s.TipoCertificado]?.label || 'Aprobación'}
                 </p>
                 {fechaEvento && (
                   <div className="flex flex-wrap gap-1.5">
