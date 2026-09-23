@@ -15,6 +15,8 @@ import { createAppsScriptHarness } from './appsScriptHarness'
 const CERTIFICATE_ACTIONS = [
   'getCertificadoParaDescarga',
   'registrarArtefactoCertificado',
+  'guardarPdfCertificadoPrivado',
+  'leerPdfCertificadoPrivado',
   'solicitarDescargaCertificado',
   'confirmarDescargaCertificado',
   'registrarGeneracionCertificado',

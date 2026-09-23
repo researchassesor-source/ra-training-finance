@@ -14,6 +14,35 @@ function createHarness() {
 }
 
 describe('servicios y calendario operativo', () => {
+  it('guarda el tipo por servicio y congela aprobación al emitir sin cambiar certificados históricos', () => {
+    const harness = createHarness()
+    harness.seed('AuditoriaCertificados', [])
+    harness.seed('Certificados', [])
+    const created = harness.context.processRequest({
+      action: 'addServicio', token: 'admin-token',
+      servicio: { nombre: 'Seminario de Derecho', tipo: 'Evento', modalidad: 'Virtual', duracion: '8', tipoCertificado: 'asistencia' },
+    })
+    const service = harness.objects('Servicios')[0]
+    expect(created.success).toBe(true)
+    expect(service.TipoCertificado).toBe('asistencia')
+    harness.seed('Inscripciones', [{
+      ID: 'INS-EVENT', ClienteNombre: 'Participante', ClienteID: '0100000001', ServicioID: service.ID,
+      ServicioNombre: service.Nombre, Modalidad: 'Virtual', FechaInicio: '2026-09-01', FechaFin: '2026-09-02',
+      EstadoPago: 'verificado', EstadoCertificado: 'pendiente',
+    }])
+    const blocked = harness.context.processRequest({ action: 'emitirCertificado', token: 'admin-token', id: 'INS-EVENT' })
+    expect(blocked.success).toBe(false)
+    expect(blocked.error).toContain('pendiente de firmas')
+    expect(harness.objects('Certificados')).toHaveLength(0)
+    expect(harness.context.processRequest({ action: 'updateServicio', token: 'admin-token', id: service.ID, servicio: { tipoCertificado: 'aprobacion' } }).success).toBe(true)
+    const issued = harness.context.processRequest({ action: 'emitirCertificado', token: 'admin-token', id: 'INS-EVENT' })
+    expect(issued).toMatchObject({ success: true, data: { CertificateType: 'aprobacion' } })
+    expect(harness.objects('Certificados')[0].CertificateType).toBe('aprobacion')
+    expect(harness.context.processRequest({ action: 'updateServicio', token: 'admin-token', id: service.ID, servicio: { tipoCertificado: 'participacion' } }).success).toBe(true)
+    expect(harness.objects('Certificados')[0].CertificateType).toBe('aprobacion')
+    expect(harness.context.processRequest({ action: 'emitirCertificado', token: 'admin-token', id: 'INS-EVENT' }).data.CertificateType).toBe('aprobacion')
+  })
+
   it('guarda capacitador y estado de evento como datos independientes del estado activo del curso', () => {
     const harness = createHarness()
     const created = harness.context.processRequest({

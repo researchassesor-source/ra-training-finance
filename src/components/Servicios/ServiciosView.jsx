@@ -9,7 +9,7 @@ import { Plus, Pencil, MessageCircle, Calendar, UserRound, EyeOff, CheckCircle2 
 const EMPTY = {
   nombre: '', tipo: '', modalidad: 'N/A', precio: '', duracion: '', descripcion: '',
   activo: true, fechaEvento: '', fechaFinEvento: '', lugarEvento: '',
-  capacitador: '', estadoEvento: 'programado',
+  capacitador: '', estadoEvento: 'programado', tipoCertificado: 'aprobacion',
 }
 
 const ESTADOS_EVENTO = [
@@ -50,6 +50,7 @@ function mapInitial(initial) {
     lugarEvento:   initial.LugarEvento   || initial.lugarEvento   || '',
     capacitador:   initial.Capacitador   || initial.capacitador   || '',
     estadoEvento:  normalizarEstadoEvento(initial.EstadoEvento || initial.estadoEvento),
+    tipoCertificado: initial.TipoCertificado || initial.tipoCertificado || 'aprobacion',
   }
 }
 
@@ -111,6 +112,23 @@ function ServicioForm({ initial, onSave, onCancel }) {
           <label className="label">Descripción</label>
           <textarea className="input" rows={3} value={form.descripcion}
             onChange={e => set('descripcion', e.target.value)} placeholder="Descripción del servicio..." />
+        </div>
+        <div className="sm:col-span-2 rounded-xl border border-blue-100 bg-blue-50/60 p-4 space-y-2">
+          <label className="label" htmlFor="tipoCertificado">Tipo de certificado del servicio</label>
+          <select id="tipoCertificado" className="input" value={form.tipoCertificado}
+            onChange={e => set('tipoCertificado', e.target.value)}>
+            <option value="aprobacion">Aprobación - cursos evaluados</option>
+            <option value="asistencia">Asistencia - seminarios y congresos</option>
+            <option value="participacion">Participación - actividades académicas</option>
+          </select>
+          <p className="text-xs text-blue-800">
+            Se fija en cada certificado al emitirlo. Los certificados ya emitidos conservan su tipo y PDF original.
+          </p>
+          {form.tipoCertificado !== 'aprobacion' && (
+            <p className="text-xs font-medium text-amber-800" role="status">
+              La emisión de este tipo permanecerá bloqueada hasta aprobar firmas y activar la plantilla nueva.
+            </p>
+          )}
         </div>
         <div className="sm:col-span-2 border-t border-gray-100 pt-3">
           <div className="flex items-center justify-between gap-3 mb-3">
@@ -294,6 +312,9 @@ export default function ServiciosView() {
                     {s.LugarEvento && <span className="text-gray-400">· {s.LugarEvento}</span>}
                   </div>
                 )}
+                <p className="text-xs text-slate-500">
+                  Certificado: {s.TipoCertificado === 'asistencia' ? 'Asistencia' : s.TipoCertificado === 'participacion' ? 'Participación' : 'Aprobación'}
+                </p>
                 {fechaEvento && (
                   <div className="flex flex-wrap gap-1.5">
                     <span className={eventoVisible ? 'badge-blue' : estadoEvento === 'finalizado' ? 'badge-green' : 'badge-gray'}>
@@ -323,7 +344,7 @@ export default function ServiciosView() {
                       duracion: s.Duracion, descripcion: s.Descripcion, activo,
                       fechaEvento, fechaFinEvento: fechaFin,
                       lugarEvento: s.LugarEvento, capacitador: s.Capacitador,
-                      estadoEvento: 'finalizado',
+                      estadoEvento: 'finalizado', tipoCertificado: s.TipoCertificado || 'aprobacion',
                     }).then(load).catch(e => setError(e.message))}
                     className="btn-secondary text-xs justify-center"
                   >

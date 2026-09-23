@@ -196,7 +196,7 @@ const SHEET_HEADERS = {
   Contratos:        ['ID','Tipo','Nombre','Concepto','ValorTotal','FechaInicio','FechaFin','Estado','Notas','CreadoPor','FechaCreacion'],
   Proyecciones:     ['ID','Evento','Tipo','FechaEstimada','MontoProyectado','MontoReal','Estado','Notas','CreadoPor','FechaCreacion'],
   Categorias:       ['ID','Nombre','Tipo','Activo'],
-  Servicios:        ['ID','Nombre','Tipo','Modalidad','Precio','Duracion','Descripcion','Activo','FechaCreacion','FechaEvento','FechaFinEvento','LugarEvento','Capacitador','EstadoEvento'],
+  Servicios:        ['ID','Nombre','Tipo','Modalidad','Precio','Duracion','Descripcion','Activo','FechaCreacion','FechaEvento','FechaFinEvento','LugarEvento','Capacitador','EstadoEvento','TipoCertificado'],
   Inscripciones:    ['ID','ClienteNombre','ClienteID','ClienteEmail','ClienteTelefono','ServicioID','ServicioNombre','Modalidad','FechaInicio','Monto','MetodoPago','RazonSocial','RUC','DireccionFactura','EstadoPago','EstadoCertificado','IngresoID','Notas','CreadoPor','FechaCreacion','FechaEmisionCertificado','RequiereAvalExterno','EstadoAval','AvalReferencia','FechaAval','ValorAval','FechaFin','NumeroComprobante','FechaPago','FechaVerificacionPago','VerificadoPor','InstitucionAval','CodigoCertificado','EmitidoPor','EstadoEntrega','FechaEntregaCertificado','EntregadoPor','AvalEnlaceExterno','AvalCodigoExterno','AvalTextoConfirmado','CertificateVersion','TemplateVersion','PdfHash','PdfStorageReference','OriginalCertificateId','ReissuedCertificateId','CertificateStatus','IssuedAt','IssuedBy','VoidedAt','VoidedBy','VoidReason','ReissueReason',
                      // Modulo comercial CRM (aditivo) -- ver seccion MODULO COMERCIAL CRM.
                      // Insertadas ANTES de CRMEnrollmentID/CRMContactID/CRMCourseID/Origen a
@@ -207,6 +207,7 @@ const SHEET_HEADERS = {
                      // Acceso al aula virtual: solo el rol Moodle y administración
                      // pueden gestionar estos campos. Se mantienen separados de
                      // pagos, certificados y facturación.
+                     'CertificateType',
                      'MoodleUsername','MoodlePassword','MoodleUrl','MoodleStatus','MoodleLoadedBy','MoodleLoadedAt','MoodleLastSentAt','MoodleNotes',
                      'CRMOfferType','CRMParentOrderID','CRMCompletionStatus','CRMCompletedAt',
                      'CRMEnrollmentID','CRMContactID','CRMCourseID','Origen'],
@@ -218,7 +219,7 @@ const SHEET_HEADERS = {
   ActividadesFlujo: ['ID','FlujoID','Username','Titulo','Descripcion','DescripcionFormato','DiaSemana','HorasEstimadas','Estado','HorasReales','Notas','Checklist','Evidencia','Imagenes','EstadoRevision','HorasAprobadas','FeedbackRevision','EvidenciaRevision','ImagenesRevision','RevisadoPor','RevisadoEn','ReprogramadoDesde','ReprogramadoPara','CompletadoEn','FechaCreacion'],
   AuditoriaCertificados: ['ID','CertificadoID','InscripcionID','Usuario','Rol','Accion','FechaHora','EstadoAnterior','EstadoNuevo','Canal','Resultado','Motivo','Metadatos'],
   AuditoriaMoodle:   ['ID','InscripcionID','Usuario','Rol','Accion','FechaHora','Resultado','Metadatos'],
-  Certificados: ['ID','InscripcionID','CodigoCertificado','CertificateVersion','TemplateVersion','PdfHash','PdfStorageReference','OriginalCertificateId','ReissuedCertificateId','CertificateStatus','IssuedAt','IssuedBy','VoidedAt','VoidedBy','VoidReason','ReissueReason','CreatedAt'],
+  Certificados: ['ID','InscripcionID','CodigoCertificado','CertificateVersion','TemplateVersion','PdfHash','PdfStorageReference','OriginalCertificateId','ReissuedCertificateId','CertificateStatus','IssuedAt','IssuedBy','VoidedAt','VoidedBy','VoidReason','ReissueReason','CreatedAt','CertificateType'],
   DescargasCertificados: ['ID','CertificadoID','InscripcionID','Usuario','Rol','Estado','FechaSolicitud','FechaConfirmacion','Motivo','PdfHash','PdfStorageReference','Canal'],
   // Modulo comercial CRM (aditivo). Una compra = una fila, identidad CRMOrderID.
   // FinanceInscripcionID apunta a la UNICA inscripcion academica del enrollment
@@ -1594,6 +1595,14 @@ function servicioRequiereDuracion(tipo) {
   return ['curso', 'certificacion', 'taller', 'certificado lms', 'capacitacion'].indexOf(normalized) !== -1;
 }
 
+function tipoCertificadoServicio_(value) {
+  const normalized = String(value || 'aprobacion').trim().toLowerCase();
+  if (['aprobacion', 'asistencia', 'participacion'].indexOf(normalized) === -1) {
+    throw new Error('Tipo de certificado inválido. Seleccione aprobación, asistencia o participación.');
+  }
+  return normalized;
+}
+
 function addServicio(user, { servicio }) {
   requireAdmin(user);
   if (servicioRequiereDuracion(servicio.tipo) && !String(servicio.duracion || '').trim()) {
@@ -1608,6 +1617,7 @@ function addServicio(user, { servicio }) {
     servicio.descripcion || '', true, now,
     servicio.fechaEvento || '', servicio.fechaFinEvento || '', servicio.lugarEvento || '',
     servicio.capacitador || '', servicio.estadoEvento || 'programado',
+    tipoCertificadoServicio_(servicio.tipoCertificado),
   ]);
   bustSheet('servicios');
   bustSheet('inscripciones');
@@ -1638,6 +1648,7 @@ function updateServicio(user, { id, servicio }) {
     LugarEvento: pick('lugarEvento', row.LugarEvento || ''),
     Capacitador: pick('capacitador', row.Capacitador || ''),
     EstadoEvento: pick('estadoEvento', row.EstadoEvento || 'programado'),
+    TipoCertificado: tipoCertificadoServicio_(pick('tipoCertificado', row.TipoCertificado || 'aprobacion')),
   });
   SpreadsheetApp.flush();
   bustSheet('servicios');
@@ -2719,6 +2730,7 @@ function certificadoHistoricoDesdeInscripcion(row) {
     CodigoCertificado: row.CodigoCertificado || codigoCertificadoEstable(row),
     CertificateVersion: Number(row.CertificateVersion) || 1,
     TemplateVersion: row.TemplateVersion || 'legacy-v1',
+    CertificateType: row.CertificateType || 'aprobacion',
     PdfHash: row.PdfHash || '',
     PdfStorageReference: row.PdfStorageReference || '',
     OriginalCertificateId: row.OriginalCertificateId || '',
@@ -2870,6 +2882,7 @@ function certificadoParaCliente(certificado, inscripcion) {
     CodigoCertificado: certificado.CodigoCertificado,
     CertificateVersion: Number(certificado.CertificateVersion) || 1,
     TemplateVersion: certificado.TemplateVersion || 'legacy-v1',
+    CertificateType: certificado.CertificateType || inscripcion.CertificateType || 'aprobacion',
     PdfHash: certificado.PdfHash || '',
     PdfStorageReference: certificado.PdfStorageReference || '',
     OriginalCertificateId: certificado.OriginalCertificateId || '',
@@ -2897,6 +2910,15 @@ function datosFaltantesCertificado(row) {
     ['modalidad', row.Modalidad],
   ];
   return campos.filter(function(item) { return !String(item[1] || '').trim(); }).map(function(item) { return item[0]; });
+}
+
+function servicioParaCertificado_(row) {
+  const servicios = sheetToObjects(getSheet('Servicios'));
+  if (String(row.ServicioID || '').trim()) {
+    return servicios.find(function(item) { return item.ID === row.ServicioID; }) || null;
+  }
+  const matches = servicios.filter(function(item) { return item.Nombre === row.ServicioNombre; });
+  return matches.length === 1 ? matches[0] : null;
 }
 
 function emitirCertificado(user, params) {
@@ -2975,6 +2997,13 @@ function emitirCertificadoBajoBloqueo(user, { id } = {}) {
   const faltantes = datosFaltantesCertificado(row);
   if (faltantes.length) return { success: false, error: 'Faltan los siguientes datos para generar el certificado: ' + faltantes.join(', ') + '.' };
 
+  const servicioCertificado = servicioParaCertificado_(row);
+  if (!servicioCertificado) return { success: false, error: 'No se pudo vincular de forma inequívoca el servicio del certificado.' };
+  const certificateType = tipoCertificadoServicio_(servicioCertificado.TipoCertificado);
+  if (certificateType !== 'aprobacion') {
+    return { success: false, error: 'El servicio requiere un certificado de ' + certificateType + ', pero la plantilla oficial sigue pendiente de firmas y activación. No se emitió un certificado incorrecto.' };
+  }
+
   if (row.CodigoCertificado && codigoCertificadoEnUso(row.CodigoCertificado, row.ID, row.ID)) {
     registrarAuditoriaCertificado({
       certificadoId: row.CodigoCertificado,
@@ -3005,6 +3034,7 @@ function emitirCertificadoBajoBloqueo(user, { id } = {}) {
     EstadoEntrega: row.EstadoEntrega || 'pendiente',
     CertificateVersion: 1,
     TemplateVersion: CERTIFICATE_TEMPLATE_VERSION,
+    CertificateType: certificateType,
     CertificateStatus: 'emitido',
     IssuedAt: row.IssuedAt || row.FechaEmisionCertificado || ahora,
     IssuedBy: row.IssuedBy || row.EmitidoPor || user.Username,
@@ -3102,6 +3132,7 @@ function reemitirCertificadoBajoBloqueo(user, { id, motivo, confirmacion } = {})
     CodigoCertificado: nuevoCodigo,
     CertificateVersion: nuevaVersion,
     TemplateVersion: CERTIFICATE_TEMPLATE_VERSION,
+    CertificateType: original.CertificateType || inscripcion.CertificateType || 'aprobacion',
     OriginalCertificateId: original.ID,
     CertificateStatus: 'emitido',
     IssuedAt: ahora,
@@ -3124,6 +3155,7 @@ function reemitirCertificadoBajoBloqueo(user, { id, motivo, confirmacion } = {})
     CertificateStatus: 'emitido',
     CertificateVersion: nuevaVersion,
     TemplateVersion: nuevo.TemplateVersion,
+    CertificateType: nuevo.CertificateType,
     OriginalCertificateId: original.ID,
     ReissuedCertificateId: nuevo.ID,
     ReissueReason: motivoSeguro,
