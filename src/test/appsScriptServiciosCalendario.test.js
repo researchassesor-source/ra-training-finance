@@ -14,6 +14,42 @@ function createHarness() {
 }
 
 describe('servicios y calendario operativo', () => {
+  it('registra fichas de capacitadores, vincula servicios y propaga cambios sin tocar certificados', () => {
+    const harness = createHarness()
+    harness.seed('AuditoriaCertificados', [])
+    const created = harness.context.processRequest({
+      action: 'addCapacitador', token: 'admin-token',
+      capacitador: { nombre: 'Docente de Prueba', identificacion: '0100000001', resumen: 'Experiencia académica acreditada.' },
+    })
+    expect(created.success).toBe(true)
+    const trainer = harness.context.processRequest({ action: 'getCapacitadores', token: 'admin-token' }).data[0]
+    expect(trainer).toMatchObject({ ID: created.id, Nombre: 'Docente de Prueba', Identificacion: '0100000001' })
+    expect(harness.context.processRequest({
+      action: 'addServicio', token: 'admin-token',
+      servicio: { nombre: 'Curso con docente', tipo: 'Curso', duracion: '40', capacitadorId: created.id },
+    }).success).toBe(true)
+    expect(harness.objects('Servicios')[0]).toMatchObject({ CapacitadorID: created.id, Capacitador: 'Docente de Prueba' })
+    expect(harness.context.processRequest({
+      action: 'updateCapacitador', token: 'admin-token', id: created.id,
+      capacitador: { nombre: 'Docente de Prueba Completo', resumen: 'Nueva semblanza profesional.' },
+    }).success).toBe(true)
+    expect(harness.objects('Servicios')[0].Capacitador).toBe('Docente de Prueba Completo')
+    expect(harness.objects('AuditoriaCertificados').map(row => row.Accion)).toEqual(expect.arrayContaining([
+      'TRAINER_PROFILE_CREATED', 'TRAINER_PROFILE_UPDATED',
+    ]))
+  })
+
+  it('rechaza perfiles duplicados y revierte creación si no puede auditar', () => {
+    const harness = createHarness()
+    harness.seed('AuditoriaCertificados', [])
+    const input = { nombre: 'Docente de Prueba', identificacion: '0100000001' }
+    expect(harness.context.processRequest({ action: 'addCapacitador', token: 'admin-token', capacitador: input }).success).toBe(true)
+    expect(harness.context.processRequest({ action: 'addCapacitador', token: 'admin-token', capacitador: input }).success).toBe(false)
+    harness.sheets.AuditoriaCertificados.appendRow = () => { throw new Error('audit unavailable') }
+    expect(harness.context.processRequest({ action: 'addCapacitador', token: 'admin-token', capacitador: { nombre: 'Otro Docente' } }).success).toBe(false)
+    expect(harness.objects('Capacitadores')).toHaveLength(1)
+  })
+
   it('guarda el tipo por servicio y congela aprobación al emitir sin cambiar certificados históricos', () => {
     const harness = createHarness()
     harness.seed('AuditoriaCertificados', [])

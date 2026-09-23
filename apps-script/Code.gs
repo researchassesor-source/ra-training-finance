@@ -94,6 +94,9 @@ function processRequest(data) {
     getServicios:       () => getServicios(user, params),
     addServicio:        () => addServicio(user, params),
     updateServicio:     () => updateServicio(user, params),
+    getCapacitadores:   () => getCapacitadores(user, params),
+    addCapacitador:     () => addCapacitador(user, params),
+    updateCapacitador:  () => updateCapacitador(user, params),
     getInscripciones:   () => getInscripciones(user, params),
     updateMoodleCredentials: () => updateMoodleCredentials(user, params),
     registrarEnvioMoodle: () => registrarEnvioMoodle(user, params),
@@ -196,7 +199,8 @@ const SHEET_HEADERS = {
   Contratos:        ['ID','Tipo','Nombre','Concepto','ValorTotal','FechaInicio','FechaFin','Estado','Notas','CreadoPor','FechaCreacion'],
   Proyecciones:     ['ID','Evento','Tipo','FechaEstimada','MontoProyectado','MontoReal','Estado','Notas','CreadoPor','FechaCreacion'],
   Categorias:       ['ID','Nombre','Tipo','Activo'],
-  Servicios:        ['ID','Nombre','Tipo','Modalidad','Precio','Duracion','Descripcion','Activo','FechaCreacion','FechaEvento','FechaFinEvento','LugarEvento','Capacitador','EstadoEvento','TipoCertificado'],
+  Servicios:        ['ID','Nombre','Tipo','Modalidad','Precio','Duracion','Descripcion','Activo','FechaCreacion','FechaEvento','FechaFinEvento','LugarEvento','Capacitador','EstadoEvento','TipoCertificado','CapacitadorID'],
+  Capacitadores:    ['ID','Nombre','Identificacion','Resumen','Activo','CreadoPor','CreadoEn','ActualizadoPor','ActualizadoEn'],
   Inscripciones:    ['ID','ClienteNombre','ClienteID','ClienteEmail','ClienteTelefono','ServicioID','ServicioNombre','Modalidad','FechaInicio','Monto','MetodoPago','RazonSocial','RUC','DireccionFactura','EstadoPago','EstadoCertificado','IngresoID','Notas','CreadoPor','FechaCreacion','FechaEmisionCertificado','RequiereAvalExterno','EstadoAval','AvalReferencia','FechaAval','ValorAval','FechaFin','NumeroComprobante','FechaPago','FechaVerificacionPago','VerificadoPor','InstitucionAval','CodigoCertificado','EmitidoPor','EstadoEntrega','FechaEntregaCertificado','EntregadoPor','AvalEnlaceExterno','AvalCodigoExterno','AvalTextoConfirmado','CertificateVersion','TemplateVersion','PdfHash','PdfStorageReference','OriginalCertificateId','ReissuedCertificateId','CertificateStatus','IssuedAt','IssuedBy','VoidedAt','VoidedBy','VoidReason','ReissueReason',
                      // Modulo comercial CRM (aditivo) -- ver seccion MODULO COMERCIAL CRM.
                      // Insertadas ANTES de CRMEnrollmentID/CRMContactID/CRMCourseID/Origen a
@@ -1583,6 +1587,89 @@ function deleteUsuario(user, { id }) {
 // SERVICIOS
 // ─────────────────────────────────────────────
 
+function validarCapacitador_(data) {
+  const nombre = String(data.nombre || '').trim().replace(/\s+/g, ' ');
+  const identificacion = String(data.identificacion || '').trim();
+  const resumen = String(data.resumen || '').trim();
+  if (nombre.length < 5 || nombre.length > 160) throw new Error('Ingrese el nombre completo del capacitador (5 a 160 caracteres).');
+  if (identificacion && !/^[A-Za-z0-9.-]{5,32}$/.test(identificacion)) throw new Error('La identificación del capacitador no tiene un formato válido.');
+  if (resumen.length > 1000) throw new Error('El resumen profesional no puede superar 1000 caracteres.');
+  return { nombre: nombre, identificacion: identificacion, resumen: resumen };
+}
+
+function getCapacitadores(user) {
+  requireAdmin(user);
+  return { success: true, data: sheetToObjects(getSheet('Capacitadores')) };
+}
+
+function addCapacitador(user, { capacitador } = {}) {
+  requireAdmin(user);
+  return conBloqueoCertificados(function() {
+    const data = validarCapacitador_(capacitador || {});
+    const sheet = getSheet('Capacitadores');
+    if (data.identificacion && sheetToObjects(sheet).some(function(item) { return item.Identificacion === data.identificacion; })) {
+      return { success: false, error: 'Ya existe un capacitador con esa identificación.' };
+    }
+    const now = new Date().toISOString();
+    const id = generateId('CAP');
+    sheet.appendRow([id, data.nombre, data.identificacion, data.resumen, true, user.Username, now, user.Username, now]);
+    try {
+      registrarAuditoriaCertificado({ certificadoId: '', inscripcionId: '', usuario: user.Username, rol: user.Rol,
+        accion: 'TRAINER_PROFILE_CREATED', canal: 'panel', resultado: 'ok', metadatos: { capacitadorId: id } });
+    } catch (error) {
+      sheet.deleteRow(sheet.getLastRow());
+      throw error;
+    }
+    return { success: true, id: id };
+  });
+}
+
+function updateCapacitador(user, { id, capacitador } = {}) {
+  requireAdmin(user);
+  return conBloqueoCertificados(function() {
+    const sheet = getSheet('Capacitadores');
+    const row = sheetToObjects(sheet).find(function(item) { return item.ID === id; });
+    if (!row) return { success: false, error: 'Capacitador no encontrado.' };
+    const input = capacitador || {};
+    const data = validarCapacitador_({
+      nombre: input.nombre === undefined ? row.Nombre : input.nombre,
+      identificacion: input.identificacion === undefined ? row.Identificacion : input.identificacion,
+      resumen: input.resumen === undefined ? row.Resumen : input.resumen,
+    });
+    if (data.identificacion && sheetToObjects(sheet).some(function(item) { return item.ID !== id && item.Identificacion === data.identificacion; })) {
+      return { success: false, error: 'Ya existe otro capacitador con esa identificación.' };
+    }
+    const previous = { Nombre: row.Nombre, Identificacion: row.Identificacion, Resumen: row.Resumen,
+      Activo: row.Activo, ActualizadoPor: row.ActualizadoPor, ActualizadoEn: row.ActualizadoEn };
+    const serviceSheet = getSheet('Servicios');
+    const linked = sheetToObjects(serviceSheet).filter(function(item) { return item.CapacitadorID === id; });
+    try {
+      updateRow(sheet, row, { Nombre: data.nombre, Identificacion: data.identificacion, Resumen: data.resumen,
+        Activo: input.activo === undefined ? row.Activo : input.activo,
+        ActualizadoPor: user.Username, ActualizadoEn: new Date().toISOString() });
+      linked.forEach(function(item) { updateRow(serviceSheet, item, { Capacitador: data.nombre }); });
+      registrarAuditoriaCertificado({ certificadoId: '', inscripcionId: '', usuario: user.Username, rol: user.Rol,
+        accion: 'TRAINER_PROFILE_UPDATED', canal: 'panel', resultado: 'ok', metadatos: { capacitadorId: id, serviciosVinculados: linked.length } });
+    } catch (error) {
+      updateRow(sheet, row, previous);
+      linked.forEach(function(item) { updateRow(serviceSheet, item, { Capacitador: item.Capacitador }); });
+      throw error;
+    }
+    bustSheet('servicios');
+    return { success: true };
+  });
+}
+
+function perfilCapacitadorServicio_(servicio, fallbackId, fallbackName) {
+  const id = String(servicio.capacitadorId === undefined ? fallbackId || '' : servicio.capacitadorId || '').trim();
+  if (!id) return { id: '', nombre: String(servicio.capacitador === undefined ? fallbackName || '' : servicio.capacitador || '').trim() };
+  const profile = sheetToObjects(getSheet('Capacitadores')).find(function(item) { return item.ID === id; });
+  if (!profile || (profile.Activo !== true && String(profile.Activo).toUpperCase() !== 'TRUE' && id !== fallbackId)) {
+    throw new Error('La ficha del capacitador no existe o está inactiva.');
+  }
+  return { id: id, nombre: profile.Nombre };
+}
+
 function getServicios(user, params) {
   // No usar cache aqui: el administrador edita fechas/capacitador y necesita
   // ver el dato persistido inmediatamente. Con cache de 180s parecia que no
@@ -1609,6 +1696,7 @@ function addServicio(user, { servicio }) {
     return { success: false, error: 'La duración académica es obligatoria para este tipo de servicio.' };
   }
   const sheet = getSheet('Servicios');
+  const perfil = perfilCapacitadorServicio_(servicio, '');
   const id    = generateId('SRV');
   const now   = new Date().toISOString();
   sheet.appendRow([
@@ -1616,8 +1704,8 @@ function addServicio(user, { servicio }) {
     Number(servicio.precio) || 0, servicio.duracion || '',
     servicio.descripcion || '', true, now,
     servicio.fechaEvento || '', servicio.fechaFinEvento || '', servicio.lugarEvento || '',
-    servicio.capacitador || '', servicio.estadoEvento || 'programado',
-    tipoCertificadoServicio_(servicio.tipoCertificado),
+    perfil.nombre, servicio.estadoEvento || 'programado',
+    tipoCertificadoServicio_(servicio.tipoCertificado), perfil.id,
   ]);
   bustSheet('servicios');
   bustSheet('inscripciones');
@@ -1634,6 +1722,7 @@ function updateServicio(user, { id, servicio }) {
   }
   const tipo = servicio.tipo === undefined ? row.Tipo : servicio.tipo;
   const duracion = servicio.duracion === undefined ? row.Duracion : servicio.duracion;
+  const perfil = perfilCapacitadorServicio_(servicio, row.CapacitadorID, row.Capacitador);
   if (servicioRequiereDuracion(tipo) && !String(duracion || '').trim()) {
     return { success: false, error: 'La duración académica es obligatoria para este tipo de servicio.' };
   }
@@ -1646,9 +1735,10 @@ function updateServicio(user, { id, servicio }) {
     FechaEvento: pick('fechaEvento', row.FechaEvento || ''),
     FechaFinEvento: pick('fechaFinEvento', row.FechaFinEvento || ''),
     LugarEvento: pick('lugarEvento', row.LugarEvento || ''),
-    Capacitador: pick('capacitador', row.Capacitador || ''),
+    Capacitador: perfil.nombre,
     EstadoEvento: pick('estadoEvento', row.EstadoEvento || 'programado'),
     TipoCertificado: tipoCertificadoServicio_(pick('tipoCertificado', row.TipoCertificado || 'aprobacion')),
+    CapacitadorID: perfil.id,
   });
   SpreadsheetApp.flush();
   bustSheet('servicios');

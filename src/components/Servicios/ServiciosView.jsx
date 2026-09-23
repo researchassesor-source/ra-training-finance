@@ -9,7 +9,7 @@ import { Plus, Pencil, MessageCircle, Calendar, UserRound, EyeOff, CheckCircle2 
 const EMPTY = {
   nombre: '', tipo: '', modalidad: 'N/A', precio: '', duracion: '', descripcion: '',
   activo: true, fechaEvento: '', fechaFinEvento: '', lugarEvento: '',
-  capacitador: '', estadoEvento: 'programado', tipoCertificado: 'aprobacion',
+  capacitador: '', capacitadorId: '', estadoEvento: 'programado', tipoCertificado: 'aprobacion',
 }
 
 const ESTADOS_EVENTO = [
@@ -49,12 +49,13 @@ function mapInitial(initial) {
     fechaFinEvento:dateOnly(initial.FechaFinEvento|| initial.fechaFinEvento),
     lugarEvento:   initial.LugarEvento   || initial.lugarEvento   || '',
     capacitador:   initial.Capacitador   || initial.capacitador   || '',
+    capacitadorId: initial.CapacitadorID || initial.capacitadorId || '',
     estadoEvento:  normalizarEstadoEvento(initial.EstadoEvento || initial.estadoEvento),
     tipoCertificado: initial.TipoCertificado || initial.tipoCertificado || 'aprobacion',
   }
 }
 
-function ServicioForm({ initial, onSave, onCancel }) {
+function ServicioForm({ initial, onSave, onCancel, capacitadores }) {
   const [form, setForm]   = useState(() => mapInitial(initial))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -149,9 +150,23 @@ function ServicioForm({ initial, onSave, onCancel }) {
                 onChange={e => set('fechaFinEvento', e.target.value)} />
             </div>
             <div>
-              <label className="label">Capacitador</label>
+              <label className="label">Ficha del capacitador</label>
+              <select className="input" value={form.capacitadorId}
+                onChange={e => {
+                  const trainer = capacitadores.find(item => item.ID === e.target.value)
+                  setForm(current => ({ ...current, capacitadorId: e.target.value, capacitador: trainer?.Nombre || current.capacitador }))
+                }}>
+                <option value="">Sin ficha vinculada</option>
+                {capacitadores.filter(item => item.Activo === true || item.Activo === 'TRUE' || item.ID === form.capacitadorId)
+                  .map(item => <option value={item.ID} key={item.ID}>{item.Nombre}</option>)}
+              </select>
+              <p className="mt-1 text-xs text-gray-400">Vincule una ficha para preparar su certificado de capacitador.</p>
+            </div>
+            <div>
+              <label className="label">Nombre mostrado del capacitador</label>
               <input className="input" value={form.capacitador}
-                onChange={e => set('capacitador', e.target.value)} placeholder="Ej: Alexandra Villagómez" />
+                onChange={e => setForm(current => ({ ...current, capacitador: e.target.value, capacitadorId: '' }))}
+                placeholder="Ej: Alexandra Villagómez" />
             </div>
             <div>
               <label className="label">Lugar / Modalidad del evento</label>
@@ -196,6 +211,11 @@ export default function ServiciosView() {
   const [modal, setModal]       = useState(null)
   const [selected, setSelected] = useState(null)
   const [filtro, setFiltro]     = useState('')
+  const [capacitadores, setCapacitadores] = useState([])
+  const [trainerModal, setTrainerModal] = useState(false)
+  const [trainerForm, setTrainerForm] = useState({ id: '', nombre: '', identificacion: '', resumen: '', activo: true })
+  const [trainerBusy, setTrainerBusy] = useState(false)
+  const [trainerError, setTrainerError] = useState('')
 
   const load = useCallback(() => {
     setLoading(true)
@@ -206,6 +226,27 @@ export default function ServiciosView() {
   }, [])
 
   useEffect(() => { load() }, [load])
+  useEffect(() => {
+    if (isAdmin) api.getCapacitadores().then(result => setCapacitadores(result.data || [])).catch(error => setError(error.message))
+  }, [isAdmin])
+
+  async function saveTrainer(event) {
+    event.preventDefault()
+    setTrainerBusy(true)
+    setTrainerError('')
+    try {
+      if (trainerForm.id) await api.updateCapacitador(trainerForm.id, trainerForm)
+      else await api.addCapacitador(trainerForm)
+      const result = await api.getCapacitadores()
+      setCapacitadores(result.data || [])
+      load()
+      setTrainerForm({ id: '', nombre: '', identificacion: '', resumen: '', activo: true })
+    } catch (error) {
+      setTrainerError(error.message)
+    } finally {
+      setTrainerBusy(false)
+    }
+  }
 
   const filtered = filtro ? data.filter(s => s.Tipo === filtro) : data
   const activos  = data.filter(s => s.Activo === true || s.Activo === 'TRUE').length
@@ -245,9 +286,14 @@ export default function ServiciosView() {
             <MessageCircle size={15} /> Catálogo WhatsApp
           </button>
           {isAdmin && (
-            <button onClick={() => { setSelected(null); setModal('new') }} className="btn-primary text-sm">
-              <Plus size={15} /> Nuevo Servicio
-            </button>
+            <>
+              <button onClick={() => setTrainerModal(true)} className="btn-secondary text-sm">
+                <UserRound size={15} /> Capacitadores
+              </button>
+              <button onClick={() => { setSelected(null); setModal('new') }} className="btn-primary text-sm">
+                <Plus size={15} /> Nuevo Servicio
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -362,9 +408,45 @@ export default function ServiciosView() {
           title={modal === 'edit' ? 'Editar Servicio' : 'Nuevo Servicio'} size="md">
           <ServicioForm
             initial={modal === 'edit' ? selected : null}
+            capacitadores={capacitadores}
             onSave={() => { setModal(null); load() }}
             onCancel={() => setModal(null)}
           />
+        </Modal>
+      )}
+
+      {isAdmin && (
+        <Modal open={trainerModal} onClose={() => setTrainerModal(false)} title="Fichas de capacitadores" size="md">
+          <div className="space-y-5">
+            <p className="text-sm text-slate-600">Registre el nombre completo y un resumen profesional. La identificación será necesaria para emitir un certificado individual.</p>
+            <div className="max-h-40 overflow-y-auto space-y-1">
+              {capacitadores.map(item => (
+                <button key={item.ID} type="button" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-left hover:bg-blue-50"
+                  onClick={() => setTrainerForm({ id: item.ID, nombre: item.Nombre, identificacion: item.Identificacion || '', resumen: item.Resumen || '', activo: item.Activo === true || item.Activo === 'TRUE' })}>
+                  <span className="font-medium text-slate-900">{item.Nombre}</span>
+                  <span className="ml-2 text-xs text-slate-500">{item.Activo === true || item.Activo === 'TRUE' ? 'Activo' : 'Inactivo'}</span>
+                </button>
+              ))}
+            </div>
+            <form onSubmit={saveTrainer} className="space-y-3">
+              <label className="label" htmlFor="trainerName">Nombre completo</label>
+              <input id="trainerName" className="input" required minLength={5} maxLength={160} value={trainerForm.nombre}
+                onChange={e => setTrainerForm(current => ({ ...current, nombre: e.target.value }))} />
+              <label className="label" htmlFor="trainerIdentity">Identificación</label>
+              <input id="trainerIdentity" className="input" maxLength={32} value={trainerForm.identificacion}
+                onChange={e => setTrainerForm(current => ({ ...current, identificacion: e.target.value }))} />
+              <label className="label" htmlFor="trainerSummary">Resumen profesional</label>
+              <textarea id="trainerSummary" className="input" rows={3} maxLength={1000} value={trainerForm.resumen}
+                onChange={e => setTrainerForm(current => ({ ...current, resumen: e.target.value }))} />
+              {trainerForm.id && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={trainerForm.activo}
+                onChange={e => setTrainerForm(current => ({ ...current, activo: e.target.checked }))} /> Ficha activa</label>}
+              {trainerError && <p role="alert" className="text-sm text-red-600">{trainerError}</p>}
+              <div className="flex gap-2">
+                <button type="button" className="btn-secondary flex-1" onClick={() => setTrainerForm({ id: '', nombre: '', identificacion: '', resumen: '', activo: true })}>Nueva ficha</button>
+                <button type="submit" className="btn-primary flex-1" disabled={trainerBusy}>{trainerBusy ? 'Guardando...' : trainerForm.id ? 'Guardar cambios' : 'Agregar capacitador'}</button>
+              </div>
+            </form>
+          </div>
         </Modal>
       )}
     </div>

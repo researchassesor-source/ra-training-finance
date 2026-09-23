@@ -238,6 +238,9 @@ export const api = {
     bust('getServicios', 'getInscripciones', 'getCalendario')
     return call('updateServicio', { id, servicio }, getToken())
   },
+  getCapacitadores: () => call('getCapacitadores', {}, getToken()),
+  addCapacitador: (capacitador) => call('addCapacitador', { capacitador }, getToken()),
+  updateCapacitador: (id, capacitador) => call('updateCapacitador', { id, capacitador }, getToken()),
 
   getInscripciones: (filtros = {}) =>
     callCached('getInscripciones', { filtros }, getToken()),
