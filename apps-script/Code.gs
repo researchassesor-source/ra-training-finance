@@ -3926,6 +3926,7 @@ function getCertificadosAval(user, { filtros = {} } = {}) {
 
 function marcarAval(user, { id, avalReferencia, valorAval, avalEnlaceExterno, avalCodigoExterno } = {}) {
   if (!isAval(user) && !isAdmin(user)) throw new Error('Acceso denegado.');
+  return conBloqueoCertificados(function() {
   const sheet = getSheet('Inscripciones');
   const row   = sheetToObjects(sheet).find(function(r) { return r.ID === id; });
   if (!row) return { success: false, error: 'Registro no encontrado.' };
@@ -3950,11 +3951,27 @@ function marcarAval(user, { id, avalReferencia, valorAval, avalEnlaceExterno, av
   if (enlace && !/^https?:\/\//i.test(enlace)) {
     return { success: false, error: 'El enlace externo debe comenzar con http:// o https://.' };
   }
+  const valor = valorAval !== undefined ? (Number(valorAval) || 0) : (Number(row.ValorAval) || 0);
+  const confirmado = row.EstadoAval === 'avalado';
+  const mismosDatos = confirmado
+    && String(row.AvalReferencia || '').trim() === referencia
+    && String(row.AvalEnlaceExterno || '').trim() === enlace
+    && String(row.AvalCodigoExterno || '').trim() === codigo
+    && (Number(row.ValorAval) || 0) === valor;
+  const entregable = sheetToObjects(getSheet('EntregablesAval')).find(function(item) { return item.InscripcionID === id; });
+  const entregableInmutable = entregable && (entregable.EstadoEntregaFinal === 'enviado'
+    || String(entregable.PdfHash || '').trim() || String(entregable.PdfStorageReference || '').trim());
+  if (entregableInmutable && !mismosDatos) {
+    return { success: false, error: 'El aval ya tiene un entregable emitido o enviado. No se pueden modificar sus datos históricos.' };
+  }
+  if (mismosDatos && (!row.CRMOfferType || row.CRMOfferType !== 'FULL' || entregable)) {
+    return { success: true, alreadyConfirmed: true };
+  }
   updateRow(sheet, row, {
     EstadoAval: 'avalado',
     AvalReferencia: referencia,
     FechaAval: row.FechaAval || new Date().toISOString(),
-    ValorAval: valorAval !== undefined ? (Number(valorAval) || 0) : (Number(row.ValorAval) || 0),
+    ValorAval: valor,
     AvalEnlaceExterno: enlace,
     AvalCodigoExterno: codigo,
   });
@@ -3976,6 +3993,7 @@ function marcarAval(user, { id, avalReferencia, valorAval, avalEnlaceExterno, av
     prepararEntregableAvalTrasConfirmacion_(filaActualizada, user);
   }
   return { success: true };
+  });
 }
 
 // ─────────────────────────────────────────────

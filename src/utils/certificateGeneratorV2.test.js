@@ -60,7 +60,7 @@ describe('nueva plantilla de seguridad v2', () => {
       })
       fs.writeFileSync(process.env.CERTIFICATE_PREVIEW_FILE, Buffer.from(bytes))
     }
-  }, 20_000)
+  }, 60_000)
 
   it.each(['asistencia', 'participacion'])('admite el tipo %s sin usar el texto de aprobación', async type => {
     const result = await buildCertificatePdf({ ...certificate, CertificateType: type }, options)

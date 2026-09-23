@@ -281,6 +281,25 @@ describe('marcarAval + entregable avalado', () => {
     expect(segundo.alreadySent).toBe(true)
     expect(enviosReales).toBe(1)
   })
+
+  it('el aval repetido es idempotente y el entregable enviado bloquea cambios históricos', () => {
+    const harness = seededHarness()
+    const id = facturaFullLista(harness)
+    const params = { action: 'marcarAval', token: 'aval-token', id, avalReferencia: 'REF-1', avalCodigoExterno: 'COD-1' }
+    expect(harness.context.processRequest(params).success).toBe(true)
+    const auditorias = harness.objects('AuditoriaCertificados').filter(e => e.Accion === 'AVAL_CONFIRMED').length
+    const repetido = harness.context.processRequest(params)
+    expect(repetido.alreadyConfirmed).toBe(true)
+    expect(harness.objects('AuditoriaCertificados').filter(e => e.Accion === 'AVAL_CONFIRMED')).toHaveLength(auditorias)
+
+    harness.context.MailApp = { sendEmail: () => {} }
+    const pdfBase64 = Buffer.from('%PDF-1.4 contenido de prueba').toString('base64')
+    expect(harness.context.processRequest({ action: 'enviarEntregableAvalEmail', token: 'admin-token', id, pdfBase64, mimeType: 'application/pdf', filename: 'cert.pdf' }).success).toBe(true)
+    const cambio = harness.context.processRequest({ ...params, avalCodigoExterno: 'COD-2' })
+    expect(cambio.success).toBe(false)
+    expect(harness.objects('Inscripciones').find(row => row.ID === id).AvalCodigoExterno).toBe('COD-1')
+    expect(harness.context.processRequest(params).alreadyConfirmed).toBe(true)
+  })
 })
 
 describe('16. datos sensibles no se filtran en getCrmPurchaseStatuses', () => {
