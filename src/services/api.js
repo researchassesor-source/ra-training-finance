@@ -289,6 +289,12 @@ export const api = {
     bust('getInscripciones')
     return call('registrarArtefactoCertificado', { id, ...artifact }, getToken())
   },
+  guardarPdfCertificadoPrivado: (id, artifact) => {
+    bust('getInscripciones')
+    return call('guardarPdfCertificadoPrivado', { id, ...artifact }, getToken())
+  },
+  leerPdfCertificadoPrivado: (id) =>
+    call('leerPdfCertificadoPrivado', { id }, getToken()),
   solicitarDescargaCertificado: (id, artifact) =>
     call('solicitarDescargaCertificado', { id, ...artifact }, getToken()),
   confirmarDescargaCertificado: (solicitudId, resultado, motivo = '') => {

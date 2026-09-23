@@ -105,6 +105,8 @@ function processRequest(data) {
     reemitirCertificado: () => reemitirCertificado(user, params),
     getCertificadoParaDescarga: () => getCertificadoParaDescarga(user, params),
     registrarArtefactoCertificado: () => registrarArtefactoCertificado(user, params),
+    guardarPdfCertificadoPrivado: () => guardarPdfCertificadoPrivado(user, params),
+    leerPdfCertificadoPrivado: () => leerPdfCertificadoPrivado(user, params),
     solicitarDescargaCertificado: () => solicitarDescargaCertificado(user, params),
     confirmarDescargaCertificado: () => confirmarDescargaCertificado(user, params),
     getDescargasPendientes: () => getDescargasPendientes(user, params),
@@ -3194,6 +3196,95 @@ function registrarArtefactoCertificado(user, options) {
   });
 }
 
+function sha256PdfCertificado_(bytes) {
+  return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, bytes)
+    .map(function(byte) { return ('0' + (byte & 0xFF).toString(16)).slice(-2); }).join('');
+}
+
+function carpetaCertificadosPrivados_() {
+  const properties = PropertiesService.getScriptProperties();
+  const configuredId = String(properties.getProperty('CERTIFICATE_DRIVE_FOLDER_ID') || '').trim();
+  if (configuredId) return DriveApp.getFolderById(configuredId);
+  const folder = DriveApp.createFolder('R.A. Training Finance - Certificados privados');
+  properties.setProperty('CERTIFICATE_DRIVE_FOLDER_ID', folder.getId());
+  return folder;
+}
+
+function guardarPdfCertificadoPrivado(user, params) {
+  const p = params || {};
+  requireCertificateAdmin(user, 'CERTIFICATE_PRIVATE_PDF_STORE', { inscripcionId: p.id, canal: 'api' });
+  const expectedHash = String(p.pdfHash || '').trim().toLowerCase();
+  if (!/^[a-f0-9]{64}$/.test(expectedHash)) return { success: false, error: 'La huella SHA-256 del certificado no es válida.' };
+  if (!p.pdfBase64 || String(p.pdfBase64).length > 16000000) return { success: false, error: 'El PDF del certificado falta o excede el tamaño permitido.' };
+  return conBloqueoCertificados(function() {
+    const resolved = resolverCertificadoAdministrativo(p.id, user);
+    if (!resolved) return { success: false, error: 'Certificado no encontrado.' };
+    const certificado = resolved.certificado;
+    const version = Number(certificado.CertificateVersion) || 1;
+    if (Number(p.certificateVersion) !== version) return { success: false, error: 'La versión del PDF no corresponde al certificado.' };
+    const templateVersion = String(p.templateVersion || '').trim();
+    if (!templateVersion || (certificado.TemplateVersion && String(certificado.TemplateVersion) !== templateVersion)) {
+      return { success: false, error: 'La plantilla del PDF no corresponde al certificado.' };
+    }
+    const currentRef = String(certificado.PdfStorageReference || '').trim();
+    const currentHash = String(certificado.PdfHash || '').trim().toLowerCase();
+    if (currentRef || currentHash) {
+      if (currentRef.indexOf('certificate-drive:') === 0 && currentHash === expectedHash) {
+        const existing = DriveApp.getFileById(currentRef.slice('certificate-drive:'.length));
+        if (sha256PdfCertificado_(existing.getBlob().getBytes()) !== expectedHash) {
+          throw new Error('El PDF privado existente no coincide con su huella registrada.');
+        }
+        return { success: true, reference: currentRef, hash: expectedHash, idempotent: true };
+      }
+      return { success: false, error: 'El certificado ya tiene un PDF oficial; no puede sustituirse.' };
+    }
+    let bytes;
+    try { bytes = Utilities.base64Decode(String(p.pdfBase64)); }
+    catch (err) { return { success: false, error: 'El PDF recibido no está codificado correctamente.' }; }
+    if (bytes.length < 5 || String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3], bytes[4]) !== '%PDF-') {
+      return { success: false, error: 'El archivo recibido no es un PDF válido.' };
+    }
+    if (sha256PdfCertificado_(bytes) !== expectedHash) return { success: false, error: 'El PDF recibido no coincide con su huella SHA-256.' };
+    const folder = carpetaCertificadosPrivados_();
+    const safeCode = String(certificado.CodigoCertificado || certificado.ID).replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 90);
+    const file = folder.createFile(Utilities.newBlob(bytes, 'application/pdf', 'CERT_' + safeCode + '_v' + version + '.pdf'));
+    try { file.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE); } catch (err) { /* Drive crea archivos privados. */ }
+    const reference = 'certificate-drive:' + file.getId();
+    try {
+      const registered = registrarArtefactoCertificadoBajoBloqueo(user, {
+        id: p.id,
+        pdfHash: expectedHash,
+        pdfStorageReference: reference,
+        templateVersion: templateVersion,
+        certificateVersion: version,
+      });
+      if (!registered.success) {
+        file.setTrashed(true);
+        return registered;
+      }
+    } catch (err) {
+      file.setTrashed(true);
+      throw err;
+    }
+    return { success: true, reference: reference, hash: expectedHash, idempotent: false };
+  });
+}
+
+function leerPdfCertificadoPrivado(user, { id } = {}) {
+  requireCertificateAdmin(user, 'CERTIFICATE_PRIVATE_PDF_READ', { inscripcionId: id, canal: 'api' });
+  const resolved = resolverCertificadoAdministrativo(id, user);
+  if (!resolved) return { success: false, error: 'Certificado no encontrado.' };
+  const reference = String(resolved.certificado.PdfStorageReference || '').trim();
+  const expectedHash = String(resolved.certificado.PdfHash || '').trim().toLowerCase();
+  if (reference.indexOf('certificate-drive:') !== 0 || !/^[a-f0-9]{64}$/.test(expectedHash)) {
+    return { success: false, error: 'Este certificado no tiene un PDF privado archivado.' };
+  }
+  const file = DriveApp.getFileById(reference.slice('certificate-drive:'.length));
+  const bytes = file.getBlob().getBytes();
+  if (sha256PdfCertificado_(bytes) !== expectedHash) throw new Error('La huella del PDF privado no coincide con el registro oficial.');
+  return { success: true, reference: reference, hash: expectedHash, contentBase64: Utilities.base64Encode(bytes), filename: file.getName() };
+}
+
 function registrarArtefactoCertificadoBajoBloqueo(user, {
   id, pdfHash, pdfStorageReference, templateVersion, certificateVersion,
   historicalHashRebase, previousPdfHash, originalArtifactUnavailable,
@@ -3205,11 +3296,20 @@ function registrarArtefactoCertificadoBajoBloqueo(user, {
   const previousHash = String(previousPdfHash || '').trim().toLowerCase();
   const rebaseReason = String(historicalHashRebaseReason || '').trim();
   if (!/^[a-f0-9]{64}$/.test(hash)) return { success: false, error: 'El hash SHA-256 del PDF no es v\u00e1lido.' };
-  if (!/^(browser-indexeddb|private-drive|test-memory):[a-zA-Z0-9._:-]+$/.test(storageReference)) {
+  if (!/^(browser-indexeddb|private-drive|certificate-drive|test-memory):[a-zA-Z0-9._:-]+$/.test(storageReference)) {
     return { success: false, error: 'La referencia privada del PDF no es v\u00e1lida.' };
   }
   if (/^https?:\/\//i.test(storageReference)) {
     return { success: false, error: 'No se permiten enlaces p\u00fablicos como almacenamiento del certificado.' };
+  }
+  if (storageReference.indexOf('certificate-drive:') === 0) {
+    const fileId = storageReference.slice('certificate-drive:'.length);
+    let storedBytes;
+    try { storedBytes = DriveApp.getFileById(fileId).getBlob().getBytes(); }
+    catch (err) { return { success: false, error: 'El PDF privado referenciado no existe en Drive.' }; }
+    if (sha256PdfCertificado_(storedBytes) !== hash) {
+      return { success: false, error: 'La huella del PDF privado no coincide con la referencia de Drive.' };
+    }
   }
   const resolved = resolverCertificadoAdministrativo(id, user);
   if (!resolved) return { success: false, error: 'Certificado no encontrado.' };
@@ -3312,10 +3412,8 @@ function registrarArtefactoCertificadoBajoBloqueo(user, {
       },
     });
   } catch (error) {
-    if (historicalHashRebaseAuthorized) {
-      updateRow(getSheet('Certificados'), certificado, previousCertificateArtifact);
-      updateRow(getSheet('Inscripciones'), inscripcion, previousEnrollmentArtifact);
-    }
+    updateRow(getSheet('Certificados'), certificado, previousCertificateArtifact);
+    updateRow(getSheet('Inscripciones'), inscripcion, previousEnrollmentArtifact);
     throw error;
   }
   return {

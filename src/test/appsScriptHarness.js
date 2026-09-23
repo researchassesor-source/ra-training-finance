@@ -122,18 +122,23 @@ export function createAppsScriptHarness({ authSecret = 'test-only-secret-with-at
       getName: () => blob.getName ? blob.getName() : blob.name,
       getBlob: () => blob,
       setSharing: () => file,
+      setTrashed: () => { driveFiles.delete(id); return file },
     }
     driveFiles.set(id, file)
     return file
   }
 
   function makeFolder(name) {
+    const id = `folder-${driveFolders.size + 1}`
     const folder = {
+      id,
       name,
+      getId: () => id,
       createFile: blob => makeFile(blob),
       getName: () => name,
     }
     driveFolders.set(name, folder)
+    driveFolders.set(id, folder)
     return folder
   }
 
