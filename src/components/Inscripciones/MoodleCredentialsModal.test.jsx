@@ -56,4 +56,41 @@ describe('MoodleCredentialsModal', () => {
     await waitFor(() => expect(apiMock.registrarEnvioMoodle).toHaveBeenCalledWith('INS-1'))
     expect(window.open).toHaveBeenCalledWith(expect.stringContaining('wa.me/593999999999'), '_blank', 'noopener,noreferrer')
   })
+
+  it('recarga el acceso guardado al cambiar de inscripción y al volver a abrirla', () => {
+    const first = {
+      ...enrollment,
+      MoodleUsername: 'andrea.moodle',
+      MoodlePassword: 'ClaveGuardada',
+      MoodleUrl: 'https://aula.example.test/andrea',
+      MoodleNotes: 'Grupo A',
+      MoodleStatus: 'cargado',
+    }
+    const second = {
+      ...enrollment,
+      ID: 'INS-2',
+      ClienteNombre: 'Segundo participante',
+      MoodleUsername: 'segundo.moodle',
+      MoodleUrl: 'https://aula.example.test/segundo',
+      MoodleNotes: 'Grupo B',
+    }
+    const props = { isAdmin: true, onClose: vi.fn(), onUpdated: vi.fn() }
+    const { rerender } = render(<MoodleCredentialsModal {...props} inscripcion={null} />)
+
+    rerender(<MoodleCredentialsModal {...props} inscripcion={first} />)
+    expect(screen.getByLabelText('Usuario Moodle *')).toHaveValue('andrea.moodle')
+    expect(screen.getByLabelText('URL del aula virtual *')).toHaveValue('https://aula.example.test/andrea')
+    expect(screen.getByLabelText('Nota interna (opcional)')).toHaveValue('Grupo A')
+    expect(screen.getByLabelText('Contraseña Moodle *')).toHaveValue('')
+
+    rerender(<MoodleCredentialsModal {...props} inscripcion={second} />)
+    expect(screen.getByLabelText('Usuario Moodle *')).toHaveValue('segundo.moodle')
+    expect(screen.getByLabelText('URL del aula virtual *')).toHaveValue('https://aula.example.test/segundo')
+    expect(screen.getByLabelText('Nota interna (opcional)')).toHaveValue('Grupo B')
+
+    rerender(<MoodleCredentialsModal {...props} inscripcion={null} />)
+    rerender(<MoodleCredentialsModal {...props} inscripcion={first} />)
+    expect(screen.getByLabelText('Usuario Moodle *')).toHaveValue('andrea.moodle')
+    expect(screen.getByLabelText('Nota interna (opcional)')).toHaveValue('Grupo A')
+  })
 })

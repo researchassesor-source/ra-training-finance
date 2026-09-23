@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Copy, Eye, EyeOff, GraduationCap, MessageCircle, Save } from 'lucide-react'
 import Modal from '../UI/Modal'
 import { api } from '../../services/api'
@@ -45,6 +45,16 @@ export default function MoodleCredentialsModal({ inscripcion, isAdmin, onClose, 
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+
+  useEffect(() => {
+    setUsername(inscripcion?.MoodleUsername || '')
+    setPassword('')
+    setUrl(inscripcion?.MoodleUrl || '')
+    setNotes(inscripcion?.MoodleNotes || '')
+    setShowPassword(false)
+    setError('')
+    setNotice('')
+  }, [inscripcion?.ID])
 
   if (!inscripcion) return null
   const status = STATUS_META[inscripcion.MoodleStatus] || STATUS_META.pendiente
