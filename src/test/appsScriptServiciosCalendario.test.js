@@ -69,6 +69,59 @@ describe('servicios y calendario operativo', () => {
     expect(harness.objects('Capacitadores')).toHaveLength(1)
   })
 
+  it('prepara el certificado de capacitador sin crear una inscripción ni emitir o alterar certificados', () => {
+    const harness = createHarness()
+    harness.seed('Capacitadores', [{
+      ID: 'CAP-1', Nombre: 'Docente de Prueba', Identificacion: '0100000001',
+      Resumen: 'Investigadora y docente en educación superior.', Activo: true,
+    }])
+    harness.seed('Servicios', [{
+      ID: 'SRV-1', Nombre: 'Seminario de Derecho', Tipo: 'Evento', Modalidad: 'Virtual',
+      Duracion: '40 horas', FechaEvento: '2026-09-05', FechaFinEvento: '2026-09-07',
+      CapacitadorID: 'CAP-1', Capacitador: 'Docente de Prueba', EstadoEvento: 'finalizado',
+    }])
+    const before = JSON.stringify(harness.sheets.Servicios.rows)
+    const result = harness.context.processRequest({
+      action: 'preflightCertificadoCapacitador', token: 'admin-token', servicioId: 'SRV-1',
+    })
+    expect(result).toMatchObject({ success: true, data: {
+      tipo: 'capacitador', nombre: 'Docente de Prueba', identificacion: '0100000001',
+      curso: 'Seminario de Derecho', duracion: '40 horas', datosCompletos: true,
+      emisionHabilitada: false, bloqueosDatos: [],
+    } })
+    expect(JSON.stringify(harness.sheets.Servicios.rows)).toBe(before)
+    expect(harness.objects('Inscripciones')).toHaveLength(0)
+    expect(harness.objects('Certificados')).toHaveLength(0)
+    expect(harness.objects('AuditoriaCertificados')).toHaveLength(0)
+    expect(harness.context.processRequest({
+      action: 'preflightCertificadoCapacitador', token: 'admin-token', servicioId: 'SRV-1',
+    })).toEqual(result)
+  })
+
+  it('detecta datos faltantes y no permite que vendedores consulten fichas profesionales', () => {
+    const harness = createHarness()
+    harness.seed('Sesiones', [{ Token: 'seller-token', Username: 'seller', UserID: 'USR-S', Rol: 'vendedor',
+      Nombre: 'Vendedor', Expira: '2099-01-01T00:00:00.000Z' }])
+    harness.seed('Servicios', [{ ID: 'SRV-1', Nombre: 'Curso', Tipo: 'Curso', Duracion: '3 días',
+      Capacitador: 'Nombre manual', FechaEvento: '2026-09-09', FechaFinEvento: '2026-09-08' }])
+    const admin = harness.context.processRequest({
+      action: 'preflightCertificadoCapacitador', token: 'admin-token', servicioId: 'SRV-1',
+    })
+    expect(admin.success).toBe(true)
+    expect(admin.data.datosCompletos).toBe(false)
+    expect(admin.data.bloqueosDatos).toEqual(expect.arrayContaining([
+      expect.stringContaining('Vincule una ficha'),
+      expect.stringContaining('horas'),
+      expect.stringContaining('fechas válidas'),
+    ]))
+    expect(harness.context.processRequest({
+      action: 'preflightCertificadoCapacitador', token: 'seller-token', servicioId: 'SRV-1',
+    }).success).toBe(false)
+    expect(harness.context.processRequest({
+      action: 'preflightCertificadoCapacitador', token: 'admin-token', servicioId: 'SRV-NONE',
+    }).success).toBe(false)
+  })
+
   it('guarda el tipo por servicio y congela aprobación al emitir sin cambiar certificados históricos', () => {
     const harness = createHarness()
     harness.seed('AuditoriaCertificados', [])

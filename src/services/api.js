@@ -241,6 +241,8 @@ export const api = {
   getCapacitadores: () => call('getCapacitadores', {}, getToken()),
   addCapacitador: (capacitador) => call('addCapacitador', { capacitador }, getToken()),
   updateCapacitador: (id, capacitador) => call('updateCapacitador', { id, capacitador }, getToken()),
+  preflightCertificadoCapacitador: (servicioId) =>
+    call('preflightCertificadoCapacitador', { servicioId }, getToken()),
 
   getInscripciones: (filtros = {}) =>
     callCached('getInscripciones', { filtros }, getToken()),

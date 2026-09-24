@@ -97,6 +97,7 @@ function processRequest(data) {
     getCapacitadores:   () => getCapacitadores(user, params),
     addCapacitador:     () => addCapacitador(user, params),
     updateCapacitador:  () => updateCapacitador(user, params),
+    preflightCertificadoCapacitador: () => preflightCertificadoCapacitador(user, params),
     getInscripciones:   () => getInscripciones(user, params),
     updateMoodleCredentials: () => updateMoodleCredentials(user, params),
     registrarEnvioMoodle: () => registrarEnvioMoodle(user, params),
@@ -1668,6 +1669,51 @@ function perfilCapacitadorServicio_(servicio, fallbackId, fallbackName) {
     throw new Error('La ficha del capacitador no existe o está inactiva.');
   }
   return { id: id, nombre: profile.Nombre };
+}
+
+// Lectura solamente: un capacitador no es una inscripción y nunca debe pasar por
+// emitirCertificado ni por el verificador/archivo privado de alumnos.
+function preflightCertificadoCapacitador(user, { servicioId } = {}) {
+  requireAdmin(user);
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const serviceSheet = ss.getSheetByName('Servicios');
+  const trainerSheet = ss.getSheetByName('Capacitadores');
+  const services = serviceSheet ? sheetToObjects(serviceSheet).filter(function(item) { return item.ID === String(servicioId || ''); }) : [];
+  if (services.length !== 1) return { success: false, error: 'Servicio no encontrado o duplicado.' };
+  const service = services[0];
+  const trainerId = String(service.CapacitadorID || '').trim();
+  const trainers = trainerId && trainerSheet
+    ? sheetToObjects(trainerSheet).filter(function(item) { return item.ID === trainerId; }) : [];
+  const trainer = trainers.length === 1 ? trainers[0] : null;
+  const blockers = [];
+  if (!trainerId) blockers.push('Vincule una ficha de capacitador al servicio; el nombre escrito manualmente no acredita identidad.');
+  else if (!trainer) blockers.push('La ficha de capacitador vinculada no existe o está duplicada.');
+  if (trainer && !esVerdadero(trainer.Activo)) blockers.push('La ficha del capacitador está inactiva.');
+  if (trainer && !String(trainer.Identificacion || '').trim()) blockers.push('Falta la identificación del capacitador.');
+  if (trainer && !String(trainer.Resumen || '').trim()) blockers.push('Falta el resumen profesional del capacitador.');
+  if (trainer && String(service.Capacitador || '').trim() !== String(trainer.Nombre || '').trim()) {
+    blockers.push('El nombre mostrado en el servicio no coincide con la ficha vinculada.');
+  }
+  if (!String(service.Nombre || '').trim()) blockers.push('Falta el nombre del curso o evento.');
+  const duration = String(service.Duracion || '').trim();
+  if (!/^\d+(?:[.,]\d+)?(?:\s*(?:h|hrs?\.?|horas?))?$/i.test(duration) || Number(duration.replace(',', '.').match(/^\d+(?:\.\d+)?/)?.[0] || 0) <= 0) {
+    blockers.push('Defina la duración académica en horas (por ejemplo, 40 o 40 horas).');
+  }
+  const start = fechaSolo(service.FechaEvento);
+  const end = fechaSolo(service.FechaFinEvento || service.FechaEvento);
+  if (!start || !end || end < start) {
+    blockers.push('Defina fechas válidas de inicio y fin del curso.');
+  }
+  if (String(service.EstadoEvento || '').toLowerCase() === 'cancelado') blockers.push('El evento está cancelado.');
+  return { success: true, data: {
+    tipo: 'capacitador', servicioId: service.ID, capacitadorId: trainerId,
+    nombre: trainer ? trainer.Nombre : '', identificacion: trainer ? trainer.Identificacion : '',
+    resumen: trainer ? trainer.Resumen : '', curso: service.Nombre || '',
+    duracion: duration, modalidad: service.Modalidad || '', fechaInicio: start, fechaFin: end,
+    datosCompletos: blockers.length === 0, bloqueosDatos: blockers,
+    emisionHabilitada: false,
+    bloqueoEmision: 'La plantilla profesional, las firmas auténticas, el archivo privado y la verificación pública aún no están activados.',
+  } };
 }
 
 function getServicios(user, params) {

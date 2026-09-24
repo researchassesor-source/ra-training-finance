@@ -217,6 +217,9 @@ export default function ServiciosView() {
   const [trainerForm, setTrainerForm] = useState({ id: '', nombre: '', identificacion: '', resumen: '', activo: true })
   const [trainerBusy, setTrainerBusy] = useState(false)
   const [trainerError, setTrainerError] = useState('')
+  const [trainerCertificate, setTrainerCertificate] = useState(null)
+  const [trainerCertificateBusy, setTrainerCertificateBusy] = useState(false)
+  const [trainerCertificateError, setTrainerCertificateError] = useState('')
 
   const load = useCallback(() => {
     setLoading(true)
@@ -246,6 +249,20 @@ export default function ServiciosView() {
       setTrainerError(error.message)
     } finally {
       setTrainerBusy(false)
+    }
+  }
+
+  async function inspectTrainerCertificate(service) {
+    setTrainerCertificate({ serviceName: service.Nombre, data: null })
+    setTrainerCertificateBusy(true)
+    setTrainerCertificateError('')
+    try {
+      const result = await api.preflightCertificadoCapacitador(service.ID)
+      setTrainerCertificate({ serviceName: service.Nombre, data: result.data })
+    } catch (error) {
+      setTrainerCertificateError(error.message)
+    } finally {
+      setTrainerCertificateBusy(false)
     }
   }
 
@@ -362,6 +379,12 @@ export default function ServiciosView() {
                 <p className="text-xs text-slate-500">
                   Certificado: {PARTICIPANT_CERTIFICATE_TYPES[s.TipoCertificado]?.label || 'Aprobación'}
                 </p>
+                {isAdmin && (
+                  <button type="button" className="btn-secondary text-xs justify-center"
+                    onClick={() => inspectTrainerCertificate(s)}>
+                    <UserRound size={13} /> Revisar certificado de capacitador
+                  </button>
+                )}
                 {fechaEvento && (
                   <div className="flex flex-wrap gap-1.5">
                     <span className={eventoVisible ? 'badge-blue' : estadoEvento === 'finalizado' ? 'badge-green' : 'badge-gray'}>
@@ -447,6 +470,37 @@ export default function ServiciosView() {
                 <button type="submit" className="btn-primary flex-1" disabled={trainerBusy}>{trainerBusy ? 'Guardando...' : trainerForm.id ? 'Guardar cambios' : 'Agregar capacitador'}</button>
               </div>
             </form>
+          </div>
+        </Modal>
+      )}
+
+      {isAdmin && (
+        <Modal open={!!trainerCertificate} onClose={() => setTrainerCertificate(null)}
+          title="Preparación del certificado de capacitador" size="md">
+          <div className="space-y-4 text-sm">
+            <p className="text-slate-600">{trainerCertificate?.serviceName}</p>
+            {trainerCertificateBusy && <Spinner text="Revisando datos del curso..." />}
+            {trainerCertificateError && <p role="alert" className="rounded-lg bg-red-50 p-3 text-red-700">{trainerCertificateError}</p>}
+            {trainerCertificate?.data && <>
+              <div className="grid grid-cols-1 gap-2 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:grid-cols-2">
+                <p><span className="font-medium">Nombre:</span> {trainerCertificate.data.nombre || 'Pendiente'}</p>
+                <p><span className="font-medium">Identificación:</span> {trainerCertificate.data.identificacion || 'Pendiente'}</p>
+                <p><span className="font-medium">Curso:</span> {trainerCertificate.data.curso || 'Pendiente'}</p>
+                <p><span className="font-medium">Horas:</span> {trainerCertificate.data.duracion || 'Pendiente'}</p>
+                <p><span className="font-medium">Fechas:</span> {trainerCertificate.data.fechaInicio || 'Pendiente'} — {trainerCertificate.data.fechaFin || 'Pendiente'}</p>
+                <p><span className="font-medium">Modalidad:</span> {trainerCertificate.data.modalidad || 'Pendiente'}</p>
+                <p className="sm:col-span-2"><span className="font-medium">Resumen profesional:</span> {trainerCertificate.data.resumen || 'Pendiente'}</p>
+              </div>
+              <div className={trainerCertificate.data.datosCompletos
+                ? 'rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-900'
+                : 'rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-900'}>
+                <p className="font-semibold">{trainerCertificate.data.datosCompletos ? 'Datos del curso completos' : 'Datos por completar'}</p>
+                {trainerCertificate.data.bloqueosDatos.map(message => <p key={message} className="mt-1">• {message}</p>)}
+              </div>
+              <p role="status" className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-blue-900">
+                Emisión bloqueada: {trainerCertificate.data.bloqueoEmision} Esta revisión no emite, reserva ni modifica certificados.
+              </p>
+            </>}
           </div>
         </Modal>
       )}
