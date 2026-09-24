@@ -291,7 +291,7 @@ function drawAvalBlock(doc, aval) {
 }
 
 export async function buildCertificatePdf(inscripcion, options = {}) {
-  if (String(inscripcion?.TemplateVersion || '').trim() === 'ra-security-2026-v2') {
+  if (['ra-security-2026-v2', 'ra-itsal-security-2026-v1'].includes(String(inscripcion?.TemplateVersion || '').trim())) {
     const { buildCertificateV2Pdf } = await import('./certificateGeneratorV2.js')
     return buildCertificateV2Pdf(inscripcion, options)
   }

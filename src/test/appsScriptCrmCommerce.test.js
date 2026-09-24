@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import crypto from 'node:crypto'
+import { PNG } from 'pngjs'
 import { createAppsScriptHarness } from './appsScriptHarness'
 
 const FUTURE = '2099-01-01T00:00:00.000Z'
@@ -36,6 +38,38 @@ function crmCall(harness, action, params) {
 function inscripciones(harness) { return harness.objects('Inscripciones') }
 function porId(harness, id) { return inscripciones(harness).find(r => r.ID === id) }
 function compras(harness) { return harness.objects('CRMCompras') }
+
+function activateCertificateSignatures(harness) {
+  const image = new PNG({ width: 180, height: 60 })
+  const noise = crypto.randomBytes(image.width * image.height * 3)
+  for (let pixel = 0; pixel < image.width * image.height; pixel += 1) {
+    image.data[pixel * 4] = noise[pixel * 3]
+    image.data[pixel * 4 + 1] = noise[pixel * 3 + 1]
+    image.data[pixel * 4 + 2] = noise[pixel * 3 + 2]
+    image.data[pixel * 4 + 3] = 255
+  }
+  const pngBase64 = PNG.sync.write(image).toString('base64')
+  const request = harness.context.processRequest
+  for (const rol of ['director', 'manager']) {
+    expect(request({ action: 'registrarFirmaOficialCertificado', token: 'admin-token', rol, pngBase64,
+      confirmacion: 'CONFIRMO_FIRMA_AUTENTICA_Y_USO_AUTORIZADO' }).success).toBe(true)
+  }
+  expect(request({ action: 'activarPlantillaCertificadoV2', token: 'admin-token',
+    confirmacion: 'ACTIVAR_CERTIFICADOS_SEGURIDAD_V2' }).success).toBe(true)
+}
+
+function issueAndArchiveAval(harness, id) {
+  activateCertificateSignatures(harness)
+  const request = harness.context.processRequest
+  const issued = request({ action: 'emitirEntregableAval', token: 'admin-token', id })
+  expect(issued).toMatchObject({ success: true, data: { TemplateVersion: 'ra-itsal-security-2026-v1' } })
+  const bytes = Buffer.from('%PDF-1.4 prueba sintética del archivo oficial')
+  const hash = crypto.createHash('sha256').update(bytes).digest('hex')
+  const archived = request({ action: 'guardarPdfEntregableAvalPrivado', token: 'admin-token', id,
+    pdfBase64: bytes.toString('base64'), pdfHash: hash, templateVersion: 'ra-itsal-security-2026-v1' })
+  expect(archived).toMatchObject({ success: true, hash })
+  return { issued, bytes, hash }
+}
 
 function basePurchase(overrides) {
   return Object.assign({
@@ -271,15 +305,102 @@ describe('marcarAval + entregable avalado', () => {
   it('19. retries de entrega final no duplican el envío', () => {
     const harness = seededHarness()
     const id = facturaFullLista(harness)
-    harness.context.processRequest({ action: 'marcarAval', token: 'aval-token', id, avalReferencia: 'REF-1' })
+    harness.context.processRequest({ action: 'marcarAval', token: 'aval-token', id, avalReferencia: 'REF-1', avalCodigoExterno: 'ITSAL-1' })
+    expect(harness.context.processRequest({ action: 'enviarEntregableAvalEmail', token: 'admin-token', id }).success).toBe(false)
+    issueAndArchiveAval(harness, id)
     let enviosReales = 0
     harness.context.MailApp = { sendEmail: () => { enviosReales += 1 } }
-    const pdfBase64 = Buffer.from('%PDF-1.4 contenido de prueba').toString('base64')
-    const primero = harness.context.processRequest({ action: 'enviarEntregableAvalEmail', token: 'admin-token', id, pdfBase64, mimeType: 'application/pdf', filename: 'cert.pdf' })
-    const segundo = harness.context.processRequest({ action: 'enviarEntregableAvalEmail', token: 'admin-token', id, pdfBase64, mimeType: 'application/pdf', filename: 'cert.pdf' })
+    const primero = harness.context.processRequest({ action: 'enviarEntregableAvalEmail', token: 'admin-token', id })
+    const segundo = harness.context.processRequest({ action: 'enviarEntregableAvalEmail', token: 'admin-token', id })
     expect(primero.success).toBe(true)
     expect(segundo.alreadySent).toBe(true)
     expect(enviosReales).toBe(1)
+  })
+
+  it('el envío incierto exige reconciliación humana antes de reintentar', () => {
+    const harness = seededHarness()
+    const id = facturaFullLista(harness)
+    const request = harness.context.processRequest
+    request({ action: 'marcarAval', token: 'aval-token', id, avalCodigoExterno: 'ITSAL-2026-123' })
+    issueAndArchiveAval(harness, id)
+    let attempts = 0
+    harness.context.MailApp = { sendEmail: () => { attempts += 1; throw new Error('fallo incierto') } }
+    expect(request({ action: 'enviarEntregableAvalEmail', token: 'admin-token', id }).success).toBe(false)
+    expect(request({ action: 'enviarEntregableAvalEmail', token: 'admin-token', id }).success).toBe(false)
+    expect(attempts).toBe(1)
+    expect(request({ action: 'resolverEnvioEntregableAval', token: 'aval-token', id,
+      resultado: 'no_enviado', motivo: 'Confirmado en enviados', confirmacion: 'RECONCILIAR_ENVIO_AVAL' }).success).toBe(false)
+    expect(request({ action: 'resolverEnvioEntregableAval', token: 'admin-token', id,
+      resultado: 'no_enviado', motivo: 'Confirmado en enviados', confirmacion: 'RECONCILIAR_ENVIO_AVAL' }).data.estado).toBe('pendiente_envio')
+    harness.context.MailApp = { sendEmail: () => { attempts += 1 } }
+    expect(request({ action: 'enviarEntregableAvalEmail', token: 'admin-token', id }).success).toBe(true)
+    expect(attempts).toBe(2)
+  })
+
+  it('ITSAL: ni el rol aval ni el admin pueden emitir antes de las firmas; el QR combina ambos códigos solo tras archivar', () => {
+    const harness = seededHarness()
+    const id = facturaFullLista(harness)
+    const request = harness.context.processRequest
+    expect(request({ action: 'marcarAval', token: 'aval-token', id, avalReferencia: 'REF-1', avalCodigoExterno: 'ITSAL-2026-123' }).success).toBe(true)
+    expect(request({ action: 'emitirEntregableAval', token: 'aval-token', id }).success).toBe(false)
+    expect(request({ action: 'emitirEntregableAval', token: 'admin-token', id }).success).toBe(false)
+    activateCertificateSignatures(harness)
+    const issued = request({ action: 'emitirEntregableAval', token: 'admin-token', id })
+    expect(issued.data).toMatchObject({ CertificateSubject: 'institutional_aval', AvalCodigoExterno: 'ITSAL-2026-123' })
+    expect(request({ action: 'emitirEntregableAval', token: 'admin-token', id }).alreadyIssued).toBe(true)
+    expect(request({ action: 'verificarCertificado', id: issued.data.ID }).valido).toBe(false)
+    const bytes = Buffer.from('%PDF-1.4 prueba sintética del archivo oficial')
+    const hash = crypto.createHash('sha256').update(bytes).digest('hex')
+    expect(request({ action: 'guardarPdfEntregableAvalPrivado', token: 'aval-token', id,
+      pdfBase64: bytes.toString('base64'), pdfHash: hash, templateVersion: issued.data.TemplateVersion }).success).toBe(false)
+    expect(request({ action: 'guardarPdfEntregableAvalPrivado', token: 'admin-token', id,
+      pdfBase64: bytes.toString('base64'), pdfHash: 'f'.repeat(64), templateVersion: issued.data.TemplateVersion }).success).toBe(false)
+    expect(request({ action: 'guardarPdfEntregableAvalPrivado', token: 'admin-token', id,
+      pdfBase64: bytes.toString('base64'), pdfHash: hash, templateVersion: issued.data.TemplateVersion }).success).toBe(true)
+    const publicResult = request({ action: 'verificarCertificado', id: issued.data.ID })
+    expect(publicResult).toMatchObject({ valido: true, data: { codigo: issued.data.CodigoCertificado, avalCodigoExterno: 'ITSAL-2026-123' } })
+    expect(request({ action: 'leerPdfEntregableAvalPrivado', token: 'aval-token', id }).success).toBe(false)
+  })
+
+  it('ITSAL: la reemisión conserva el PDF anterior y cambia el QR vigente solo al archivar la nueva versión', () => {
+    const harness = seededHarness()
+    const id = facturaFullLista(harness)
+    const request = harness.context.processRequest
+    request({ action: 'marcarAval', token: 'aval-token', id, avalCodigoExterno: 'ITSAL-2026-123' })
+    const { issued } = issueAndArchiveAval(harness, id)
+    const oldId = issued.data.ID
+    const next = request({ action: 'reemitirEntregableAval', token: 'admin-token', id,
+      motivo: 'Corrección de presentación', confirmacion: 'REEMITIR' })
+    expect(next).toMatchObject({ success: true, data: { CertificateVersion: 2 } })
+    expect(next.data.ID).not.toBe(oldId)
+    expect(request({ action: 'reemitirEntregableAval', token: 'admin-token', id,
+      motivo: 'Corrección de presentación', confirmacion: 'REEMITIR' }).alreadyIssued).toBe(true)
+    expect(request({ action: 'verificarCertificado', id: oldId }).data.estado).toBe('vigente')
+    expect(request({ action: 'verificarCertificado', id: next.data.ID }).valido).toBe(false)
+    const bytes = Buffer.from('%PDF-1.4 segunda versión sintética')
+    const hash = crypto.createHash('sha256').update(bytes).digest('hex')
+    expect(request({ action: 'guardarPdfEntregableAvalPrivado', token: 'admin-token', id,
+      pdfBase64: bytes.toString('base64'), pdfHash: hash,
+      templateVersion: 'ra-itsal-security-2026-v1' }).success).toBe(true)
+    expect(request({ action: 'verificarCertificado', id: oldId }).data).toMatchObject({ estado: 'reemitido', certificadoVigenteId: next.data.ID })
+    expect(request({ action: 'verificarCertificado', id: next.data.ID }).data).toMatchObject({ estado: 'vigente', version: 2 })
+    expect(harness.objects('EntregablesAval')).toHaveLength(2)
+    expect(harness.objects('Certificados')).toHaveLength(1)
+  })
+
+  it('ITSAL: anulación auditada deja el PDF histórico verificable como no vigente', () => {
+    const harness = seededHarness()
+    const id = facturaFullLista(harness)
+    const request = harness.context.processRequest
+    request({ action: 'marcarAval', token: 'aval-token', id, avalCodigoExterno: 'ITSAL-2026-123' })
+    const { issued } = issueAndArchiveAval(harness, id)
+    expect(request({ action: 'anularEntregableAval', token: 'aval-token', id,
+      motivo: 'Corrección necesaria', confirmacion: 'ANULAR' }).success).toBe(false)
+    expect(request({ action: 'anularEntregableAval', token: 'admin-token', id,
+      motivo: 'Corrección necesaria', confirmacion: 'ANULAR' }).success).toBe(true)
+    expect(request({ action: 'verificarCertificado', id: issued.data.ID }).data.estado).toBe('anulado')
+    expect(request({ action: 'enviarEntregableAvalEmail', token: 'admin-token', id }).success).toBe(false)
+    expect(harness.objects('AuditoriaCertificados').map(row => row.Accion)).toContain('AVAL_CERTIFICATE_VOIDED')
   })
 
   it('el aval repetido es idempotente y el entregable enviado bloquea cambios históricos', () => {
@@ -292,9 +413,9 @@ describe('marcarAval + entregable avalado', () => {
     expect(repetido.alreadyConfirmed).toBe(true)
     expect(harness.objects('AuditoriaCertificados').filter(e => e.Accion === 'AVAL_CONFIRMED')).toHaveLength(auditorias)
 
+    issueAndArchiveAval(harness, id)
     harness.context.MailApp = { sendEmail: () => {} }
-    const pdfBase64 = Buffer.from('%PDF-1.4 contenido de prueba').toString('base64')
-    expect(harness.context.processRequest({ action: 'enviarEntregableAvalEmail', token: 'admin-token', id, pdfBase64, mimeType: 'application/pdf', filename: 'cert.pdf' }).success).toBe(true)
+    expect(harness.context.processRequest({ action: 'enviarEntregableAvalEmail', token: 'admin-token', id }).success).toBe(true)
     const cambio = harness.context.processRequest({ ...params, avalCodigoExterno: 'COD-2' })
     expect(cambio.success).toBe(false)
     expect(harness.objects('Inscripciones').find(row => row.ID === id).AvalCodigoExterno).toBe('COD-1')

@@ -26,6 +26,7 @@ const options = {
     background: dataUrl('certificate-border-v2.png', 'image/png'),
     logo: dataUrl('ra-training-logo.png', 'image/png'),
     seal: dataUrl('academic-seal.png', 'image/png'),
+    itsal: dataUrl('itsal-official-logo.png', 'image/png'),
     regular: dataUrl('canva/IBMPlexSansCondensed-Regular.ttf', 'font/ttf'),
     bold: dataUrl('canva/IBMPlexSansCondensed-Bold.ttf', 'font/ttf'),
     italic: dataUrl('canva/OpenSansCondensed-MediumItalic.ttf', 'font/ttf'),
@@ -90,6 +91,31 @@ describe('nueva plantilla de seguridad v2', () => {
     expect(result).toMatchObject({ certificateCode: 'RA-PRO-2026-0001', templateVersion: 'ra-security-2026-v2' })
     expect(result.verificationUrl).toContain('PRO-CERT-1')
     expect(result.blob.size).toBeGreaterThan(100_000)
+  }, 20_000)
+
+  it('certifica aval ITSAL solo con código institucional y QR propio, sin cambiar el certificado ordinario', async () => {
+    const avalado = {
+      ...certificate,
+      ID: 'AVAL-TEST-1', CertificatePublicId: 'AVAL-TEST-1', CertificateVersion: 1,
+      TemplateVersion: 'ra-itsal-security-2026-v1', CertificateSubject: 'institutional_aval',
+      CodigoCertificado: 'RA-ITSAL-2026-0001', InstitucionAval: 'ITSAL',
+      EstadoAval: 'avalado', AvalCodigoExterno: 'ITSAL-REG-2026-001',
+    }
+    await expect(buildCertificatePdf({ ...avalado, AvalCodigoExterno: '' }, options)).rejects.toThrow('código de registro ITSAL')
+    const result = await buildCertificatePdf(avalado, options)
+    expect(result).toMatchObject({ certificateCode: avalado.CodigoCertificado, templateVersion: avalado.TemplateVersion })
+    expect(result.verificationUrl).toContain('AVAL-TEST-1')
+    expect(result.filename).toContain('ITSAL')
+    expect(result.blob.size).toBeGreaterThan(100_000)
+    if (process.env.CERTIFICATE_PREVIEW_AVAL_FILE) {
+      const bytes = await new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(reader.result)
+        reader.onerror = reject
+        reader.readAsArrayBuffer(result.blob)
+      })
+      fs.writeFileSync(process.env.CERTIFICATE_PREVIEW_AVAL_FILE, Buffer.from(bytes))
+    }
   }, 20_000)
 
   it('no confunde los roles de ponente o capacitador con una inscripción de participante', async () => {

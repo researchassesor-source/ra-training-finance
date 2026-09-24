@@ -11,6 +11,7 @@ import {
 } from './certificateGenerator.js'
 
 export const CERTIFICATE_V2_VERSION = 'ra-security-2026-v2'
+export const CERTIFICATE_ITSAL_VERSION = 'ra-itsal-security-2026-v1'
 export const CERTIFICATE_V2_ISSUER = Object.freeze({ ruc: '0691787373001', expediente: '401111' })
 const WIDTH = 320
 const HEIGHT = 180
@@ -20,6 +21,7 @@ const assets = {
   background: new URL('../assets/certificate/certificate-border-v2.png', import.meta.url).href,
   logo: new URL('../assets/certificate/ra-training-logo.png', import.meta.url).href,
   seal: new URL('../assets/certificate/academic-seal.png', import.meta.url).href,
+  itsal: new URL('../assets/certificate/itsal-official-logo.png', import.meta.url).href,
   regular: new URL('../assets/certificate/canva/IBMPlexSansCondensed-Regular.ttf', import.meta.url).href,
   bold: new URL('../assets/certificate/canva/IBMPlexSansCondensed-Bold.ttf', import.meta.url).href,
   italic: new URL('../assets/certificate/canva/OpenSansCondensed-MediumItalic.ttf', import.meta.url).href,
@@ -126,9 +128,15 @@ function requiredSignature(value, label) {
 }
 
 export async function buildCertificateV2Pdf(record, options = {}) {
-  if (record?.TemplateVersion !== CERTIFICATE_V2_VERSION) throw new Error('Versión de plantilla incorrecta.')
+  const institutional = record?.TemplateVersion === CERTIFICATE_ITSAL_VERSION
+  if (!institutional && record?.TemplateVersion !== CERTIFICATE_V2_VERSION) throw new Error('Versión de plantilla incorrecta.')
   const certificate = normalizeIssuedCertificate(record)
   const professional = certificate.CertificateSubject === 'professional'
+  if (institutional && certificate.CertificateSubject !== 'institutional_aval') throw new Error('El aval ITSAL no corresponde al tipo de certificado.')
+  if (institutional && (!/itsal|san\s+luis/i.test(String(certificate.InstitucionAval || ''))
+    || !String(certificate.AvalCodigoExterno || '').trim() || certificate.EstadoAval !== 'avalado')) {
+    throw new Error('Falta la confirmación y el código de registro ITSAL del aval.')
+  }
   if (professional && certificate.ProfessionalRole !== 'capacitador') {
     throw new Error('El rol profesional no tiene una plantilla autorizada.')
   }
@@ -157,12 +165,13 @@ export async function buildCertificateV2Pdf(record, options = {}) {
     : participantCertificateType(certificate.CertificateType)
   const publicId = String(certificate.CertificatePublicId || certificate.ID)
   const verificationUrl = buildVerificationUrl(publicId)
-  const [qr, background, logo, seal, regular, bold, italic] = await Promise.all([
+  const [qr, background, logo, seal, regular, bold, italic, itsal] = await Promise.all([
     generateQrDataUrl(publicId),
-    ...Object.keys(assets).map(key => asDataUrl(key, options.assetDataUrls)),
+    ...['background', 'logo', 'seal', 'regular', 'bold', 'italic'].map(key => asDataUrl(key, options.assetDataUrls)),
+    institutional ? asDataUrl('itsal', options.assetDataUrls) : Promise.resolve(null),
   ])
   const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: [WIDTH, HEIGHT], compress: true })
-  pdf.setFileId(deterministicCertificatePdfFileId(`${publicId}|${certificate.CodigoCertificado}|${certificate.CertificateVersion || 1}|${CERTIFICATE_V2_VERSION}`))
+  pdf.setFileId(deterministicCertificatePdfFileId(`${publicId}|${certificate.CodigoCertificado}|${certificate.CertificateVersion || 1}|${certificate.TemplateVersion}`))
   pdf.setCreationDate(deterministicCertificatePdfCreationDate(certificate.FechaEmisionCertificado))
   addFonts(pdf, { regular, bold, italic })
   pdf.addImage(background, 'PNG', 0, 0, WIDTH, HEIGHT)
@@ -205,13 +214,27 @@ export async function buildCertificateV2Pdf(record, options = {}) {
   line(pdf, `con una duración de ${normalizeDuration(certificate.Duracion)}, ${professional ? 'impartido' : 'desarrollado'} desde`, 105.3, 190, 10, 8)
   line(pdf, `el ${formatLongDate(certificate.FechaInicio)} hasta el ${formatLongDate(certificate.FechaFin)}, bajo la modalidad`, 110.5, 194, 10, 8)
   line(pdf, `${certificate.Modalidad}.`, 115.7, 185, 10, 8)
-  line(pdf, 'En constancia de lo anterior, se expide el presente certificado', 122.8, 202, 10, 8)
-  line(pdf, 'para los fines que el interesado considere pertinentes.', 128.2, 200, 10, 8)
+  if (institutional) {
+    line(pdf, 'Avalado por el Instituto Superior Tecnológico Internacional San Luis — ITSAL', 122.8, 202, 10, 8)
+    line(pdf, `Registro ITSAL: ${certificate.AvalCodigoExterno} · Registro R.A.: ${certificate.CodigoCertificado}`, 128.2, 202, 10, 7)
+  } else {
+    line(pdf, 'En constancia de lo anterior, se expide el presente certificado', 122.8, 202, 10, 8)
+    line(pdf, 'para los fines que el interesado considere pertinentes.', 128.2, 200, 10, 8)
+  }
   line(pdf, `Riobamba, ${formatLongDate(certificate.FechaEmisionCertificado)}`, 134, 185, 10, 8, 'CertificatePlex', 'bold')
 
   signatureInBox(pdf, directorSignature, 76, 136.5, 49, 13.5)
   signatureInBox(pdf, managerSignature, 195, 136.5, 49, 13.5)
-  pdf.addImage(seal, 'PNG', 143, 135.5, 34, 26)
+  if (institutional) {
+    pdf.addImage(seal, 'PNG', 137, 139, 24, 19)
+    pdf.addImage(itsal, 'PNG', 163, 139, 27, 11.3)
+    pdf.setFont('CertificatePlex', 'normal')
+    pdf.setFontSize(6)
+    pdf.setTextColor(...NAVY)
+    pdf.text('Aval ITSAL · IES 3063', 176.5, 155.5, { align: 'center' })
+  } else {
+    pdf.addImage(seal, 'PNG', 143, 135.5, 34, 26)
+  }
   pdf.setDrawColor(...NAVY)
   pdf.setLineWidth(0.25)
   pdf.line(74, 150, 128, 150)
@@ -267,9 +290,9 @@ export async function buildCertificateV2Pdf(record, options = {}) {
   const safeName = String(certificate.ClienteNombre).replace(/[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ]+/g, '_')
   return {
     blob: pdf.output('blob'),
-    filename: `certificado_${safeName}_${certificate.CertificateVersion || 1}.pdf`,
+    filename: `${institutional ? 'certificado_aval_ITSAL' : 'certificado'}_${safeName}_${certificate.CertificateVersion || 1}.pdf`,
     verificationUrl,
     certificateCode: certificate.CodigoCertificado,
-    templateVersion: CERTIFICATE_V2_VERSION,
+    templateVersion: certificate.TemplateVersion,
   }
 }

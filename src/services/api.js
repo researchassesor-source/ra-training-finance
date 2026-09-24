@@ -227,6 +227,14 @@ export const api = {
     bust('getInscripciones', 'getDashboard', 'getInstitucionesAval')
     return call('marcarAval', { id, ...datos }, getToken())
   },
+  emitirEntregableAval: (id) => call('emitirEntregableAval', { id }, getToken()),
+  anularEntregableAval: (id, motivo) => call('anularEntregableAval', { id, motivo, confirmacion: 'ANULAR' }, getToken()),
+  reemitirEntregableAval: (id, motivo) => call('reemitirEntregableAval', { id, motivo, confirmacion: 'REEMITIR' }, getToken()),
+  guardarPdfEntregableAvalPrivado: (id, pdf) => call('guardarPdfEntregableAvalPrivado', { id, ...pdf }, getToken()),
+  leerPdfEntregableAvalPrivado: (id) => call('leerPdfEntregableAvalPrivado', { id }, getToken()),
+  enviarEntregableAvalEmail: (id, email) => call('enviarEntregableAvalEmail', { id, email }, getToken()),
+  resolverEnvioEntregableAval: (id, resultado, motivo) =>
+    call('resolverEnvioEntregableAval', { id, resultado, motivo, confirmacion: 'RECONCILIAR_ENVIO_AVAL' }, getToken()),
 
   getEstadoFirmasCertificado: () =>
     call('getEstadoFirmasCertificado', {}, getToken()),
