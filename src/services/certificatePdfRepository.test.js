@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   prepare: vi.fn(),
   store: vi.fn(),
   read: vi.fn(),
+  signing: vi.fn(),
 }))
 
 vi.mock('./certificateArtifactStore', async importOriginal => ({
@@ -16,6 +17,7 @@ vi.mock('./certificateArtifactStore', async importOriginal => ({
 vi.mock('./api', () => ({ api: {
   guardarPdfCertificadoPrivado: mocks.store,
   leerPdfCertificadoPrivado: mocks.read,
+  getFirmasOficialesCertificado: mocks.signing,
 } }))
 
 import { certificatePdfRepository } from './certificatePdfRepository'
@@ -53,5 +55,21 @@ describe('repositorio de PDF oficiales', () => {
     mocks.prepare.mockResolvedValue({ blob: new Blob([bytes]), hash: 'a'.repeat(64), reference: 'browser-indexeddb:CERT-1:v1' })
     await certificatePdfRepository.prepare({ ...certificate, PdfHash: 'a'.repeat(64), PdfStorageReference: 'browser-indexeddb:CERT-1:v1' })
     expect(mocks.store).not.toHaveBeenCalled()
+  })
+
+  it('obtiene las firmas privadas solo al generar un PDF v2 nuevo y pasa las opciones al generador', async () => {
+    mocks.signing.mockResolvedValue({ signatures: { director: 'data:image/png;base64,AA==', manager: 'data:image/png;base64,BB==' } })
+    mocks.prepare.mockResolvedValue({ blob: new Blob([bytes], { type: 'application/pdf' }), hash,
+      templateVersion: 'ra-security-2026-v2', certificateVersion: 1 })
+    mocks.store.mockResolvedValue({ success: true, reference: 'certificate-drive:drive-v2', hash })
+    await certificatePdfRepository.prepare({ ...certificate, TemplateVersion: 'ra-security-2026-v2' })
+    expect(mocks.signing).toHaveBeenCalledTimes(1)
+    expect(mocks.prepare).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      signatures: { director: 'data:image/png;base64,AA==', manager: 'data:image/png;base64,BB==' },
+    }))
+    mocks.read.mockResolvedValue({ reference: 'certificate-drive:drive-v2', hash, contentBase64: bytes.toString('base64') })
+    await certificatePdfRepository.prepare({ ...certificate, TemplateVersion: 'ra-security-2026-v2',
+      PdfHash: hash, PdfStorageReference: 'certificate-drive:drive-v2' })
+    expect(mocks.signing).toHaveBeenCalledTimes(1)
   })
 })

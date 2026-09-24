@@ -5,7 +5,10 @@ import { PARTICIPANT_CERTIFICATE_TYPES } from '../../config/certificateTypes'
 import { useAuth } from '../../context/AuthContext'
 import Modal from '../UI/Modal'
 import Spinner from '../UI/Spinner'
-import { Plus, Pencil, MessageCircle, Calendar, UserRound, EyeOff, CheckCircle2 } from 'lucide-react'
+import CertificateSigningSettings from './CertificateSigningSettings'
+import { certificatePdfRepository } from '../../services/certificatePdfRepository'
+import { saveAs } from 'file-saver'
+import { Plus, Pencil, MessageCircle, Calendar, UserRound, EyeOff, CheckCircle2, ShieldCheck } from 'lucide-react'
 
 const EMPTY = {
   nombre: '', tipo: '', modalidad: 'N/A', precio: '', duracion: '', descripcion: '',
@@ -220,6 +223,10 @@ export default function ServiciosView() {
   const [trainerCertificate, setTrainerCertificate] = useState(null)
   const [trainerCertificateBusy, setTrainerCertificateBusy] = useState(false)
   const [trainerCertificateError, setTrainerCertificateError] = useState('')
+  const [trainerLifecycle, setTrainerLifecycle] = useState(null)
+  const [trainerLifecycleReason, setTrainerLifecycleReason] = useState('')
+  const [trainerLifecycleConfirmed, setTrainerLifecycleConfirmed] = useState(false)
+  const [signingSettingsOpen, setSigningSettingsOpen] = useState(false)
 
   const load = useCallback(() => {
     setLoading(true)
@@ -256,6 +263,9 @@ export default function ServiciosView() {
     setTrainerCertificate({ serviceName: service.Nombre, data: null })
     setTrainerCertificateBusy(true)
     setTrainerCertificateError('')
+    setTrainerLifecycle(null)
+    setTrainerLifecycleReason('')
+    setTrainerLifecycleConfirmed(false)
     try {
       const result = await api.preflightCertificadoCapacitador(service.ID)
       setTrainerCertificate({ serviceName: service.Nombre, data: result.data })
@@ -264,6 +274,59 @@ export default function ServiciosView() {
     } finally {
       setTrainerCertificateBusy(false)
     }
+  }
+
+  async function refreshTrainerCertificate(servicioId) {
+    const result = await api.preflightCertificadoCapacitador(servicioId)
+    setTrainerCertificate(current => ({ ...current, data: result.data }))
+  }
+
+  async function issueTrainerCertificate() {
+    const serviceId = trainerCertificate?.data?.servicioId
+    if (!serviceId) return
+    setTrainerCertificateBusy(true)
+    setTrainerCertificateError('')
+    try {
+      const issued = await api.emitirCertificadoCapacitador(serviceId)
+      const prepared = await certificatePdfRepository.prepare(issued.data)
+      saveAs(prepared.blob, prepared.filename)
+      await refreshTrainerCertificate(serviceId)
+    } catch (error) {
+      setTrainerCertificateError(`${error.message} Si la emisión ya quedó registrada, use Descargar PDF para reintentar sin crear otro código.`)
+      await refreshTrainerCertificate(serviceId).catch(() => {})
+    } finally { setTrainerCertificateBusy(false) }
+  }
+
+  async function downloadTrainerCertificate(id) {
+    setTrainerCertificateBusy(true)
+    setTrainerCertificateError('')
+    try {
+      const result = await api.getCertificadoCapacitadorParaDescarga(id)
+      const prepared = await certificatePdfRepository.prepare(result.data)
+      saveAs(prepared.blob, prepared.filename)
+      await refreshTrainerCertificate(trainerCertificate.data.servicioId)
+    } catch (error) { setTrainerCertificateError(error.message) }
+    finally { setTrainerCertificateBusy(false) }
+  }
+
+  async function changeTrainerCertificate() {
+    if (!trainerLifecycle || !trainerLifecycleConfirmed || trainerLifecycleReason.trim().length < 5) return
+    setTrainerCertificateBusy(true)
+    setTrainerCertificateError('')
+    try {
+      if (trainerLifecycle.action === 'void') {
+        await api.anularCertificadoCapacitador(trainerLifecycle.id, trainerLifecycleReason.trim())
+      } else {
+        const reissued = await api.reemitirCertificadoCapacitador(trainerLifecycle.id, trainerLifecycleReason.trim())
+        const prepared = await certificatePdfRepository.prepare(reissued.data)
+        saveAs(prepared.blob, prepared.filename)
+      }
+      await refreshTrainerCertificate(trainerCertificate.data.servicioId)
+      setTrainerLifecycle(null)
+      setTrainerLifecycleReason('')
+      setTrainerLifecycleConfirmed(false)
+    } catch (error) { setTrainerCertificateError(error.message) }
+    finally { setTrainerCertificateBusy(false) }
   }
 
   const filtered = filtro ? data.filter(s => s.Tipo === filtro) : data
@@ -307,6 +370,9 @@ export default function ServiciosView() {
             <>
               <button onClick={() => setTrainerModal(true)} className="btn-secondary text-sm">
                 <UserRound size={15} /> Capacitadores
+              </button>
+              <button onClick={() => setSigningSettingsOpen(true)} className="btn-secondary text-sm">
+                <ShieldCheck size={15} /> Firmas y plantilla
               </button>
               <button onClick={() => { setSelected(null); setModal('new') }} className="btn-primary text-sm">
                 <Plus size={15} /> Nuevo Servicio
@@ -497,13 +563,52 @@ export default function ServiciosView() {
                 <p className="font-semibold">{trainerCertificate.data.datosCompletos ? 'Datos del curso completos' : 'Datos por completar'}</p>
                 {trainerCertificate.data.bloqueosDatos.map(message => <p key={message} className="mt-1">• {message}</p>)}
               </div>
-              <p role="status" className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-blue-900">
-                Emisión bloqueada: {trainerCertificate.data.bloqueoEmision} Esta revisión no emite, reserva ni modifica certificados.
-              </p>
+              {trainerCertificate.data.certificadoId ? (
+                <div role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-900">
+                  <p className="font-semibold">Certificado profesional emitido: {trainerCertificate.data.codigoCertificado}</p>
+                <p>Si ya está archivado, el PDF se recupera de Drive privado con su versión y SHA-256. Si falta, use Descargar PDF para completar el archivo sin crear otro código.</p>
+                </div>
+              ) : trainerCertificate.data.emisionHabilitada ? (
+                <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-blue-900">
+                  <p className="font-semibold">Listo para emitir el certificado de capacitador</p>
+                  <p className="mb-3">Esta acción asigna un código único; luego genera y archiva el PDF. Si falla el archivo, el código no se duplica y podrá reintentar la descarga. No usa una inscripción de alumno.</p>
+                  <button type="button" className="btn-primary" disabled={trainerCertificateBusy} onClick={issueTrainerCertificate}>Emitir y descargar</button>
+                </div>
+              ) : (
+                <p role="status" className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-blue-900">
+                  Emisión bloqueada: {trainerCertificate.data.bloqueoEmision} Esta revisión no emite ni reserva códigos.
+                </p>
+              )}
+              {trainerCertificate.data.historial?.length > 0 && <div className="space-y-2">
+                <p className="font-semibold text-slate-900">Versiones y auditoría</p>
+                {trainerCertificate.data.historial.map(item => <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 p-2">
+                  <span className="text-slate-700">v{item.version} · {item.codigo} · {item.estado}{item.pdfArchivado ? ' · PDF privado' : ' · PDF pendiente'}</span>
+                  <div className="flex flex-wrap gap-2">
+                    {['emitido', 'enviado'].includes(item.estado) && <>
+                      <button type="button" className="btn-secondary text-xs" disabled={trainerCertificateBusy} onClick={() => downloadTrainerCertificate(item.id)}>Descargar PDF</button>
+                      <button type="button" className="btn-secondary text-xs" disabled={trainerCertificateBusy} onClick={() => setTrainerLifecycle({ action: 'void', id: item.id })}>Anular</button>
+                    </>}
+                    {['emitido', 'anulado'].includes(item.estado) && <button type="button" className="btn-secondary text-xs" disabled={trainerCertificateBusy} onClick={() => setTrainerLifecycle({ action: 'reissue', id: item.id })}>Reemitir</button>}
+                  </div>
+                </div>)}
+              </div>}
+              {trainerLifecycle && <div className="space-y-2 rounded-xl border border-amber-200 bg-amber-50 p-3">
+                <p className="font-semibold text-amber-950">{trainerLifecycle.action === 'void' ? 'Anular versión' : 'Reemitir con código nuevo'}</p>
+                <input className="input" aria-label="Motivo de cambio" placeholder="Motivo obligatorio (mínimo 5 caracteres)"
+                  value={trainerLifecycleReason} onChange={event => setTrainerLifecycleReason(event.target.value)} />
+                <label className="flex items-center gap-2"><input type="checkbox" checked={trainerLifecycleConfirmed}
+                  onChange={event => setTrainerLifecycleConfirmed(event.target.checked)} /> Confirmo esta operación irreversible sobre el estado histórico.</label>
+                <div className="flex gap-2">
+                  <button type="button" className="btn-secondary" onClick={() => setTrainerLifecycle(null)}>Cancelar</button>
+                  <button type="button" className="btn-primary" disabled={trainerCertificateBusy || !trainerLifecycleConfirmed || trainerLifecycleReason.trim().length < 5}
+                    onClick={changeTrainerCertificate}>Confirmar</button>
+                </div>
+              </div>}
             </>}
           </div>
         </Modal>
       )}
+      {isAdmin && <CertificateSigningSettings open={signingSettingsOpen} onClose={() => setSigningSettingsOpen(false)} />}
     </div>
   )
 }

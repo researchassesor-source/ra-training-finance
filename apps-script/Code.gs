@@ -98,6 +98,14 @@ function processRequest(data) {
     addCapacitador:     () => addCapacitador(user, params),
     updateCapacitador:  () => updateCapacitador(user, params),
     preflightCertificadoCapacitador: () => preflightCertificadoCapacitador(user, params),
+    emitirCertificadoCapacitador: () => emitirCertificadoCapacitador(user, params),
+    getCertificadoCapacitadorParaDescarga: () => getCertificadoCapacitadorParaDescarga(user, params),
+    anularCertificadoCapacitador: () => anularCertificadoCapacitador(user, params),
+    reemitirCertificadoCapacitador: () => reemitirCertificadoCapacitador(user, params),
+    getEstadoFirmasCertificado: () => getEstadoFirmasCertificado(user),
+    registrarFirmaOficialCertificado: () => registrarFirmaOficialCertificado(user, params),
+    activarPlantillaCertificadoV2: () => activarPlantillaCertificadoV2(user, params),
+    getFirmasOficialesCertificado: () => getFirmasOficialesCertificado(user),
     getInscripciones:   () => getInscripciones(user, params),
     updateMoodleCredentials: () => updateMoodleCredentials(user, params),
     registrarEnvioMoodle: () => registrarEnvioMoodle(user, params),
@@ -225,6 +233,7 @@ const SHEET_HEADERS = {
   AuditoriaCertificados: ['ID','CertificadoID','InscripcionID','Usuario','Rol','Accion','FechaHora','EstadoAnterior','EstadoNuevo','Canal','Resultado','Motivo','Metadatos'],
   AuditoriaMoodle:   ['ID','InscripcionID','Usuario','Rol','Accion','FechaHora','Resultado','Metadatos'],
   Certificados: ['ID','InscripcionID','CodigoCertificado','CertificateVersion','TemplateVersion','PdfHash','PdfStorageReference','OriginalCertificateId','ReissuedCertificateId','CertificateStatus','IssuedAt','IssuedBy','VoidedAt','VoidedBy','VoidReason','ReissueReason','CreatedAt','CertificateType'],
+  CertificadosProfesionales: ['ID','CapacitadorID','ServicioID','Rol','Nombre','Identificacion','Resumen','ServicioNombre','Duracion','Modalidad','FechaInicio','FechaFin','Lugar','CodigoCertificado','CertificateVersion','TemplateVersion','PdfHash','PdfStorageReference','OriginalCertificateId','ReissuedCertificateId','CertificateStatus','IssuedAt','IssuedBy','VoidedAt','VoidedBy','VoidReason','ReissueReason','CreatedAt'],
   DescargasCertificados: ['ID','CertificadoID','InscripcionID','Usuario','Rol','Estado','FechaSolicitud','FechaConfirmacion','Motivo','PdfHash','PdfStorageReference','Canal'],
   // Modulo comercial CRM (aditivo). Una compra = una fila, identidad CRMOrderID.
   // FinanceInscripcionID apunta a la UNICA inscripcion academica del enrollment
@@ -245,6 +254,120 @@ const SHEET_HEADERS = {
 };
 
 const CERTIFICATE_TEMPLATE_VERSION = 'ra-canva-2026-v1';
+const CERTIFICATE_SECURITY_TEMPLATE_VERSION = 'ra-security-2026-v2';
+const CERTIFICATE_V2_ACTIVE_PROPERTY = 'CERTIFICATE_V2_ACTIVE';
+
+function propiedadFirmaCertificado_(rol) {
+  const value = String(rol || '').trim().toLowerCase();
+  if (value === 'director') return 'CERTIFICATE_DIRECTOR_SIGNATURE_FILE_ID';
+  if (value === 'manager') return 'CERTIFICATE_MANAGER_SIGNATURE_FILE_ID';
+  throw new Error('Rol de firma desconocido.');
+}
+
+function sha256BytesCertificado_(bytes) {
+  return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, bytes)
+    .map(function(byte) { return ('0' + (byte & 255).toString(16)).slice(-2); }).join('');
+}
+
+function leerFirmaOficialCertificado_(rol) {
+  const props = PropertiesService.getScriptProperties();
+  const key = propiedadFirmaCertificado_(rol);
+  const id = String(props.getProperty(key) || '').trim();
+  const expectedHash = String(props.getProperty(key + '_SHA256') || '').trim();
+  if (!id || !expectedHash) throw new Error('Falta la firma oficial aprobada de ' + rol + '.');
+  const bytes = DriveApp.getFileById(id).getBlob().getBytes();
+  if (sha256BytesCertificado_(bytes) !== expectedHash) throw new Error('La firma oficial de ' + rol + ' no superó la comprobación SHA-256.');
+  return Utilities.base64Encode(bytes);
+}
+
+function plantillaActivaCertificado_() {
+  if (PropertiesService.getScriptProperties().getProperty(CERTIFICATE_V2_ACTIVE_PROPERTY) !== 'ON') return CERTIFICATE_TEMPLATE_VERSION;
+  leerFirmaOficialCertificado_('director');
+  leerFirmaOficialCertificado_('manager');
+  return CERTIFICATE_SECURITY_TEMPLATE_VERSION;
+}
+
+function getEstadoFirmasCertificado(user) {
+  requireCertificateAdmin(user, 'CERTIFICATE_SIGNATURE_STATUS', { canal: 'api' });
+  const props = PropertiesService.getScriptProperties();
+  return { success: true, data: {
+    director: Boolean(props.getProperty(propiedadFirmaCertificado_('director'))),
+    manager: Boolean(props.getProperty(propiedadFirmaCertificado_('manager'))),
+    plantillaActiva: props.getProperty(CERTIFICATE_V2_ACTIVE_PROPERTY) === 'ON',
+    versionActiva: props.getProperty(CERTIFICATE_V2_ACTIVE_PROPERTY) === 'ON'
+      ? CERTIFICATE_SECURITY_TEMPLATE_VERSION : CERTIFICATE_TEMPLATE_VERSION,
+  } };
+}
+
+function registrarFirmaOficialCertificado(user, { rol, pngBase64, confirmacion } = {}) {
+  requireCertificateAdmin(user, 'CERTIFICATE_SIGNATURE_REGISTER', { canal: 'api' });
+  if (confirmacion !== 'CONFIRMO_FIRMA_AUTENTICA_Y_USO_AUTORIZADO') {
+    return { success: false, error: 'Confirme que la rúbrica es auténtica y su uso está autorizado.' };
+  }
+  return conBloqueoCertificados(function() {
+    const key = propiedadFirmaCertificado_(rol);
+    const props = PropertiesService.getScriptProperties();
+    if (props.getProperty(key)) return { success: false, error: 'La firma ya está registrada. Una rotación requiere una nueva versión de plantilla.' };
+    const encoded = String(pngBase64 || '').replace(/^data:image\/png;base64,/i, '');
+    if (!/^[A-Za-z0-9+/]+=*$/.test(encoded) || encoded.length > 2100000) {
+      return { success: false, error: 'La firma debe ser PNG válido de hasta 1,5 MB.' };
+    }
+    const bytes = Utilities.base64Decode(encoded);
+    const header = [137,80,78,71,13,10,26,10];
+    const png = bytes.length >= 500 && header.every(function(value, index) { return (bytes[index] & 255) === value; });
+    const dimension = function(start) { return ((bytes[start] & 255) * 16777216) + ((bytes[start + 1] & 255) << 16) + ((bytes[start + 2] & 255) << 8) + (bytes[start + 3] & 255); };
+    if (!png || dimension(16) < 100 || dimension(20) < 25) {
+      return { success: false, error: 'La imagen PNG está dañada o es demasiado pequeña para una firma oficial.' };
+    }
+    const hash = sha256BytesCertificado_(bytes);
+    const blob = Utilities.newBlob(bytes, 'image/png', 'firma-certificado-v2-' + rol + '.png');
+    const file = DriveApp.createFile(blob);
+    try {
+      file.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE);
+      props.setProperty(key, file.getId());
+      props.setProperty(key + '_SHA256', hash);
+      registrarAuditoriaCertificado({ certificadoId: '', inscripcionId: '', usuario: user.Username, rol: user.Rol,
+        accion: 'CERTIFICATE_SIGNATURE_REGISTERED', canal: 'panel', resultado: 'ok', metadatos: { signerRole: rol, sha256: hash } });
+    } catch (error) {
+      props.deleteProperty(key);
+      props.deleteProperty(key + '_SHA256');
+      file.setTrashed(true);
+      throw error;
+    }
+    return { success: true, data: { rol: rol, sha256: hash } };
+  });
+}
+
+function activarPlantillaCertificadoV2(user, { confirmacion } = {}) {
+  requireCertificateAdmin(user, 'CERTIFICATE_TEMPLATE_ACTIVATE', { canal: 'api' });
+  if (confirmacion !== 'ACTIVAR_CERTIFICADOS_SEGURIDAD_V2') return { success: false, error: 'Falta la confirmación explícita de activación.' };
+  return conBloqueoCertificados(function() {
+    const props = PropertiesService.getScriptProperties();
+    if (props.getProperty(CERTIFICATE_V2_ACTIVE_PROPERTY) === 'ON') return { success: true, alreadyActive: true };
+    leerFirmaOficialCertificado_('director');
+    leerFirmaOficialCertificado_('manager');
+    props.setProperty(CERTIFICATE_V2_ACTIVE_PROPERTY, 'ON');
+    try {
+      registrarAuditoriaCertificado({ certificadoId: '', inscripcionId: '', usuario: user.Username, rol: user.Rol,
+        accion: 'CERTIFICATE_TEMPLATE_V2_ACTIVATED', canal: 'panel', resultado: 'ok', metadatos: { templateVersion: CERTIFICATE_SECURITY_TEMPLATE_VERSION } });
+    } catch (error) {
+      props.deleteProperty(CERTIFICATE_V2_ACTIVE_PROPERTY);
+      throw error;
+    }
+    return { success: true, data: { templateVersion: CERTIFICATE_SECURITY_TEMPLATE_VERSION } };
+  });
+}
+
+function getFirmasOficialesCertificado(user) {
+  requireCertificateAdmin(user, 'CERTIFICATE_SIGNATURE_READ', { canal: 'api' });
+  if (PropertiesService.getScriptProperties().getProperty(CERTIFICATE_V2_ACTIVE_PROPERTY) !== 'ON') {
+    return { success: false, error: 'La plantilla de seguridad aún no está activada.' };
+  }
+  return { success: true, signatures: {
+    director: 'data:image/png;base64,' + leerFirmaOficialCertificado_('director'),
+    manager: 'data:image/png;base64,' + leerFirmaOficialCertificado_('manager'),
+  } };
+}
 
 function getSheet(name) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -1024,6 +1147,19 @@ function handleLogout(token) {
 // aún no fue emitido (mismo mensaje "no válido" para ambos casos).
 function handleVerificarCertificado({ id } = {}) {
   if (!id) return { success: true, valido: false };
+  const professional = buscarCertificadoProfesional_(String(id));
+  if (professional) {
+    const estadoProfesional = estadoPublicoCertificado(professional);
+    if (['vigente', 'anulado', 'reemitido'].indexOf(estadoProfesional) === -1) return { success: true, valido: false };
+    return { success: true, valido: true, data: {
+      codigo: professional.CodigoCertificado, identificador: professional.ID, estado: estadoProfesional,
+      tipoSujeto: 'profesional', rolProfesional: professional.Rol,
+      nombre: professional.Nombre, servicio: professional.ServicioNombre, duracion: professional.Duracion,
+      modalidad: professional.Modalidad, fechaInicio: professional.FechaInicio, fechaFin: professional.FechaFin,
+      fechaEmision: professional.IssuedAt, version: Number(professional.CertificateVersion) || 1,
+      certificadoVigenteId: estadoProfesional === 'reemitido' ? professional.ReissuedCertificateId || '' : '',
+    } };
+  }
   const resultado = buscarCertificadoPublico(id);
   if (!resultado) return { success: true, valido: false };
   const row = resultado.inscripcion;
@@ -1705,15 +1841,147 @@ function preflightCertificadoCapacitador(user, { servicioId } = {}) {
     blockers.push('Defina fechas válidas de inicio y fin del curso.');
   }
   if (String(service.EstadoEvento || '').toLowerCase() === 'cancelado') blockers.push('El evento está cancelado.');
+  if (String(service.EstadoEvento || '').toLowerCase() !== 'finalizado') blockers.push('Marque el evento como finalizado antes de certificar al capacitador.');
+  const todayEcuador = Utilities.formatDate(new Date(), 'America/Guayaquil', 'yyyy-MM-dd');
+  if (end && end > todayEcuador) blockers.push('El curso todavía no ha terminado.');
+  const professionalSheet = ss.getSheetByName('CertificadosProfesionales');
+  const previous = professionalSheet ? sheetToObjects(professionalSheet).filter(function(item) {
+    return item.ServicioID === service.ID && item.CapacitadorID === trainerId && item.Rol === 'capacitador';
+  }) : [];
+  const current = previous.find(function(item) { return ['emitido', 'enviado'].indexOf(estadoNormalizadoCertificado(item)) !== -1; });
+  const templateReady = PropertiesService.getScriptProperties().getProperty(CERTIFICATE_V2_ACTIVE_PROPERTY) === 'ON';
   return { success: true, data: {
     tipo: 'capacitador', servicioId: service.ID, capacitadorId: trainerId,
     nombre: trainer ? trainer.Nombre : '', identificacion: trainer ? trainer.Identificacion : '',
     resumen: trainer ? trainer.Resumen : '', curso: service.Nombre || '',
     duracion: duration, modalidad: service.Modalidad || '', fechaInicio: start, fechaFin: end,
     datosCompletos: blockers.length === 0, bloqueosDatos: blockers,
-    emisionHabilitada: false,
-    bloqueoEmision: 'La plantilla profesional, las firmas auténticas, el archivo privado y la verificación pública aún no están activados.',
+    certificadoId: current ? current.ID : '', codigoCertificado: current ? current.CodigoCertificado : '',
+    historial: previous.map(function(item) { return { id: item.ID, codigo: item.CodigoCertificado,
+      version: Number(item.CertificateVersion) || 1, estado: estadoNormalizadoCertificado(item),
+      pdfArchivado: Boolean(item.PdfHash && item.PdfStorageReference) }; }),
+    emisionHabilitada: blockers.length === 0 && templateReady && previous.length === 0,
+    bloqueoEmision: previous.length && !current ? 'Ya existe una versión histórica; utilice reemisión en vez de crear otro certificado.'
+      : templateReady ? (blockers.length ? 'Complete las condiciones del evento.' : '')
+      : 'La plantilla de seguridad requiere las firmas auténticas y activación administrativa.',
   } };
+}
+
+function buscarCertificadoProfesional_(identifier) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('CertificadosProfesionales');
+  if (!sheet) return null;
+  const matches = sheetToObjects(sheet).filter(function(item) {
+    return item.ID === identifier || item.CodigoCertificado === identifier;
+  });
+  return matches.length === 1 ? matches[0] : null;
+}
+
+function certificadoProfesionalParaCliente_(row) {
+  return {
+    ID: row.ID, CertificatePublicId: row.ID, CertificateSubject: 'professional', ProfessionalRole: row.Rol,
+    ClienteNombre: row.Nombre, ClienteID: row.Identificacion, ServicioNombre: row.ServicioNombre,
+    Duracion: row.Duracion, Modalidad: row.Modalidad, FechaInicio: row.FechaInicio, FechaFin: row.FechaFin,
+    CodigoCertificado: row.CodigoCertificado, CertificateVersion: Number(row.CertificateVersion) || 1,
+    TemplateVersion: row.TemplateVersion, CertificateStatus: row.CertificateStatus,
+    EstadoCertificado: row.CertificateStatus, FechaEmisionCertificado: row.IssuedAt,
+    PdfHash: row.PdfHash || '', PdfStorageReference: row.PdfStorageReference || '',
+  };
+}
+
+function emitirCertificadoCapacitador(user, { servicioId } = {}) {
+  requireCertificateAdmin(user, 'TRAINER_CERTIFICATE_ISSUE', { canal: 'api' });
+  return conBloqueoCertificados(function() {
+    const preflight = preflightCertificadoCapacitador(user, { servicioId: servicioId });
+    if (!preflight.success) return preflight;
+    const info = preflight.data;
+    if (info.certificadoId) {
+      const current = buscarCertificadoProfesional_(info.certificadoId);
+      return { success: true, alreadyIssued: true, data: certificadoProfesionalParaCliente_(current) };
+    }
+    if (!info.emisionHabilitada) return { success: false, error: info.bloqueosDatos.concat(info.bloqueoEmision).filter(Boolean).join(' ') };
+    const templateVersion = plantillaActivaCertificado_();
+    if (templateVersion !== CERTIFICATE_SECURITY_TEMPLATE_VERSION) return { success: false, error: 'La plantilla profesional todavía no está activa.' };
+    const id = generateId('CPR');
+    const now = new Date().toISOString();
+    const code = generarCodigoCertificadoUnico({ ID: id, FechaEmisionCertificado: now }, id, '');
+    const sheet = getSheet('CertificadosProfesionales');
+    const record = {
+      ID: id, CapacitadorID: info.capacitadorId, ServicioID: info.servicioId, Rol: 'capacitador',
+      Nombre: info.nombre, Identificacion: info.identificacion, Resumen: info.resumen,
+      ServicioNombre: info.curso, Duracion: info.duracion, Modalidad: info.modalidad,
+      FechaInicio: info.fechaInicio, FechaFin: info.fechaFin, Lugar: '',
+      CodigoCertificado: code, CertificateVersion: 1, TemplateVersion: templateVersion,
+      CertificateStatus: 'emitido', IssuedAt: now, IssuedBy: user.Username, CreatedAt: now,
+    };
+    sheet.appendRow(SHEET_HEADERS.CertificadosProfesionales.map(function(header) { return record[header] === undefined ? '' : record[header]; }));
+    try {
+      registrarAuditoriaCertificado({ certificadoId: code, inscripcionId: '', usuario: user.Username, rol: user.Rol,
+        accion: 'TRAINER_CERTIFICATE_ISSUED', canal: 'panel', resultado: 'ok', metadatos: { certificateId: id, servicioId: info.servicioId, capacitadorId: info.capacitadorId } });
+    } catch (error) { sheet.deleteRow(sheet.getLastRow()); throw error; }
+    return { success: true, data: certificadoProfesionalParaCliente_(buscarCertificadoProfesional_(id)) };
+  });
+}
+
+function getCertificadoCapacitadorParaDescarga(user, { id } = {}) {
+  requireCertificateAdmin(user, 'TRAINER_CERTIFICATE_DOWNLOAD', { canal: 'api' });
+  const row = buscarCertificadoProfesional_(String(id || ''));
+  if (!row || ['emitido', 'enviado'].indexOf(estadoNormalizadoCertificado(row)) === -1) {
+    return { success: false, error: 'No existe un certificado profesional vigente con ese identificador.' };
+  }
+  return { success: true, data: certificadoProfesionalParaCliente_(row) };
+}
+
+function anularCertificadoCapacitador(user, { id, motivo, confirmacion } = {}) {
+  requireCertificateAdmin(user, 'TRAINER_CERTIFICATE_VOID', { canal: 'api' });
+  if (confirmacion !== 'ANULAR' || String(motivo || '').trim().length < 5) return { success: false, error: 'Confirme la anulación y explique el motivo.' };
+  return conBloqueoCertificados(function() {
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('CertificadosProfesionales');
+    const row = buscarCertificadoProfesional_(String(id || ''));
+    if (!sheet || !row || estadoNormalizadoCertificado(row) !== 'emitido') return { success: false, error: 'Solo puede anularse un certificado profesional vigente.' };
+    const now = new Date().toISOString();
+    updateRow(sheet, row, { CertificateStatus: 'anulado', VoidedAt: now, VoidedBy: user.Username, VoidReason: String(motivo).trim() });
+    try {
+      registrarAuditoriaCertificado({ certificadoId: row.CodigoCertificado, inscripcionId: '', usuario: user.Username, rol: user.Rol,
+        accion: 'TRAINER_CERTIFICATE_VOIDED', estadoAnterior: 'emitido', estadoNuevo: 'anulado', canal: 'panel', resultado: 'ok', motivo: String(motivo).trim() });
+    } catch (error) {
+      updateRow(sheet, row, { CertificateStatus: row.CertificateStatus, VoidedAt: row.VoidedAt, VoidedBy: row.VoidedBy, VoidReason: row.VoidReason });
+      throw error;
+    }
+    return { success: true };
+  });
+}
+
+function reemitirCertificadoCapacitador(user, { id, motivo, confirmacion } = {}) {
+  requireCertificateAdmin(user, 'TRAINER_CERTIFICATE_REISSUE', { canal: 'api' });
+  if (confirmacion !== 'REEMITIR' || String(motivo || '').trim().length < 5) return { success: false, error: 'Confirme la reemisión y explique el motivo.' };
+  return conBloqueoCertificados(function() {
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('CertificadosProfesionales');
+    const original = buscarCertificadoProfesional_(String(id || ''));
+    if (!sheet || !original || ['emitido', 'anulado'].indexOf(estadoNormalizadoCertificado(original)) === -1) {
+      return { success: false, error: 'La versión profesional no se puede reemitir.' };
+    }
+    const newId = generateId('CPR');
+    const now = new Date().toISOString();
+    const next = Object.assign({}, original, {
+      ID: newId, CodigoCertificado: generarCodigoCertificadoUnico({ ID: newId, FechaEmisionCertificado: now }, newId, ''),
+      CertificateVersion: (Number(original.CertificateVersion) || 1) + 1, TemplateVersion: plantillaActivaCertificado_(),
+      PdfHash: '', PdfStorageReference: '', OriginalCertificateId: original.OriginalCertificateId || original.ID,
+      ReissuedCertificateId: '', CertificateStatus: 'emitido', IssuedAt: now, IssuedBy: user.Username,
+      VoidedAt: '', VoidedBy: '', VoidReason: '', ReissueReason: String(motivo).trim(), CreatedAt: now,
+    });
+    sheet.appendRow(SHEET_HEADERS.CertificadosProfesionales.map(function(header) { return next[header] === undefined ? '' : next[header]; }));
+    try {
+      updateRow(sheet, original, { CertificateStatus: 'reemitido', ReissuedCertificateId: newId, ReissueReason: String(motivo).trim() });
+      registrarAuditoriaCertificado({ certificadoId: next.CodigoCertificado, inscripcionId: '', usuario: user.Username, rol: user.Rol,
+        accion: 'TRAINER_CERTIFICATE_REISSUED', estadoAnterior: original.CertificateStatus, estadoNuevo: 'reemitido', canal: 'panel', resultado: 'ok', motivo: String(motivo).trim(),
+        metadatos: { originalCertificateId: original.ID, newCertificateId: newId } });
+    } catch (error) {
+      updateRow(sheet, original, { CertificateStatus: original.CertificateStatus, ReissuedCertificateId: original.ReissuedCertificateId, ReissueReason: original.ReissueReason });
+      sheet.deleteRow(sheet.getLastRow());
+      throw error;
+    }
+    return { success: true, data: certificadoProfesionalParaCliente_(buscarCertificadoProfesional_(newId)) };
+  });
 }
 
 function getServicios(user, params) {
@@ -2826,6 +3094,11 @@ function codigoCertificadoEnUso(codigo, exceptCertificateId, exceptInscripcionId
       && String(item.ID || '') !== String(exceptCertificateId || '');
   });
   if (usadoEnCertificados) return true;
+  const professionalSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('CertificadosProfesionales');
+  if (professionalSheet && sheetToObjects(professionalSheet).some(function(item) {
+    return String(item.CodigoCertificado || '').trim().toUpperCase() === normalized
+      && String(item.ID || '') !== String(exceptCertificateId || '');
+  })) return true;
   return sheetToObjects(getSheet('Inscripciones')).some(function(item) {
     return String(item.CodigoCertificado || '').trim().toUpperCase() === normalized
       && String(item.ID || '') !== String(exceptInscripcionId || '');
@@ -3136,7 +3409,8 @@ function emitirCertificadoBajoBloqueo(user, { id } = {}) {
   const servicioCertificado = servicioParaCertificado_(row);
   if (!servicioCertificado) return { success: false, error: 'No se pudo vincular de forma inequívoca el servicio del certificado.' };
   const certificateType = tipoCertificadoServicio_(servicioCertificado.TipoCertificado);
-  if (certificateType !== 'aprobacion') {
+  const activeTemplate = plantillaActivaCertificado_();
+  if (certificateType !== 'aprobacion' && activeTemplate !== CERTIFICATE_SECURITY_TEMPLATE_VERSION) {
     return { success: false, error: 'El servicio requiere un certificado de ' + certificateType + ', pero la plantilla oficial sigue pendiente de firmas y activación. No se emitió un certificado incorrecto.' };
   }
 
@@ -3169,7 +3443,7 @@ function emitirCertificadoBajoBloqueo(user, { id } = {}) {
     EmitidoPor: row.EmitidoPor || user.Username,
     EstadoEntrega: row.EstadoEntrega || 'pendiente',
     CertificateVersion: 1,
-    TemplateVersion: CERTIFICATE_TEMPLATE_VERSION,
+    TemplateVersion: activeTemplate,
     CertificateType: certificateType,
     CertificateStatus: 'emitido',
     IssuedAt: row.IssuedAt || row.FechaEmisionCertificado || ahora,
@@ -3257,6 +3531,7 @@ function reemitirCertificadoBajoBloqueo(user, { id, motivo, confirmacion } = {})
   const ahora = new Date().toISOString();
   const nuevoId = generateId('CRT');
   const nuevaVersion = (Number(original.CertificateVersion) || 1) + 1;
+  const activeTemplate = plantillaActivaCertificado_();
   const nuevoCodigo = generarCodigoCertificadoUnico(
     { ID: nuevoId, FechaEmisionCertificado: ahora },
     nuevoId,
@@ -3267,7 +3542,7 @@ function reemitirCertificadoBajoBloqueo(user, { id, motivo, confirmacion } = {})
     InscripcionID: inscripcion.ID,
     CodigoCertificado: nuevoCodigo,
     CertificateVersion: nuevaVersion,
-    TemplateVersion: CERTIFICATE_TEMPLATE_VERSION,
+    TemplateVersion: activeTemplate,
     CertificateType: original.CertificateType || inscripcion.CertificateType || 'aprobacion',
     OriginalCertificateId: original.ID,
     CertificateStatus: 'emitido',
@@ -3381,6 +3656,7 @@ function carpetaCertificadosPrivados_() {
 function guardarPdfCertificadoPrivado(user, params) {
   const p = params || {};
   requireCertificateAdmin(user, 'CERTIFICATE_PRIVATE_PDF_STORE', { inscripcionId: p.id, canal: 'api' });
+  if (buscarCertificadoProfesional_(String(p.id || ''))) return guardarPdfCertificadoProfesional_(user, p);
   const expectedHash = String(p.pdfHash || '').trim().toLowerCase();
   if (!/^[a-f0-9]{64}$/.test(expectedHash)) return { success: false, error: 'La huella SHA-256 del certificado no es válida.' };
   if (!p.pdfBase64 || String(p.pdfBase64).length > 16000000) return { success: false, error: 'El PDF del certificado falta o excede el tamaño permitido.' };
@@ -3440,6 +3716,19 @@ function guardarPdfCertificadoPrivado(user, params) {
 
 function leerPdfCertificadoPrivado(user, { id } = {}) {
   requireCertificateAdmin(user, 'CERTIFICATE_PRIVATE_PDF_READ', { inscripcionId: id, canal: 'api' });
+  const professional = buscarCertificadoProfesional_(String(id || ''));
+  if (professional) {
+    const professionalRef = String(professional.PdfStorageReference || '').trim();
+    const professionalHash = String(professional.PdfHash || '').trim().toLowerCase();
+    if (professionalRef.indexOf('certificate-drive:') !== 0 || !/^[a-f0-9]{64}$/.test(professionalHash)) {
+      return { success: false, error: 'El certificado profesional no tiene PDF privado archivado.' };
+    }
+    const professionalFile = DriveApp.getFileById(professionalRef.slice('certificate-drive:'.length));
+    const professionalBytes = professionalFile.getBlob().getBytes();
+    if (sha256PdfCertificado_(professionalBytes) !== professionalHash) throw new Error('El PDF profesional no superó la comprobación SHA-256.');
+    return { success: true, reference: professionalRef, hash: professionalHash,
+      contentBase64: Utilities.base64Encode(professionalBytes), filename: professionalFile.getName() };
+  }
   const resolved = resolverCertificadoAdministrativo(id, user);
   if (!resolved) return { success: false, error: 'Certificado no encontrado.' };
   const reference = String(resolved.certificado.PdfStorageReference || '').trim();
@@ -3451,6 +3740,50 @@ function leerPdfCertificadoPrivado(user, { id } = {}) {
   const bytes = file.getBlob().getBytes();
   if (sha256PdfCertificado_(bytes) !== expectedHash) throw new Error('La huella del PDF privado no coincide con el registro oficial.');
   return { success: true, reference: reference, hash: expectedHash, contentBase64: Utilities.base64Encode(bytes), filename: file.getName() };
+}
+
+function guardarPdfCertificadoProfesional_(user, p) {
+  const hash = String(p.pdfHash || '').trim().toLowerCase();
+  if (!/^[a-f0-9]{64}$/.test(hash) || !p.pdfBase64 || String(p.pdfBase64).length > 16000000) {
+    return { success: false, error: 'El PDF profesional o su huella SHA-256 no son válidos.' };
+  }
+  return conBloqueoCertificados(function() {
+    const sheet = getSheet('CertificadosProfesionales');
+    const row = buscarCertificadoProfesional_(String(p.id || ''));
+    if (!row || estadoNormalizadoCertificado(row) !== 'emitido') return { success: false, error: 'El certificado profesional no está vigente.' };
+    if (Number(p.certificateVersion) !== Number(row.CertificateVersion) || String(p.templateVersion || '') !== String(row.TemplateVersion || '')) {
+      return { success: false, error: 'La versión del PDF profesional no corresponde al registro.' };
+    }
+    const reference = String(row.PdfStorageReference || '').trim();
+    const existingHash = String(row.PdfHash || '').trim().toLowerCase();
+    if (reference || existingHash) {
+      if (reference.indexOf('certificate-drive:') === 0 && existingHash === hash) {
+        const existingBytes = DriveApp.getFileById(reference.slice('certificate-drive:'.length)).getBlob().getBytes();
+        if (sha256PdfCertificado_(existingBytes) === hash) return { success: true, reference: reference, hash: hash, idempotent: true };
+      }
+      return { success: false, error: 'El PDF profesional ya está fijado y no puede reemplazarse.' };
+    }
+    let bytes;
+    try { bytes = Utilities.base64Decode(String(p.pdfBase64)); }
+    catch (error) { return { success: false, error: 'El PDF profesional está mal codificado.' }; }
+    if (bytes.length < 5 || String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3], bytes[4]) !== '%PDF-' || sha256PdfCertificado_(bytes) !== hash) {
+      return { success: false, error: 'El PDF profesional no es válido o su SHA-256 no coincide.' };
+    }
+    const folder = carpetaCertificadosPrivados_();
+    const file = folder.createFile(Utilities.newBlob(bytes, 'application/pdf', 'CERT_PRO_' + String(row.CodigoCertificado).replace(/[^a-zA-Z0-9._-]/g, '_') + '_v' + row.CertificateVersion + '.pdf'));
+    try { file.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE); } catch (error) { /* Drive crea archivos privados. */ }
+    const savedRef = 'certificate-drive:' + file.getId();
+    try {
+      updateRow(sheet, row, { PdfHash: hash, PdfStorageReference: savedRef });
+      registrarAuditoriaCertificado({ certificadoId: row.CodigoCertificado, inscripcionId: '', usuario: user.Username, rol: user.Rol,
+        accion: 'TRAINER_CERTIFICATE_PDF_ARCHIVED', canal: 'api', resultado: 'ok', metadatos: { certificateId: row.ID, sha256: hash } });
+    } catch (error) {
+      updateRow(sheet, row, { PdfHash: '', PdfStorageReference: '' });
+      file.setTrashed(true);
+      throw error;
+    }
+    return { success: true, reference: savedRef, hash: hash, idempotent: false };
+  });
 }
 
 function registrarArtefactoCertificadoBajoBloqueo(user, {

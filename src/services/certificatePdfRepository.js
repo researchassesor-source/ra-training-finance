@@ -41,7 +41,12 @@ export const certificatePdfRepository = {
       }
     }
 
-    const prepared = await browserRepository.prepare(certificate, options)
+    const needsNewV2Pdf = certificate.TemplateVersion === 'ra-security-2026-v2'
+      && !certificate.PdfHash && !certificate.PdfStorageReference
+    const generationOptions = needsNewV2Pdf
+      ? { ...options, signatures: (await api.getFirmasOficialesCertificado()).signatures }
+      : options
+    const prepared = await browserRepository.prepare(certificate, generationOptions)
     if (certificate.PdfHash || certificate.PdfStorageReference || prepared.historicalArtifact) return prepared
 
     const archived = await api.guardarPdfCertificadoPrivado(certificate.CertificatePublicId || certificate.ID, {

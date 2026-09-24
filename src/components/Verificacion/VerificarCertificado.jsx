@@ -74,7 +74,8 @@ function EstadoValido({ data }) {
       <div className="text-left bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-2 text-sm">
         <Campo label="Código" valor={data.codigo} mono />
         <Campo label="Estado" valor={data.estado === 'vigente' ? 'Vigente' : data.estado} />
-        <Campo label="Participante" valor={data.nombre} />
+        <Campo label={data.tipoSujeto === 'profesional' ? 'Profesional' : 'Participante'} valor={data.nombre} />
+        {data.rolProfesional && <Campo label="Rol acreditado" valor={data.rolProfesional} />}
         <Campo label="Servicio / Curso" valor={data.servicio} />
         <Campo label="Duración" valor={data.duracion} />
         <Campo label="Modalidad" valor={data.modalidad} />

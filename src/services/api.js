@@ -228,6 +228,17 @@ export const api = {
     return call('marcarAval', { id, ...datos }, getToken())
   },
 
+  getEstadoFirmasCertificado: () =>
+    call('getEstadoFirmasCertificado', {}, getToken()),
+  registrarFirmaOficialCertificado: (rol, pngBase64, confirmacion) =>
+    call('registrarFirmaOficialCertificado', { rol, pngBase64, confirmacion }, getToken()),
+  activarPlantillaCertificadoV2: (confirmacion) =>
+    call('activarPlantillaCertificadoV2', { confirmacion }, getToken()),
+  // No cachear ni registrar el contenido: las rúbricas salen de Drive privado
+  // solo durante la generación de un PDF nuevo por una sesión administradora.
+  getFirmasOficialesCertificado: () =>
+    call('getFirmasOficialesCertificado', {}, getToken()),
+
   getServicios: () =>
     callCached('getServicios', {}, getToken()),
   addServicio: (servicio) => {
@@ -243,6 +254,14 @@ export const api = {
   updateCapacitador: (id, capacitador) => call('updateCapacitador', { id, capacitador }, getToken()),
   preflightCertificadoCapacitador: (servicioId) =>
     call('preflightCertificadoCapacitador', { servicioId }, getToken()),
+  emitirCertificadoCapacitador: (servicioId) =>
+    call('emitirCertificadoCapacitador', { servicioId }, getToken()),
+  getCertificadoCapacitadorParaDescarga: (id) =>
+    call('getCertificadoCapacitadorParaDescarga', { id }, getToken()),
+  anularCertificadoCapacitador: (id, motivo) =>
+    call('anularCertificadoCapacitador', { id, motivo, confirmacion: 'ANULAR' }, getToken()),
+  reemitirCertificadoCapacitador: (id, motivo) =>
+    call('reemitirCertificadoCapacitador', { id, motivo, confirmacion: 'REEMITIR' }, getToken()),
 
   getInscripciones: (filtros = {}) =>
     callCached('getInscripciones', { filtros }, getToken()),

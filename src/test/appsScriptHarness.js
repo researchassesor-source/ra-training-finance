@@ -170,6 +170,12 @@ export function createAppsScriptHarness({ authSecret = 'test-only-secret-with-at
       base64Encode: value => Buffer.from(Array.isArray(value) ? value : String(value), Array.isArray(value) ? undefined : 'utf8').toString('base64'),
       newBlob: (bytes, mimeType, name) => makeBlob(bytes, mimeType, name),
       getUuid: () => crypto.randomUUID(),
+      formatDate: (date, timeZone, format) => {
+        if (format !== 'yyyy-MM-dd') throw new Error(`Unsupported date format in test harness: ${format}`)
+        const pieces = new Intl.DateTimeFormat('en-US', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(date)
+        const part = type => pieces.find(piece => piece.type === type)?.value
+        return `${part('year')}-${part('month')}-${part('day')}`
+      },
     },
     DriveApp: {
       Access: { PRIVATE: 'PRIVATE' },

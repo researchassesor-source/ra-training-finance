@@ -9,8 +9,14 @@ import { CERTIFICATE_V2_ISSUER } from './certificateGeneratorV2'
 
 const root = path.join(process.cwd(), 'src/assets/certificate')
 const dataUrl = (file, mimeType) => `data:${mimeType};base64,${fs.readFileSync(path.join(root, file)).toString('base64')}`
-const transparent = new PNG({ width: 1, height: 1 })
-transparent.data.fill(0)
+const transparent = new PNG({ width: 180, height: 60 })
+const noise = crypto.randomBytes(180 * 60 * 3)
+for (let pixel = 0; pixel < 180 * 60; pixel += 1) {
+  transparent.data[pixel * 4] = noise[pixel * 3]
+  transparent.data[pixel * 4 + 1] = noise[pixel * 3 + 1]
+  transparent.data[pixel * 4 + 2] = noise[pixel * 3 + 2]
+  transparent.data[pixel * 4 + 3] = 0
+}
 const blankSignature = `data:image/png;base64,${PNG.sync.write(transparent).toString('base64')}`
 const options = {
   issuerRuc: '0691787373001',
@@ -44,6 +50,8 @@ describe('nueva plantilla de seguridad v2', () => {
     expect([png.width, png.height]).toEqual([1600, 900])
     expect(CERTIFICATE_V2_ISSUER).toEqual({ ruc: '0691787373001', expediente: '401111' })
     await expect(buildCertificatePdf(certificate, { ...options, signatures: {} })).rejects.toThrow('firma oficial')
+    const onePixel = new PNG({ width: 1, height: 1 })
+    await expect(buildCertificatePdf(certificate, { ...options, signatures: { director: `data:image/png;base64,${PNG.sync.write(onePixel).toString('base64')}`, manager: blankSignature } })).rejects.toThrow('no es un recurso oficial')
     await expect(buildCertificatePdf(certificate, { ...options, issuerFile: '' })).rejects.toThrow('expediente')
   })
 
@@ -68,6 +76,20 @@ describe('nueva plantilla de seguridad v2', () => {
   it.each(['asistencia', 'participacion', 'capacitacion'])('admite el tipo %s sin usar el texto de aprobación', async type => {
     const result = await buildCertificatePdf({ ...certificate, CertificateType: type }, options)
     expect(result.blob.type).toBe('application/pdf')
+  }, 20_000)
+
+  it('emite un PDF de capacitador independiente del pago de un alumno y con su propia versión', async () => {
+    const professional = {
+      ...certificate,
+      ID: 'PRO-CERT-1', CertificatePublicId: 'PRO-CERT-1', CertificateVersion: 1,
+      CertificateSubject: 'professional', ProfessionalRole: 'capacitador',
+      ClienteNombre: 'Capacitador de Ejemplo', ClienteID: '0100000002',
+      EstadoPago: '', CodigoCertificado: 'RA-PRO-2026-0001',
+    }
+    const result = await buildCertificatePdf(professional, options)
+    expect(result).toMatchObject({ certificateCode: 'RA-PRO-2026-0001', templateVersion: 'ra-security-2026-v2' })
+    expect(result.verificationUrl).toContain('PRO-CERT-1')
+    expect(result.blob.size).toBeGreaterThan(100_000)
   }, 20_000)
 
   it('no confunde los roles de ponente o capacitador con una inscripción de participante', async () => {

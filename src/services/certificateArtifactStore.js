@@ -277,7 +277,8 @@ export class CertificatePdfRepository {
     this.timeoutMs = timeoutMs
   }
 
-  async prepare(certificate, { allowHistoricalRecovery = false } = {}) {
+  async prepare(certificate, options = {}) {
+    const { allowHistoricalRecovery = false } = options
     const historicalArtifact = isHistoricalCertificateArtifact(certificate)
     const historicalRecoveryAllowed = Boolean(allowHistoricalRecovery && historicalArtifact)
     const fallbackReference = historicalRecoveryAllowed
@@ -339,7 +340,7 @@ export class CertificatePdfRepository {
       )
     }
     const generated = await withCertificateTimeout(
-      this.buildPdf(certificate),
+      this.buildPdf(certificate, options),
       this.timeoutMs,
       CERTIFICATE_ARTIFACT_ERROR_CODES.GENERATION_TIMEOUT,
       'La generación del certificado excedió el tiempo permitido.',

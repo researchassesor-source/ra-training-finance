@@ -140,7 +140,7 @@ describe('repositorio inmutable de PDFs de certificados', () => {
 
     const recovered = await repository.prepare(certificate, { allowHistoricalRecovery: true })
 
-    expect(buildPdf).toHaveBeenCalledWith(certificate)
+    expect(buildPdf).toHaveBeenCalledWith(certificate, { allowHistoricalRecovery: true })
     expect(recovered).toMatchObject({
       historicalRecovered: true,
       historicalArtifact: true,
