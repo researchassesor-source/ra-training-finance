@@ -25,6 +25,7 @@ const options = {
   assetDataUrls: {
     background: dataUrl('certificate-border-v2.png', 'image/png'),
     logo: dataUrl('ra-training-logo.png', 'image/png'),
+    mark: dataUrl('ra-training-mark.png', 'image/png'),
     seal: dataUrl('academic-seal.png', 'image/png'),
     itsal: dataUrl('itsal-official-logo.png', 'image/png'),
     regular: dataUrl('canva/IBMPlexSansCondensed-Regular.ttf', 'font/ttf'),

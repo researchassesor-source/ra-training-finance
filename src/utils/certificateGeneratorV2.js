@@ -20,6 +20,7 @@ const ORANGE = [211, 117, 23]
 const assets = {
   background: new URL('../assets/certificate/certificate-border-v2.png', import.meta.url).href,
   logo: new URL('../assets/certificate/ra-training-logo.png', import.meta.url).href,
+  mark: new URL('../assets/certificate/ra-training-mark.png', import.meta.url).href,
   seal: new URL('../assets/certificate/academic-seal.png', import.meta.url).href,
   itsal: new URL('../assets/certificate/itsal-official-logo.png', import.meta.url).href,
   regular: new URL('../assets/certificate/canva/IBMPlexSansCondensed-Regular.ttf', import.meta.url).href,
@@ -165,9 +166,9 @@ export async function buildCertificateV2Pdf(record, options = {}) {
     : participantCertificateType(certificate.CertificateType)
   const publicId = String(certificate.CertificatePublicId || certificate.ID)
   const verificationUrl = buildVerificationUrl(publicId)
-  const [qr, background, logo, seal, regular, bold, italic, itsal] = await Promise.all([
+  const [qr, background, logo, mark, seal, regular, bold, italic, itsal] = await Promise.all([
     generateQrDataUrl(publicId),
-    ...['background', 'logo', 'seal', 'regular', 'bold', 'italic'].map(key => asDataUrl(key, options.assetDataUrls)),
+    ...['background', 'logo', 'mark', 'seal', 'regular', 'bold', 'italic'].map(key => asDataUrl(key, options.assetDataUrls)),
     institutional ? asDataUrl('itsal', options.assetDataUrls) : Promise.resolve(null),
   ])
   const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: [WIDTH, HEIGHT], compress: true })
@@ -175,18 +176,31 @@ export async function buildCertificateV2Pdf(record, options = {}) {
   pdf.setCreationDate(deterministicCertificatePdfCreationDate(certificate.FechaEmisionCertificado))
   addFonts(pdf, { regular, bold, italic })
   pdf.addImage(background, 'PNG', 0, 0, WIDTH, HEIGHT)
-  pdf.addImage(logo, 'PNG', 125, 3.5, 68, 29)
+  // Keep the identity compact so the corporate name and title have breathing room.
+  pdf.addImage(logo, 'PNG', 140, 6.5, 40, 17)
   // The supplied corporate logo includes a tiny slogan absent from the approved
   // certificate reference. Cover only that region, not the orange separator.
   pdf.setFillColor(255, 255, 255)
-  pdf.rect(158.8, 27.5, 35, 5.3, 'F')
-  pdf.setFont('times', 'bold')
-  pdf.setFontSize(146)
-  pdf.setTextColor(240, 246, 251)
-  pdf.text('R', 189, 119)
+  pdf.rect(159.8, 20.6, 20.7, 3.2, 'F')
+  // Use the exact corporate mark as the security watermark. The previous
+  // typographic “R” had a full stem and did not match the registered symbol.
+  pdf.saveGraphicsState()
+  pdf.setGState(new pdf.GState({ opacity: 0.055 }))
+  pdf.addImage(mark, 'PNG', 175, 78, 36, 44.4)
+  pdf.restoreGraphicsState()
   pdf.setTextColor(...NAVY)
-  line(pdf, 'RESEARCH ASSESSOR TRAINING S.A.S.', 33, 180, 13, 10, 'CertificatePlex', 'bold')
-  line(pdf, `R.U.C.: ${issuerRuc} · Expediente: ${issuerFile}`, 38, 180, 11, 8)
+  line(pdf, 'RESEARCH ASSESSOR TRAINING S.A.S.', 32, 180, 11.5, 10, 'CertificatePlex', 'bold')
+  line(pdf, `R.U.C.: ${issuerRuc} · Expediente: ${issuerFile}`, 37, 180, 9.5, 8)
+  if (institutional) {
+    // The two institutional endorsements belong to opposite corners rather
+    // than being crowded together between the signatories.
+    pdf.addImage(seal, 'PNG', 22, 15, 26, 20)
+    pdf.addImage(itsal, 'PNG', 263, 14, 36, 15)
+    pdf.setFont('CertificatePlex', 'bold')
+    pdf.setFontSize(8)
+    pdf.text('AVAL R.A. TRAINING', 35, 39, { align: 'center' })
+    pdf.text('AVAL ITSAL', 281, 35, { align: 'center' })
+  }
   // Very pale security squares from the approved composition, kept behind the
   // title and body so that neither the name nor the QR loses contrast.
   pdf.setFillColor(253, 246, 239)
@@ -210,29 +224,31 @@ export async function buildCertificateV2Pdf(record, options = {}) {
   line(pdf, String(certificate.ClienteNombre).trim(), 78.5, 195, 30, 18, 'times', 'italic')
   line(pdf, `${professional ? 'Identificación' : 'Cédula de Identidad'}: ${certificate.ClienteID}`, 84.3, 185, 11, 9)
   line(pdf, type.intro, 91.2, 190, 11, 9)
-  line(pdf, String(certificate.ServicioNombre).trim(), 98.8, 205, 24, 13, 'times', 'bold')
+  line(pdf, String(certificate.ServicioNombre).trim(), 98.8, 195, 20, 12, 'times', 'bold')
   line(pdf, `con una duración de ${normalizeDuration(certificate.Duracion)}, ${professional ? 'impartido' : 'desarrollado'} desde`, 105.3, 190, 10, 8)
   line(pdf, `el ${formatLongDate(certificate.FechaInicio)} hasta el ${formatLongDate(certificate.FechaFin)}, bajo la modalidad`, 110.5, 194, 10, 8)
   line(pdf, `${certificate.Modalidad}.`, 115.7, 185, 10, 8)
   if (institutional) {
-    line(pdf, 'Avalado por el Instituto Superior Tecnológico Internacional San Luis — ITSAL', 122.8, 202, 10, 8)
-    line(pdf, `Registro ITSAL: ${certificate.AvalCodigoExterno} · Registro R.A.: ${certificate.CodigoCertificado}`, 128.2, 202, 10, 7)
+    pdf.setDrawColor(...ORANGE)
+    pdf.setLineWidth(0.2)
+    pdf.line(160, 120, 160, 130)
+    pdf.setTextColor(...NAVY)
+    fittedText(pdf, 'AVAL R.A. TRAINING', 87, 123.5, 82, 9, 7, 'bold')
+    fittedText(pdf, 'AVAL ITSAL', 219, 123.5, 82, 9, 7, 'bold')
+    fittedText(pdf, `Registro R.A.: ${certificate.CodigoCertificado}`, 87, 129, 105, 8, 6.5)
+    fittedText(pdf, `Registro ITSAL: ${certificate.AvalCodigoExterno}`, 219, 129, 82, 8, 6.5)
   } else {
     line(pdf, 'En constancia de lo anterior, se expide el presente certificado', 122.8, 202, 10, 8)
     line(pdf, 'para los fines que el interesado considere pertinentes.', 128.2, 200, 10, 8)
   }
   line(pdf, `Riobamba, ${formatLongDate(certificate.FechaEmisionCertificado)}`, 134, 185, 10, 8, 'CertificatePlex', 'bold')
 
-  signatureInBox(pdf, directorSignature, 76, 136.5, 49, 13.5)
+  // The director's rubric is naturally taller/less horizontal than the
+  // manager's. Give it a taller box ending on the same signature line so both
+  // retain their real proportions while carrying comparable visual weight.
+  signatureInBox(pdf, directorSignature, 76, 132.8, 49, 17.2)
   signatureInBox(pdf, managerSignature, 195, 136.5, 49, 13.5)
-  if (institutional) {
-    pdf.addImage(seal, 'PNG', 137, 139, 24, 19)
-    pdf.addImage(itsal, 'PNG', 163, 139, 27, 11.3)
-    pdf.setFont('CertificatePlex', 'normal')
-    pdf.setFontSize(6)
-    pdf.setTextColor(...NAVY)
-    pdf.text('Aval ITSAL · IES 3063', 176.5, 155.5, { align: 'center' })
-  } else {
+  if (!institutional) {
     pdf.addImage(seal, 'PNG', 143, 135.5, 34, 26)
   }
   pdf.setDrawColor(...NAVY)
@@ -250,28 +266,30 @@ export async function buildCertificateV2Pdf(record, options = {}) {
   pdf.text('Gerente General', 219, 161, { align: 'center' })
   pdf.setDrawColor(...ORANGE)
   pdf.setLineWidth(0.4)
-  pdf.roundedRect(261, 103, 49, 59, 3, 3)
+  pdf.roundedRect(261, 106, 49, 59, 3, 3)
   pdf.setFont('CertificatePlex', 'bold')
   pdf.setTextColor(...NAVY)
   pdf.setFontSize(12)
-  pdf.text('VERIFICACIÓN', 285.5, 110, { align: 'center' })
-  pdf.addImage(qr, 'PNG', 270.5, 113, 30, 30)
-  pdf.link(270.5, 113, 30, 30, { url: verificationUrl })
+  pdf.text('VERIFICACIÓN', 285.5, 113, { align: 'center' })
+  pdf.addImage(qr, 'PNG', 270.5, 116, 30, 30)
+  pdf.link(270.5, 116, 30, 30, { url: verificationUrl })
   pdf.setFontSize(8)
-  pdf.text(String(certificate.CodigoCertificado), 285.5, 149, { align: 'center' })
+  pdf.text(String(certificate.CodigoCertificado), 285.5, 152, { align: 'center' })
   pdf.setFont('CertificatePlex', 'normal')
   pdf.setFontSize(8)
-  pdf.text('Verificación en:', 285.5, 155, { align: 'center' })
+  pdf.text('Verificación en:', 285.5, 158, { align: 'center' })
   pdf.setFont('CertificatePlex', 'bold')
-  pdf.text('ra-training.com/verificar', 285.5, 159.5, { align: 'center' })
-  pdf.setFontSize(8)
-  pdf.text(`Código único: ${certificate.CodigoCertificado}`, 285, 22, { align: 'right' })
-  pdf.setFont('CertificatePlex', 'normal')
-  pdf.text('Documento digital con trazabilidad', 285, 26.5, { align: 'right' })
-  verifiedRegisterBadge(pdf)
-  pdf.setFont('CertificatePlex', 'bold')
-  pdf.setFontSize(8)
-  pdf.text('Registro digital verificable', 247, 36, { align: 'left' })
+  pdf.text('ra-training.com/verificar', 285.5, 162.5, { align: 'center' })
+  if (!institutional) {
+    pdf.setFontSize(8)
+    pdf.text(`Código único: ${certificate.CodigoCertificado}`, 285, 22, { align: 'right' })
+    pdf.setFont('CertificatePlex', 'normal')
+    pdf.text('Documento digital con trazabilidad', 285, 26.5, { align: 'right' })
+    verifiedRegisterBadge(pdf)
+    pdf.setFont('CertificatePlex', 'bold')
+    pdf.setFontSize(8)
+    pdf.text('Registro digital verificable', 247, 36, { align: 'left' })
+  }
   pdf.setFillColor(...NAVY)
   pdf.roundedRect(126, 166, 68, 14, 2, 2, 'F')
   pdf.setDrawColor(255, 255, 255)
