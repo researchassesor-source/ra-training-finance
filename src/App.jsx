@@ -15,6 +15,7 @@ import InscripcionesList from './components/Inscripciones/InscripcionesList'
 import ServiciosView from './components/Servicios/ServiciosView'
 import ConfigPagosView from './components/ConfigPagos/ConfigPagosView'
 import ConveniosList from './components/Convenios/ConveniosList'
+import InstitucionesView from './components/Instituciones/InstitucionesView'
 import CalendarView from './components/Calendario/CalendarView'
 import AsistenciaView from './components/Asistencia/AsistenciaView'
 import FlujosView from './components/Flujos/FlujosView'
@@ -108,6 +109,7 @@ function AppRoutes() {
         <Route path="/usuarios"      element={<RequireAdmin><UsuariosView /></RequireAdmin>} />
         <Route path="/config-pagos"  element={<RequireAdmin><ConfigPagosView /></RequireAdmin>} />
         <Route path="/convenios"     element={<RequireAdmin><ConveniosList /></RequireAdmin>} />
+        <Route path="/instituciones" element={<RequireAdmin><InstitucionesView /></RequireAdmin>} />
         <Route path="/calendario"    element={<RequireVendedor><CalendarView /></RequireVendedor>} />
 
         {/* Vendedor + Admin routes */}

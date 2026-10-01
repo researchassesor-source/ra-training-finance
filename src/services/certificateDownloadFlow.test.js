@@ -125,30 +125,24 @@ describe('vista previa y descarga auditada de certificados', () => {
       .toBe('No se pudo preparar el certificado. Inténtelo nuevamente o contacte al administrador.')
   })
 
-  it('recupera y descarga inmediatamente un certificado histórico con auditoría marcada', async () => {
+  it('no reconstruye un certificado histórico si falta su PDF exacto archivado', async () => {
     const fixture = flowFixture({
       repository: {
-        prepare: vi.fn(async () => ({
-          ...preparedFixture(),
-          reference: 'browser-indexeddb:DEMO:v1:historical-recovery',
-          historicalRecovered: true,
-          auditAction: 'CERTIFICATE_HISTORICAL_ARTIFACT_RECOVERED',
-        })),
+        prepare: vi.fn(async () => { throw new Error('Esta versión histórica no tiene el PDF original archivado.') }),
       },
     })
 
     fixture.certificate.IsHistoricalRecord = true
     const preview = { showStage: vi.fn(), showError: vi.fn(), available: false, blocked: false }
-    const result = await downloadCertificateWithAudit({ id: 'DEMO', ...fixture, preview })
+    await expect(downloadCertificateWithAudit({ id: 'DEMO', ...fixture, preview }))
+      .rejects.toThrow('PDF original archivado')
 
-    expect(fixture.repository.prepare).toHaveBeenCalledWith(fixture.certificate, { allowHistoricalRecovery: true })
+    expect(fixture.repository.prepare).toHaveBeenCalledWith(fixture.certificate, { allowHistoricalRecovery: false })
     expect(preview.showStage).toHaveBeenCalledWith('Recuperando el PDF histórico y verificando su integridad SHA-256…')
-    expect(fixture.api.registrarArtefactoCertificado).toHaveBeenCalledWith('DEMO', expect.objectContaining({
-      historicalRecovery: true,
-      auditAction: 'CERTIFICATE_HISTORICAL_ARTIFACT_RECOVERED',
-    }))
-    expect(fixture.saveFile).toHaveBeenCalledOnce()
-    expect(result.historicalRecoveryWarning).toContain('plantilla vigente')
+    expect(fixture.api.registrarArtefactoCertificado).not.toHaveBeenCalled()
+    expect(fixture.api.solicitarDescargaCertificado).not.toHaveBeenCalled()
+    expect(fixture.saveFile).not.toHaveBeenCalled()
+    expect(preview.showError).toHaveBeenCalledOnce()
   })
 
   it('reintenta una sola vez la consulta lenta y no duplica ninguna escritura de auditoría', async () => {

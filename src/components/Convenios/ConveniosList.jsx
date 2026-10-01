@@ -1,23 +1,26 @@
 import { useEffect, useState, useCallback } from 'react'
+import { Link } from 'react-router-dom'
 import { api } from '../../services/api'
 import { fmt } from '../../utils/formatters'
 import { exportConvenioPDF } from '../../utils/exporters'
 import Modal from '../UI/Modal'
 import ConfirmDialog from '../UI/ConfirmDialog'
 import Spinner from '../UI/Spinner'
-import { Plus, Pencil, Trash2, Download } from 'lucide-react'
+import { Plus, Pencil, Archive, Download, Building2 } from 'lucide-react'
 
 const ESTADOS = {
   activo:     { label: 'Activo',     css: 'badge-green' },
   pendiente:  { label: 'Pendiente',  css: 'badge-yellow' },
   vencido:    { label: 'Vencido',    css: 'badge-red' },
   suspendido: { label: 'Suspendido', css: 'badge-gray' },
+  archivado:  { label: 'Archivado',  css: 'badge-gray' },
 }
 
 const EMPTY = {
   organizacion: '', representante: '', cargo: '', objeto: '',
   obligacionesRA: '', obligacionesAliado: '', vigencia: '',
-  fechaInicio: '', fechaFin: '', estado: 'activo', notas: '',
+  institucionId: '', fechaFirma: '', fechaInicio: '', fechaFin: '', estado: 'activo', notas: '',
+  porcentajeAval: '', baseCalculoAval: '',
 }
 
 function mapInitial(initial) {
@@ -30,21 +33,34 @@ function mapInitial(initial) {
     obligacionesRA:    initial.ObligacionesRA    || initial.obligacionesRA    || '',
     obligacionesAliado:initial.ObligacionesAliado|| initial.obligacionesAliado|| '',
     vigencia:          initial.Vigencia          || initial.vigencia          || '',
+    institucionId:     initial.InstitucionID     || initial.institucionId     || '',
+    fechaFirma:        initial.FechaFirma        || initial.fechaFirma        || '',
     fechaInicio:       initial.FechaInicio       || initial.fechaInicio       || '',
     fechaFin:          initial.FechaFin          || initial.fechaFin          || '',
     estado:            initial.Estado            || initial.estado            || 'activo',
     notas:             initial.Notas             || initial.notas             || '',
+    porcentajeAval:    initial.PorcentajeAval === undefined || initial.PorcentajeAval === '' ? '' : String(initial.PorcentajeAval),
+    baseCalculoAval:   initial.BaseCalculoAval   || initial.baseCalculoAval   || '',
   }
 }
 
 function ConvenioForm({ initial, onSave, onCancel }) {
   const [form, setForm] = useState(() => mapInitial(initial))
+  const [institutions, setInstitutions] = useState([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
+  useEffect(() => {
+    api.getOpcionesInstitucionesMaestras().then(result => setInstitutions(result.data || [])).catch(() => setInstitutions([]))
+  }, [])
+
   async function handleSubmit(e) {
     e.preventDefault()
+    if ((String(form.porcentajeAval).trim() === '') !== (String(form.baseCalculoAval).trim() === '')) {
+      setError('Para configurar el cálculo del aval, complete juntos el porcentaje y la base. Si el convenio no tiene condición económica, deje ambos vacíos.')
+      return
+    }
     setSaving(true)
     setError('')
     try {
@@ -61,9 +77,13 @@ function ConvenioForm({ initial, onSave, onCancel }) {
         <h3 className="text-xs font-semibold text-brand-700 uppercase tracking-wide mb-3">Datos del Aliado</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="sm:col-span-2">
-            <label className="label">Organización / Empresa *</label>
-            <input className="input" required value={form.organizacion}
-              onChange={e => set('organizacion', e.target.value)} placeholder="Nombre de la institución u organización aliada" />
+            <label className="label">Institución vinculada {initial?.ID ? '' : '*'}</label>
+            <select className="input" required={!initial?.ID} value={form.institucionId}
+              onChange={e => set('institucionId', e.target.value)}>
+              <option value="">{initial?.ID ? 'Registro histórico sin ficha maestra' : 'Seleccione una institución activa…'}</option>
+              {institutions.map(item => <option key={item.ID} value={item.ID}>{item.Nombre}{item.Siglas ? ` (${item.Siglas})` : ''}</option>)}
+            </select>
+            {initial?.ID && !form.institucionId && <p className="mt-1 text-xs text-gray-500">Este convenio antiguo se conserva sin enlazar automáticamente. Puede asociarlo si confirma que corresponde a una ficha.</p>}
           </div>
           <div>
             <label className="label">Representante</label>
@@ -76,6 +96,44 @@ function ConvenioForm({ initial, onSave, onCancel }) {
               onChange={e => set('cargo', e.target.value)} placeholder="Director, Gerente, Coordinador..." />
           </div>
         </div>
+      </div>
+
+      <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 p-4 sm:p-5">
+        <div className="mb-3">
+          <h3 className="text-xs font-semibold text-indigo-800 uppercase tracking-wide">Condición económica de avales</h3>
+          <p className="mt-1 text-xs leading-relaxed text-indigo-900/75">
+            La condición pertenece a este convenio. Al confirmar cada aval, Finance calculará el porcentaje en el servidor y guardará una copia histórica que no cambiará si luego se modifica el convenio.
+          </p>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="label" htmlFor="agreement-aval-percentage">Porcentaje para cada aval (%)</label>
+            <div className="relative">
+              <input id="agreement-aval-percentage" className="input pr-9" type="number" min="0" max="100" step="0.01"
+                value={form.porcentajeAval} onChange={e => set('porcentajeAval', e.target.value)} placeholder="Ej.: 15" />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">%</span>
+            </div>
+          </div>
+          <div>
+            <label className="label" htmlFor="agreement-aval-base">Calcular sobre</label>
+            <select id="agreement-aval-base" className="input" value={form.baseCalculoAval}
+              onChange={e => set('baseCalculoAval', e.target.value)}>
+              <option value="">Sin regla económica configurada</option>
+              <option value="precio_servicio">Precio del catálogo del servicio</option>
+              <option value="monto_inscripcion">Monto registrado en la inscripción</option>
+            </select>
+          </div>
+        </div>
+        {!form.porcentajeAval && !form.baseCalculoAval && (
+          <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            Este convenio se guarda sin regla económica; no se podrán confirmar avales con él hasta que administración configure el porcentaje y la base acordados.
+          </p>
+        )}
+        {form.porcentajeAval !== '' && form.baseCalculoAval && (
+          <p className="mt-3 rounded-lg bg-white/80 px-3 py-2 text-xs text-indigo-800">
+            Ejemplo: una base de $10.00 producirá {fmt.usd((10 * Number(form.porcentajeAval || 0)) / 100)} por certificado avalado. El cálculo definitivo se verifica en el servidor.
+          </p>
+        )}
       </div>
 
       <div>
@@ -105,6 +163,10 @@ function ConvenioForm({ initial, onSave, onCancel }) {
       <div>
         <h3 className="text-xs font-semibold text-brand-700 uppercase tracking-wide mb-3">Vigencia y Estado</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="label">Fecha de Firma</label>
+            <input className="input" type="date" value={form.fechaFirma} onChange={e => set('fechaFirma', e.target.value)} />
+          </div>
           <div>
             <label className="label">Fecha de Inicio</label>
             <input className="input" type="date" value={form.fechaInicio} onChange={e => set('fechaInicio', e.target.value)} />
@@ -159,7 +221,7 @@ export default function ConveniosList() {
   const load = useCallback(() => {
     setLoading(true)
     api.getConvenios(filtroEstado ? { estado: filtroEstado } : {})
-      .then(r => setData(r.data || []))
+      .then(r => { setData(r.data || []); setError('') })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false))
   }, [filtroEstado])
@@ -186,16 +248,20 @@ export default function ConveniosList() {
             <option value="pendiente">Pendientes</option>
             <option value="vencido">Vencidos</option>
             <option value="suspendido">Suspendidos</option>
+            <option value="archivado">Archivados</option>
           </select>
         </div>
-        <button onClick={() => { setSelected(null); setModal('new') }} className="btn-primary text-sm">
-          <Plus size={15} /> Nuevo Convenio
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <Link to="/instituciones" className="btn-secondary text-sm"><Building2 size={15} /> Fichas institucionales</Link>
+          <button onClick={() => { setSelected(null); setModal('new') }} className="btn-primary text-sm">
+            <Plus size={15} /> Nuevo Convenio
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
-          { label: 'Total Convenios', val: data.length,   css: 'text-gray-900' },
+          { label: 'Total Convenios', val: data.filter(d => d.Estado !== 'archivado').length,   css: 'text-gray-900' },
           { label: 'Activos',         val: activos,        css: 'text-emerald-600' },
           { label: 'Pendientes',      val: pendientes,     css: 'text-amber-600' },
           { label: 'Vencidos',        val: data.filter(d => d.Estado === 'vencido').length, css: 'text-red-500' },
@@ -215,24 +281,30 @@ export default function ConveniosList() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-100">
-                  {['Organización','Representante','Objeto','Inicio','Vence','Estado',''].map(h => (
+                  {['Institución / organización','Representante','Objeto','Inicio','Vence','Condición aval','Estado',''].map(h => (
                     <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {data.length === 0 ? (
-                  <tr><td colSpan={7} className="text-center py-10 text-gray-400">Sin convenios registrados</td></tr>
+                  <tr><td colSpan={8} className="text-center py-10 text-gray-400">Sin convenios registrados</td></tr>
                 ) : data.map(c => (
                   <tr key={c.ID} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
                     <td className="px-4 py-3">
-                      <p className="font-medium text-gray-900 whitespace-nowrap">{c.Organizacion}</p>
+                        <p className="font-medium text-gray-900 whitespace-nowrap">{c.InstitucionNombre || c.Organizacion}</p>
+                        {c.InstitucionNombre && <p className="text-xs text-gray-400">Ficha maestra vinculada</p>}
                       {c.Cargo && <p className="text-xs text-gray-400">{c.Cargo}</p>}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap text-sm">{c.Representante || '—'}</td>
                     <td className="px-4 py-3 max-w-xs truncate text-gray-600">{c.Objeto}</td>
                     <td className="px-4 py-3 whitespace-nowrap">{fmt.date(c.FechaInicio) || '—'}</td>
                     <td className="px-4 py-3 whitespace-nowrap">{fmt.date(c.FechaFin) || '—'}</td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      {c.PorcentajeAval !== '' && c.PorcentajeAval !== undefined && c.BaseCalculoAval ? (
+                        <span className="text-xs font-medium text-indigo-800">{Number(c.PorcentajeAval)}% · {c.BaseCalculoAval === 'precio_servicio' ? 'precio catálogo' : 'monto inscripción'}</span>
+                      ) : <span className="text-xs text-amber-700">Sin configurar</span>}
+                    </td>
                     <td className="px-4 py-3">
                       <span className={ESTADOS[c.Estado]?.css || 'badge-gray'}>
                         {ESTADOS[c.Estado]?.label || c.Estado}
@@ -240,7 +312,7 @@ export default function ConveniosList() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex gap-1">
-                        <button onClick={() => exportConvenioPDF(c)}
+                        <button onClick={() => exportConvenioPDF(Object.assign({}, c, { Organizacion: c.InstitucionNombre || c.Organizacion }))}
                           title="Descargar carta de compromiso PDF"
                           className="p-1.5 hover:bg-brand-50 rounded text-gray-400 hover:text-brand-600 transition-colors">
                           <Download size={14} />
@@ -249,10 +321,12 @@ export default function ConveniosList() {
                           className="p-1.5 hover:bg-brand-50 rounded text-gray-400 hover:text-brand-600 transition-colors">
                           <Pencil size={14} />
                         </button>
-                        <button onClick={() => setConfirm(c)}
-                          className="p-1.5 hover:bg-red-50 rounded text-gray-400 hover:text-red-600 transition-colors">
-                          <Trash2 size={14} />
+                        {c.Estado !== 'archivado' && <button onClick={() => setConfirm(c)}
+                          title="Archivar sin borrar el histórico"
+                          className="p-1.5 hover:bg-amber-50 rounded text-gray-400 hover:text-amber-700 transition-colors">
+                          <Archive size={14} />
                         </button>
+                        }
                       </div>
                     </td>
                   </tr>
@@ -274,8 +348,8 @@ export default function ConveniosList() {
 
       <ConfirmDialog
         open={!!confirm} onClose={() => setConfirm(null)} onConfirm={handleDelete}
-        loading={deleting} title="Eliminar Convenio"
-        message={`¿Eliminar el convenio con "${confirm?.Organizacion}"? Esta acción no se puede deshacer.`}
+        loading={deleting} title="Archivar Convenio"
+        message={`¿Archivar el convenio con "${confirm?.InstitucionNombre || confirm?.Organizacion}"? Se conservará la ficha, los documentos y sus relaciones históricas.`}
       />
     </div>
   )

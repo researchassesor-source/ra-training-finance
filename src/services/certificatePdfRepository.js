@@ -41,10 +41,10 @@ export const certificatePdfRepository = {
       }
     }
 
-    const needsNewV2Pdf = certificate.TemplateVersion === 'ra-security-2026-v2'
+    const needsNewV2Pdf = ['ra-security-2026-v2', 'ra-security-2026-v3'].includes(certificate.TemplateVersion)
       && !certificate.PdfHash && !certificate.PdfStorageReference
     const generationOptions = needsNewV2Pdf
-      ? { ...options, signatures: (await api.getFirmasOficialesCertificado()).signatures }
+      ? { ...options, signatures: (await api.getFirmasOficialesCertificado({ templateVersion: certificate.TemplateVersion })).signatures }
       : options
     const prepared = await browserRepository.prepare(certificate, generationOptions)
     if (certificate.PdfHash || certificate.PdfStorageReference || prepared.historicalArtifact) return prepared

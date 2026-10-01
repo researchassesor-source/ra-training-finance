@@ -54,6 +54,11 @@ export default function VerificarCertificado() {
 function EstadoValido({ data }) {
   const anulled = data.estado === 'anulado'
   const reissued = data.estado === 'reemitido'
+  const documentType = {
+    certificado_normal: 'Certificado normal',
+    certificado_avalado: 'Certificado con aval institucional',
+    certificado_profesional: 'Certificado profesional',
+  }[data.tipoDocumento]
   const heading = anulled ? 'CERTIFICADO ANULADO' : reissued ? 'CERTIFICADO REEMITIDO' : 'Certificado Válido'
   const detail = anulled
     ? 'El certificado existió, pero ya no se encuentra vigente.'
@@ -72,6 +77,7 @@ function EstadoValido({ data }) {
         <p className="text-sm text-gray-500 mt-1">{detail}</p>
       </div>
       <div className="text-left bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-2 text-sm">
+        {documentType && <Campo label="Tipo de documento" valor={documentType} />}
         <Campo label="Código" valor={data.codigo} mono />
         <Campo label="Estado" valor={data.estado === 'vigente' ? 'Vigente' : data.estado} />
         <Campo label={data.tipoSujeto === 'profesional' ? 'Profesional' : 'Participante'} valor={data.nombre} />

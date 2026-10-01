@@ -9,6 +9,7 @@ import CertificateSigningSettings from './CertificateSigningSettings'
 import { certificatePdfRepository } from '../../services/certificatePdfRepository'
 import { saveAs } from 'file-saver'
 import { Plus, Pencil, MessageCircle, Calendar, UserRound, EyeOff, CheckCircle2, ShieldCheck } from 'lucide-react'
+import { IDENTIFICATION_TYPE, identificationError, normalizeIdentification } from '../../utils/identification'
 
 const EMPTY = {
   nombre: '', tipo: '', modalidad: 'N/A', precio: '', duracion: '', descripcion: '',
@@ -27,6 +28,11 @@ function normalizarEstadoEvento(value) {
   return ['programado', 'finalizado', 'oculto', 'cancelado'].includes(String(value || '').toLowerCase())
     ? String(value).toLowerCase()
     : 'programado'
+}
+
+const EMPTY_TRAINER = {
+  id: '', nombre: '', identificacion: '', tipoIdentificacion: IDENTIFICATION_TYPE.ECUADORIAN_ID,
+  resumen: '', activo: true, legacyOriginalIdentification: '',
 }
 
 function dateOnly(value) {
@@ -217,7 +223,7 @@ export default function ServiciosView() {
   const [filtro, setFiltro]     = useState('')
   const [capacitadores, setCapacitadores] = useState([])
   const [trainerModal, setTrainerModal] = useState(false)
-  const [trainerForm, setTrainerForm] = useState({ id: '', nombre: '', identificacion: '', resumen: '', activo: true })
+  const [trainerForm, setTrainerForm] = useState({ ...EMPTY_TRAINER })
   const [trainerBusy, setTrainerBusy] = useState(false)
   const [trainerError, setTrainerError] = useState('')
   const [trainerCertificate, setTrainerCertificate] = useState(null)
@@ -226,6 +232,10 @@ export default function ServiciosView() {
   const [trainerLifecycle, setTrainerLifecycle] = useState(null)
   const [trainerLifecycleReason, setTrainerLifecycleReason] = useState('')
   const [trainerLifecycleConfirmed, setTrainerLifecycleConfirmed] = useState(false)
+  const [identityAuditOpen, setIdentityAuditOpen] = useState(false)
+  const [identityAuditBusy, setIdentityAuditBusy] = useState(false)
+  const [identityAuditError, setIdentityAuditError] = useState('')
+  const [identityAudit, setIdentityAudit] = useState(null)
   const [signingSettingsOpen, setSigningSettingsOpen] = useState(false)
 
   const load = useCallback(() => {
@@ -243,19 +253,47 @@ export default function ServiciosView() {
 
   async function saveTrainer(event) {
     event.preventDefault()
+    const legacyIdentityUnchanged = Boolean(trainerForm.id)
+      && trainerForm.tipoIdentificacion === IDENTIFICATION_TYPE.UNSPECIFIED
+      && trainerForm.identificacion === trainerForm.legacyOriginalIdentification
+    const identityMessage = identificationError(trainerForm.identificacion, trainerForm.tipoIdentificacion, {
+      allowUnspecified: legacyIdentityUnchanged,
+    })
+    if (identityMessage) {
+      setTrainerError(identityMessage)
+      return
+    }
     setTrainerBusy(true)
     setTrainerError('')
     try {
-      if (trainerForm.id) await api.updateCapacitador(trainerForm.id, trainerForm)
-      else await api.addCapacitador(trainerForm)
+      const payload = {
+        nombre: trainerForm.nombre, identificacion: trainerForm.identificacion,
+        tipoIdentificacion: trainerForm.tipoIdentificacion, resumen: trainerForm.resumen, activo: trainerForm.activo,
+      }
+      if (trainerForm.id) await api.updateCapacitador(trainerForm.id, payload)
+      else await api.addCapacitador(payload)
       const result = await api.getCapacitadores()
       setCapacitadores(result.data || [])
       load()
-      setTrainerForm({ id: '', nombre: '', identificacion: '', resumen: '', activo: true })
+      setTrainerForm({ ...EMPTY_TRAINER })
     } catch (error) {
       setTrainerError(error.message)
     } finally {
       setTrainerBusy(false)
+    }
+  }
+
+  async function inspectIdentityIntegrity() {
+    setIdentityAuditOpen(true)
+    setIdentityAuditBusy(true)
+    setIdentityAuditError('')
+    try {
+      const result = await api.getIdentityIntegrityReport()
+      setIdentityAudit(result.data || null)
+    } catch (error) {
+      setIdentityAuditError(error.message || 'No se pudo generar el diagnóstico.')
+    } finally {
+      setIdentityAuditBusy(false)
     }
   }
 
@@ -370,6 +408,9 @@ export default function ServiciosView() {
             <>
               <button onClick={() => setTrainerModal(true)} className="btn-secondary text-sm">
                 <UserRound size={15} /> Capacitadores
+              </button>
+              <button onClick={inspectIdentityIntegrity} className="btn-secondary text-sm">
+                <ShieldCheck size={15} /> Auditoría de identificaciones
               </button>
               <button onClick={() => setSigningSettingsOpen(true)} className="btn-secondary text-sm">
                 <ShieldCheck size={15} /> Firmas y plantilla
@@ -512,7 +553,11 @@ export default function ServiciosView() {
             <div className="max-h-40 overflow-y-auto space-y-1">
               {capacitadores.map(item => (
                 <button key={item.ID} type="button" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-left hover:bg-blue-50"
-                  onClick={() => setTrainerForm({ id: item.ID, nombre: item.Nombre, identificacion: item.Identificacion || '', resumen: item.Resumen || '', activo: item.Activo === true || item.Activo === 'TRUE' })}>
+                  onClick={() => setTrainerForm({ id: item.ID, nombre: item.Nombre,
+                    identificacion: normalizeIdentification(item.Identificacion ?? ''),
+                    tipoIdentificacion: item.TipoIdentificacion || IDENTIFICATION_TYPE.UNSPECIFIED,
+                    resumen: item.Resumen || '', activo: item.Activo === true || item.Activo === 'TRUE',
+                    legacyOriginalIdentification: normalizeIdentification(item.Identificacion ?? '') })}>
                   <span className="font-medium text-slate-900">{item.Nombre}</span>
                   <span className="ml-2 text-xs text-slate-500">{item.Activo === true || item.Activo === 'TRUE' ? 'Activo' : 'Inactivo'}</span>
                 </button>
@@ -522,9 +567,31 @@ export default function ServiciosView() {
               <label className="label" htmlFor="trainerName">Nombre completo</label>
               <input id="trainerName" className="input" required minLength={5} maxLength={160} value={trainerForm.nombre}
                 onChange={e => setTrainerForm(current => ({ ...current, nombre: e.target.value }))} />
+              <label className="label" htmlFor="trainerIdentityType">Tipo de identificación</label>
+              <select id="trainerIdentityType" className="input" value={trainerForm.tipoIdentificacion}
+                onChange={e => setTrainerForm(current => ({ ...current, tipoIdentificacion: e.target.value }))}>
+                {trainerForm.tipoIdentificacion === IDENTIFICATION_TYPE.UNSPECIFIED && (
+                  <option value={IDENTIFICATION_TYPE.UNSPECIFIED}>No especificado (registro anterior)</option>
+                )}
+                <option value={IDENTIFICATION_TYPE.ECUADORIAN_ID}>Cédula ecuatoriana</option>
+                <option value={IDENTIFICATION_TYPE.ECUADORIAN_RUC}>RUC ecuatoriano</option>
+                <option value={IDENTIFICATION_TYPE.PASSPORT}>Pasaporte</option>
+                <option value={IDENTIFICATION_TYPE.OTHER}>Otro documento</option>
+              </select>
               <label className="label" htmlFor="trainerIdentity">Identificación</label>
-              <input id="trainerIdentity" className="input" maxLength={32} value={trainerForm.identificacion}
-                onChange={e => setTrainerForm(current => ({ ...current, identificacion: e.target.value }))} />
+              <input id="trainerIdentity" type="text" inputMode={[IDENTIFICATION_TYPE.ECUADORIAN_ID, IDENTIFICATION_TYPE.ECUADORIAN_RUC].includes(trainerForm.tipoIdentificacion) ? 'numeric' : 'text'}
+                autoComplete="off" className="input" maxLength={64} value={trainerForm.identificacion}
+                onChange={e => setTrainerForm(current => ({ ...current, identificacion: e.target.value }))}
+                aria-describedby="trainerIdentityHelp" />
+              <p id="trainerIdentityHelp" className="-mt-2 text-xs text-slate-500">
+                {trainerForm.tipoIdentificacion === IDENTIFICATION_TYPE.ECUADORIAN_ID
+                  ? 'Se conserva como texto. La validación matemática no confirma oficialmente la identidad.'
+                  : trainerForm.tipoIdentificacion === IDENTIFICATION_TYPE.ECUADORIAN_RUC
+                    ? 'Se comprueba el formato de 13 dígitos; no se consulta vigencia ni existencia en el SRI.'
+                    : trainerForm.tipoIdentificacion === IDENTIFICATION_TYPE.UNSPECIFIED
+                      ? 'Ficha anterior sin tipo documentado. Mantenga el valor y elija un tipo al corregirlo.'
+                      : 'El documento se conserva como texto, incluidos ceros iniciales y letras.'}
+              </p>
               <label className="label" htmlFor="trainerSummary">Resumen profesional</label>
               <textarea id="trainerSummary" className="input" rows={3} maxLength={1000} value={trainerForm.resumen}
                 onChange={e => setTrainerForm(current => ({ ...current, resumen: e.target.value }))} />
@@ -532,10 +599,38 @@ export default function ServiciosView() {
                 onChange={e => setTrainerForm(current => ({ ...current, activo: e.target.checked }))} /> Ficha activa</label>}
               {trainerError && <p role="alert" className="text-sm text-red-600">{trainerError}</p>}
               <div className="flex gap-2">
-                <button type="button" className="btn-secondary flex-1" onClick={() => setTrainerForm({ id: '', nombre: '', identificacion: '', resumen: '', activo: true })}>Nueva ficha</button>
+                <button type="button" className="btn-secondary flex-1" onClick={() => setTrainerForm({ ...EMPTY_TRAINER })}>Nueva ficha</button>
                 <button type="submit" className="btn-primary flex-1" disabled={trainerBusy}>{trainerBusy ? 'Guardando...' : trainerForm.id ? 'Guardar cambios' : 'Agregar capacitador'}</button>
               </div>
             </form>
+          </div>
+        </Modal>
+      )}
+
+      {isAdmin && (
+        <Modal open={identityAuditOpen} onClose={() => setIdentityAuditOpen(false)} title="Diagnóstico de identificaciones" size="lg">
+          <div className="space-y-4">
+            <p className="rounded-xl border border-blue-100 bg-blue-50 p-3 text-sm text-blue-900">
+              Revisión administrativa de celdas numéricas, cédulas tipadas inválidas y duplicados. Es solo lectura: no corrige datos ni muestra identificaciones personales.
+            </p>
+            {identityAuditBusy && <Spinner text="Revisando campos de Finance..." />}
+            {identityAuditError && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{identityAuditError}</p>}
+            {identityAudit?.modulos && <div className="space-y-2">
+              {identityAudit.modulos.map(item => (
+                <div key={item.modulo} className="rounded-xl border border-slate-200 p-3">
+                  <p className="font-semibold text-slate-900">{item.modulo}</p>
+                  <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-slate-600 sm:grid-cols-5">
+                    <span>Con dato: <strong>{item.registros}</strong></span>
+                    <span>Celdas numéricas: <strong>{item.celdasNumericas}</strong></span>
+                    <span>Posible cero perdido: <strong>{item.posiblesCerosInicialesPerdidos}</strong></span>
+                    <span>Cédulas no válidas: <strong>{item.cedulasNoValidas}</strong></span>
+                    <span>Duplicados tipados: <strong>{item.duplicadosTipados}</strong></span>
+                  </div>
+                </div>
+              ))}
+            </div>}
+            {identityAudit?.advertencia && <p className="text-xs text-amber-800">{identityAudit.advertencia}</p>}
+            {identityAudit?.generadoEn && <p className="text-xs text-slate-400">Generado: {new Date(identityAudit.generadoEn).toLocaleString()}</p>}
           </div>
         </Modal>
       )}
@@ -579,18 +674,38 @@ export default function ServiciosView() {
                   Emisión bloqueada: {trainerCertificate.data.bloqueoEmision} Esta revisión no emite ni reserva códigos.
                 </p>
               )}
-              {trainerCertificate.data.historial?.length > 0 && <div className="space-y-2">
-                <p className="font-semibold text-slate-900">Versiones y auditoría</p>
-                {trainerCertificate.data.historial.map(item => <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 p-2">
-                  <span className="text-slate-700">v{item.version} · {item.codigo} · {item.estado}{item.pdfArchivado ? ' · PDF privado' : ' · PDF pendiente'}</span>
-                  <div className="flex flex-wrap gap-2">
-                    {['emitido', 'enviado'].includes(item.estado) && <>
-                      <button type="button" className="btn-secondary text-xs" disabled={trainerCertificateBusy} onClick={() => downloadTrainerCertificate(item.id)}>Descargar PDF</button>
-                      <button type="button" className="btn-secondary text-xs" disabled={trainerCertificateBusy} onClick={() => setTrainerLifecycle({ action: 'void', id: item.id })}>Anular</button>
-                    </>}
-                    {['emitido', 'anulado'].includes(item.estado) && <button type="button" className="btn-secondary text-xs" disabled={trainerCertificateBusy} onClick={() => setTrainerLifecycle({ action: 'reissue', id: item.id })}>Reemitir</button>}
+              {trainerCertificate.data.historial?.length > 0 && <div className="space-y-3">
+                <div>
+                  <p className="font-semibold text-slate-900">Historial de versiones y auditoría</p>
+                  <p className="mt-1 text-xs text-slate-500">Cada PDF se conserva por separado. Una reemisión no reemplaza la versión vigente hasta completar el archivo.</p>
+                </div>
+                {trainerCertificate.data.historial.map(item => {
+                  const current = ['emitido', 'enviado'].includes(item.estado)
+                  return <div key={item.id} className="rounded-xl border border-slate-200 bg-white p-3">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-semibold text-slate-900">Versión {item.version}</span>
+                          <span className={`rounded-full px-2 py-0.5 text-xs ${current ? 'bg-emerald-100 text-emerald-800' : item.estado === 'pendiente_pdf' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-700'}`}>{item.estado}</span>
+                          {current && <span className="text-xs font-medium text-emerald-700">Vigente</span>}
+                        </div>
+                        <p className="mt-1 break-all font-mono text-xs text-slate-600">{item.codigo}</p>
+                        <p className="mt-1 text-xs text-slate-500">{item.fecha ? fmt.date(item.fecha) : 'Fecha no registrada'}{item.actor ? ` · por ${item.actor}` : ''}</p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {item.pdfArchivado && <button type="button" className="btn-secondary text-xs" disabled={trainerCertificateBusy} onClick={() => downloadTrainerCertificate(item.id)}>Descargar PDF original</button>}
+                        {['emitido', 'enviado'].includes(item.estado) && <button type="button" className="btn-secondary text-xs" disabled={trainerCertificateBusy} onClick={() => setTrainerLifecycle({ action: 'void', id: item.id })}>Anular</button>}
+                        {['emitido', 'anulado'].includes(item.estado) && <button type="button" className="btn-secondary text-xs" disabled={trainerCertificateBusy} onClick={() => setTrainerLifecycle({ action: 'reissue', id: item.id })}>Reemitir</button>}
+                      </div>
+                    </div>
+                    <div className="mt-3 grid gap-2 border-t border-slate-100 pt-2 text-xs sm:grid-cols-2">
+                      <p className="break-all text-slate-600"><span className="text-slate-400">Plantilla:</span> {item.plantilla || 'No registrada'}</p>
+                      <p className="text-slate-600"><span className="text-slate-400">Snapshot:</span> {item.snapshotVerificado ? 'verificado' : 'no disponible'}</p>
+                      {item.motivo && <p className="sm:col-span-2 text-slate-700"><span className="text-slate-400">Motivo:</span> {item.motivo}</p>}
+                      {!item.pdfArchivado && <p className="sm:col-span-2 text-amber-800">PDF original no archivado; no se regenerará con datos actuales.</p>}
+                    </div>
                   </div>
-                </div>)}
+                })}
               </div>}
               {trainerLifecycle && <div className="space-y-2 rounded-xl border border-amber-200 bg-amber-50 p-3">
                 <p className="font-semibold text-amber-950">{trainerLifecycle.action === 'void' ? 'Anular versión' : 'Reemitir con código nuevo'}</p>

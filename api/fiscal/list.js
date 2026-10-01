@@ -1,4 +1,4 @@
-import { callGasActionAsUser } from '../../lib/fiscal/orchestration/gasClient.js'
+import { callGasActionAsUser, fiscalGasErrorResponse } from '../../lib/fiscal/orchestration/gasClient.js'
 import { getFiscalUserToken } from '../../lib/fiscal/httpAuth.js'
 
 const DETAIL_LIMIT = 120
@@ -139,10 +139,12 @@ export default async function handler(req, res) {
     return
   }
 
+  res.setHeader('Cache-Control', 'private, no-store')
+  res.setHeader('Vary', 'Authorization')
   const { environment = 'production', status = '', q = '', desde = '', hasta = '' } = req.query || {}
   const token = getFiscalUserToken(req)
   if (!token) {
-    res.status(400).json({ success: false, error: 'token es obligatorio.' })
+    res.status(401).json({ success: false, error: 'Sesión inválida o expirada. Por favor inicia sesión de nuevo.' })
     return
   }
 
@@ -181,7 +183,8 @@ export default async function handler(req, res) {
       .sort((a, b) => str(b.issueDate || b.createdAt).localeCompare(str(a.issueDate || a.createdAt)))
 
     res.status(200).json({ success: true, data: { items, summary: buildSummary(items), environment } })
-  } catch {
-    res.status(403).json({ success: false, error: 'No autorizado o no se pudo consultar la facturación.' })
+  } catch (err) {
+    const failure = fiscalGasErrorResponse(err, 'No se pudo consultar la facturación.')
+    res.status(failure.status).json({ success: false, error: failure.error })
   }
 }

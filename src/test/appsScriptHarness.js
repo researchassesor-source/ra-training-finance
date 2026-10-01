@@ -82,6 +82,12 @@ class Sheet {
   getLastRow() { return this.rows.length }
   getRange(row, column, rowCount, columnCount) { return new Range(this, row, column, rowCount, columnCount) }
   appendRow(row) { this.rows.push([...row]); this.formulas.push(row.map(() => '')); this.formats.push(row.map(() => '')) }
+  insertColumnBefore(columnPosition) {
+    const index = Math.max(0, Number(columnPosition) - 1)
+    this.rows.forEach(row => row.splice(index, 0, ''))
+    this.formulas.forEach(row => row.splice(index, 0, ''))
+    this.formats.forEach(row => row.splice(index, 0, ''))
+  }
   deleteRow(row) { this.rows.splice(row - 1, 1); this.formulas.splice(row - 1, 1); this.formats.splice(row - 1, 1) }
   setFrozenRows() {}
 }

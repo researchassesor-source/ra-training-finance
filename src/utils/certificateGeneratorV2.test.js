@@ -5,7 +5,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { PNG } from 'pngjs'
 import { sha256Hex } from '../services/certificateArtifactStore'
 import { buildCertificatePdf } from './certificateGenerator'
-import { CERTIFICATE_V2_ISSUER } from './certificateGeneratorV2'
+import { CERTIFICATE_INSTITUTIONAL_AVAL_TEMPLATE, CERTIFICATE_V2_ISSUER } from './certificateGeneratorV2'
 
 const root = path.join(process.cwd(), 'src/assets/certificate')
 const dataUrl = (file, mimeType) => `data:${mimeType};base64,${fs.readFileSync(path.join(root, file)).toString('base64')}`
@@ -18,6 +18,32 @@ for (let pixel = 0; pixel < 180 * 60; pixel += 1) {
   transparent.data[pixel * 4 + 3] = 0
 }
 const blankSignature = `data:image/png;base64,${PNG.sync.write(transparent).toString('base64')}`
+const visibleSignature = (() => {
+  const image = new PNG({ width: 600, height: 200 })
+  const noise = crypto.randomBytes(image.width * image.height * 3)
+  for (let pixel = 0; pixel < image.width * image.height; pixel += 1) {
+    image.data[pixel * 4] = noise[pixel * 3]
+    image.data[pixel * 4 + 1] = noise[pixel * 3 + 1]
+    image.data[pixel * 4 + 2] = noise[pixel * 3 + 2]
+    image.data[pixel * 4 + 3] = 0
+  }
+  for (let x = 25; x < 575; x += 1) {
+    const y = Math.round(104 + 25 * Math.sin(x / 27) + 11 * Math.sin(x / 8))
+    for (let dx = -2; dx <= 2; dx += 1) {
+      for (let dy = -2; dy <= 2; dy += 1) {
+        const px = x + dx
+        const py = y + dy
+        if (px < 0 || py < 0 || px >= image.width || py >= image.height) continue
+        const offset = (py * image.width + px) * 4
+        image.data[offset] = 8
+        image.data[offset + 1] = 40
+        image.data[offset + 2] = 82
+        image.data[offset + 3] = 255
+      }
+    }
+  }
+  return `data:image/png;base64,${PNG.sync.write(image).toString('base64')}`
+})()
 const options = {
   issuerRuc: '0691787373001',
   issuerFile: '401111',
@@ -75,6 +101,33 @@ describe('nueva plantilla de seguridad v2', () => {
     }
   }, 60_000)
 
+  it('genera la edición v3 con la misma composición y versión documental propia', async () => {
+    const previewOptions = {
+      ...options,
+      signatures: {
+        director: process.env.CERTIFICATE_PREVIEW_DIRECTOR_PNG
+          ? `data:image/png;base64,${fs.readFileSync(process.env.CERTIFICATE_PREVIEW_DIRECTOR_PNG).toString('base64')}`
+          : options.signatures.director,
+        manager: process.env.CERTIFICATE_PREVIEW_MANAGER_PNG
+          ? `data:image/png;base64,${fs.readFileSync(process.env.CERTIFICATE_PREVIEW_MANAGER_PNG).toString('base64')}`
+          : options.signatures.manager,
+      },
+    }
+    const result = await buildCertificatePdf({ ...certificate, TemplateVersion: 'ra-security-2026-v3' }, previewOptions)
+    expect(result.templateVersion).toBe('ra-security-2026-v3')
+    expect(result.blob.type).toBe('application/pdf')
+    expect(result.blob.size).toBeGreaterThan(100_000)
+    if (process.env.CERTIFICATE_PREVIEW_V3_FILE) {
+      const bytes = await new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(reader.result)
+        reader.onerror = reject
+        reader.readAsArrayBuffer(result.blob)
+      })
+      fs.writeFileSync(process.env.CERTIFICATE_PREVIEW_V3_FILE, Buffer.from(bytes))
+    }
+  }, 20_000)
+
   it.each(['asistencia', 'participacion', 'capacitacion'])('admite el tipo %s sin usar el texto de aprobación', async type => {
     const result = await buildCertificatePdf({ ...certificate, CertificateType: type }, options)
     expect(result.blob.type).toBe('application/pdf')
@@ -118,6 +171,57 @@ describe('nueva plantilla de seguridad v2', () => {
       fs.writeFileSync(process.env.CERTIFICATE_PREVIEW_AVAL_FILE, Buffer.from(bytes))
     }
   }, 20_000)
+
+  it('genera el nuevo certificado avalado desde snapshot institucional, con nombres de firmantes y código separados', async () => {
+    const avalado = {
+      ...certificate,
+      ID: 'AVAL-INSTITUTO-DELTA-1', CertificatePublicId: 'AVAL-INSTITUTO-DELTA-1', CertificateVersion: 1,
+      TemplateVersion: CERTIFICATE_INSTITUTIONAL_AVAL_TEMPLATE, CertificateSubject: 'institutional_aval',
+      CertificateStatus: 'emitido', CodigoCertificado: 'RA-CERT-2026-DELTA-001', InstitucionAval: 'Instituto Delta',
+      EstadoAval: 'avalado', AvalCodigoExterno: 'DELTA-REG-2026-045',
+      InstitutionData: {
+        institutionId: 'INS-DELTA', agreementId: 'CVN-DELTA', name: 'Instituto Delta', legalName: 'Instituto Delta S.A.',
+        siglas: 'DELTA', authorityId: 'AUT-DELTA', authorityName: 'Dra. María Pérez', authorityRole: 'Directora Académica',
+        agreementObject: 'Convenio de cooperación 2026', agreementSignedAt: '2026-08-01',
+        resolutionName: 'Resolución de creación institucional.pdf', resolutionNotes: 'RPC-SO-22-No.364-2024',
+        resolutionDate: '2024-05-29',
+      },
+    }
+    const result = await buildCertificatePdf(avalado, {
+      ...options,
+      signatures: { manager: visibleSignature },
+      signers: { manager: { name: 'Mgs. Alexandra Villagómez', title: 'Gerente General' } },
+      institutionAssets: { authoritySignature: visibleSignature },
+    })
+    expect(result).toMatchObject({ certificateCode: avalado.CodigoCertificado,
+      templateVersion: CERTIFICATE_INSTITUTIONAL_AVAL_TEMPLATE })
+    expect(result.verificationUrl).toContain(avalado.CertificatePublicId)
+    expect(result.filename).toContain('DELTA')
+    expect(result.blob.type).toBe('application/pdf')
+    expect(result.blob.size).toBeGreaterThan(100_000)
+    if (process.env.CERTIFICATE_PREVIEW_INSTITUTIONAL_AVAL_FILE) {
+      const bytes = await new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(reader.result)
+        reader.onerror = reject
+        reader.readAsArrayBuffer(result.blob)
+      })
+      fs.writeFileSync(process.env.CERTIFICATE_PREVIEW_INSTITUTIONAL_AVAL_FILE, Buffer.from(bytes))
+    }
+  }, 30_000)
+
+  it('rechaza el certificado avalado si falta snapshot o la firma de la autoridad externa', async () => {
+    const avalado = {
+      ...certificate, ID: 'AVAL-INSTITUCION-INCOMPLETA', CertificatePublicId: 'AVAL-INSTITUCION-INCOMPLETA',
+      TemplateVersion: CERTIFICATE_INSTITUTIONAL_AVAL_TEMPLATE, CertificateSubject: 'institutional_aval',
+      CertificateStatus: 'emitido', CodigoCertificado: 'RA-CERT-2026-DELTA-002', EstadoAval: 'avalado',
+      AvalCodigoExterno: 'DELTA-REG-046', InstitutionData: { institutionId: 'INS-DELTA', agreementId: 'CVN-DELTA',
+        name: 'Instituto Delta', authorityId: 'AUT-DELTA', authorityName: 'Dra. María Pérez', authorityRole: 'Directora' },
+    }
+    const signerOptions = { ...options, signers: { manager: { name: 'Mgs. Alexandra Villagómez', title: 'Gerente General' } } }
+    await expect(buildCertificatePdf({ ...avalado, InstitutionData: null }, signerOptions)).rejects.toThrow('snapshot completo')
+    await expect(buildCertificatePdf(avalado, signerOptions)).rejects.toThrow('Falta la imagen oficial de la autoridad')
+  }, 30_000)
 
   it('no confunde los roles de ponente o capacitador con una inscripción de participante', async () => {
     await expect(buildCertificatePdf({ ...certificate, CertificateType: 'ponente' }, options))

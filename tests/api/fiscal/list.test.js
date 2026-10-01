@@ -6,13 +6,17 @@ vi.mock('../../../lib/fiscal/orchestration/gasClient.js', async importOriginal =
   return { ...actual, callGasActionAsUser: callGasActionAsUserMock }
 })
 
-const { default: handler } = await import('../../../api/fiscal/list.js')
+const [{ default: handler }, { GasClientError }] = await Promise.all([
+  import('../../../api/fiscal/list.js'),
+  import('../../../lib/fiscal/orchestration/gasClient.js'),
+])
 
 function mockReq(query, headers = { authorization: 'Bearer tok' }) {
   return { method: 'GET', query, headers }
 }
 function mockRes() {
-  const res = { statusCode: null, body: null }
+  const res = { statusCode: null, body: null, headers: {} }
+  res.setHeader = (name, value) => { res.headers[name] = value; return res }
   res.status = code => { res.statusCode = code; return res }
   res.json = payload => { res.body = payload; return res }
   return res
@@ -54,6 +58,8 @@ describe('GET /api/fiscal/list — trazabilidad de origen (solo lectura)', () =>
     await handler(mockReq({ environment: 'production' }), res)
 
     expect(res.statusCode).toBe(200)
+    expect(res.headers['Cache-Control']).toBe('private, no-store')
+    expect(res.headers.Vary).toBe('Authorization')
     const item = res.body.data.items[0]
     expect(item.inscripcionId).toBe('INS-1')
     expect(item.originInscripcion).toEqual({
@@ -105,5 +111,25 @@ describe('GET /api/fiscal/list — trazabilidad de origen (solo lectura)', () =>
     expect(calledActions).toEqual(expect.arrayContaining(['getFacturasFiscales', 'getFacturaFiscalCompleta', 'getInscripciones']))
     const forbidden = ['crearBorradorFactura', 'reservarSecuencialFiscal', 'transicionEstadoFactura', 'verificarPagoInscripcion']
     for (const action of forbidden) expect(calledActions).not.toContain(action)
+  })
+
+  it('devuelve 401 para sesión inválida y no etiqueta el problema como falta de permisos', async () => {
+    callGasActionAsUserMock.mockRejectedValue(new GasClientError('sesión expirada', { code: 'SESSION_INVALID' }))
+    const res = mockRes()
+    await handler(mockReq({ environment: 'production' }), res)
+    expect(res.statusCode).toBe(401)
+    expect(res.body.error).toMatch(/sesión inválida o expirada/i)
+  })
+
+  it('devuelve 403 solo para denegación de permisos y 502 para fallos externos', async () => {
+    const resForbidden = mockRes()
+    callGasActionAsUserMock.mockRejectedValueOnce(new GasClientError('denegado', { code: 'FORBIDDEN' }))
+    await handler(mockReq({ environment: 'production' }), resForbidden)
+    expect(resForbidden.statusCode).toBe(403)
+
+    const resUpstream = mockRes()
+    callGasActionAsUserMock.mockRejectedValueOnce(new GasClientError('backend no disponible', { code: 'UPSTREAM_ERROR' }))
+    await handler(mockReq({ environment: 'production' }), resUpstream)
+    expect(resUpstream.statusCode).toBe(502)
   })
 })

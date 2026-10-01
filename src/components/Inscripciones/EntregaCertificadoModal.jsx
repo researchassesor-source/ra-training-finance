@@ -4,7 +4,6 @@ import { Download, Mail, MessageCircle, Share2 } from 'lucide-react'
 import { api } from '../../services/api'
 import { certificatePdfRepository } from '../../services/certificatePdfRepository'
 import { downloadCertificateWithAudit, openCertificatePreviewWindow } from '../../services/certificateDownloadFlow'
-import { blobToBase64 } from '../../utils/blob'
 import { CERTIFICATE_PERMISSION_MESSAGE } from '../../utils/certificatePermissions'
 
 export default function EntregaCertificadoModal({ inscripcion, isAdmin, onClose, onUpdated }) {
@@ -24,7 +23,7 @@ export default function EntregaCertificadoModal({ inscripcion, isAdmin, onClose,
 
   async function prepare() {
     const issued = await api.getCertificadoParaDescarga(inscripcion.ID)
-    const result = await certificatePdfRepository.prepare(issued.data, { allowHistoricalRecovery: true })
+    const result = await certificatePdfRepository.prepare(issued.data)
     await api.registrarArtefactoCertificado(inscripcion.ID, {
       pdfHash: result.hash,
       pdfStorageReference: result.reference,
@@ -34,9 +33,6 @@ export default function EntregaCertificadoModal({ inscripcion, isAdmin, onClose,
       auditAction: result.auditAction,
     })
     await api.registrarGeneracionCertificado(inscripcion.ID)
-    if (result.historicalRecovered) {
-      setWarning('Se recuperó el artefacto del certificado histórico con la plantilla vigente. Se conservaron su código, datos, estado y QR.')
-    }
     return result
   }
 
@@ -109,15 +105,8 @@ export default function EntregaCertificadoModal({ inscripcion, isAdmin, onClose,
     setMessage('')
     try {
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Ingrese un correo electrónico válido.')
-      const result = await prepare()
-      if (result.blob.size > 3 * 1024 * 1024) throw new Error('El PDF supera el límite permitido de 3 MB.')
-      const pdfBase64 = await blobToBase64(result.blob)
-      await api.enviarCertificadoEmail(inscripcion.ID, {
-        pdfBase64,
-        mimeType: 'application/pdf',
-        filename: result.filename,
-        email,
-      })
+      await prepare()
+      await api.enviarCertificadoEmail(inscripcion.ID, { email })
       onUpdated?.()
       setMessage('El certificado fue enviado por correo.')
     } catch (err) { setError(err.message) }
@@ -160,6 +149,7 @@ export default function EntregaCertificadoModal({ inscripcion, isAdmin, onClose,
 
       <div className="border-t border-gray-100 pt-4 space-y-2">
         <label className="label" htmlFor="certificate-delivery-email">Enviar PDF por correo</label>
+        <p className="text-xs text-gray-500">Se enviará la versión vigente archivada y verificada. Los certificados históricos sin PDF original no se regeneran.</p>
         <div className="flex flex-col sm:flex-row gap-2">
           <input id="certificate-delivery-email" className="input" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="participante@example.com" />
           <button type="button" onClick={sendEmail} disabled={disabled} className="btn-primary whitespace-nowrap justify-center">

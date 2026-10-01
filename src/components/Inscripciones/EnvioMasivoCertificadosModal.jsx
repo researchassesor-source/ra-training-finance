@@ -1,7 +1,6 @@
 import { useMemo, useState } from 'react'
 import { CheckCircle2, Mail, XCircle } from 'lucide-react'
 import { api } from '../../services/api'
-import { blobToBase64 } from '../../utils/blob'
 import { certificatePdfRepository } from '../../services/certificatePdfRepository'
 import { CERTIFICATE_PERMISSION_MESSAGE } from '../../utils/certificatePermissions'
 
@@ -25,7 +24,7 @@ export default function EnvioMasivoCertificadosModal({ inscripciones, isAdmin, o
       const item = elegibles[index]
       try {
         const issued = await api.getCertificadoParaDescarga(item.ID)
-        const certificate = await certificatePdfRepository.prepare(issued.data, { allowHistoricalRecovery: true })
+        const certificate = await certificatePdfRepository.prepare(issued.data)
         await api.registrarArtefactoCertificado(item.ID, {
           pdfHash: certificate.hash,
           pdfStorageReference: certificate.reference,
@@ -35,15 +34,7 @@ export default function EnvioMasivoCertificadosModal({ inscripciones, isAdmin, o
           auditAction: certificate.auditAction,
         })
         await api.registrarGeneracionCertificado(item.ID)
-        if (certificate.blob.size > 3 * 1024 * 1024) {
-          throw new Error('El PDF supera el límite de 3 MB.')
-        }
-        await api.enviarCertificadoEmail(item.ID, {
-          pdfBase64: await blobToBase64(certificate.blob),
-          mimeType: 'application/pdf',
-          filename: certificate.filename,
-          email: item.ClienteEmail,
-        })
+        await api.enviarCertificadoEmail(item.ID, { email: item.ClienteEmail })
         nextResults.push({ id: item.ID, name: item.ClienteNombre, ok: true })
       } catch (error) {
         nextResults.push({ id: item.ID, name: item.ClienteNombre, ok: false, error: error.message })
@@ -74,7 +65,7 @@ export default function EnvioMasivoCertificadosModal({ inscripciones, isAdmin, o
       <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
         <p className="font-semibold">Envío individual automatizado</p>
         <p className="mt-1 text-blue-800">
-          Se generará el PDF personalizado de cada participante y se enviará a su correo registrado.
+          Finance verificará y adjuntará la versión vigente archivada de cada participante. Si un certificado histórico no tiene su PDF original, se reportará sin regenerarlo.
         </p>
       </div>
 

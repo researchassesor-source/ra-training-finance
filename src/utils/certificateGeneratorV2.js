@@ -11,7 +11,9 @@ import {
 } from './certificateGenerator.js'
 
 export const CERTIFICATE_V2_VERSION = 'ra-security-2026-v2'
+export const CERTIFICATE_V3_VERSION = 'ra-security-2026-v3'
 export const CERTIFICATE_ITSAL_VERSION = 'ra-itsal-security-2026-v1'
+export const CERTIFICATE_INSTITUTIONAL_AVAL_TEMPLATE = 'ra-institutional-aval-2026'
 export const CERTIFICATE_V2_ISSUER = Object.freeze({ ruc: '0691787373001', expediente: '401111' })
 const WIDTH = 320
 const HEIGHT = 180
@@ -92,7 +94,8 @@ function signatureInBox(pdf, dataUrl, x, y, width, height) {
   const scale = Math.min(width / image.width, height / image.height)
   const drawnWidth = image.width * scale
   const drawnHeight = image.height * scale
-  pdf.addImage(dataUrl, 'PNG', x + (width - drawnWidth) / 2, y + (height - drawnHeight) / 2, drawnWidth, drawnHeight)
+  const format = String(dataUrl).startsWith('data:image/jpeg') ? 'JPEG' : 'PNG'
+  pdf.addImage(dataUrl, format, x + (width - drawnWidth) / 2, y + (height - drawnHeight) / 2, drawnWidth, drawnHeight)
 }
 
 function diamond(pdf, x, y, size) {
@@ -128,9 +131,185 @@ function requiredSignature(value, label) {
   return value
 }
 
+function requiredInstitutionalImage(value, label) {
+  const match = String(value || '').match(/^data:image\/(png|jpeg);base64,([a-z0-9+/]+=*)$/i)
+  if (!match) throw new Error(`Falta la imagen oficial de ${label} o su formato no es válido.`)
+  const bytes = atob(match[2])
+  const validPng = match[1].toLowerCase() === 'png' && bytes.startsWith('\x89PNG\r\n\x1a\n')
+  const validJpeg = match[1].toLowerCase() === 'jpeg' && bytes.charCodeAt(0) === 255 && bytes.charCodeAt(1) === 216 && bytes.charCodeAt(2) === 255
+  if (!validPng && !validJpeg) throw new Error(`La imagen oficial de ${label} está dañada.`)
+  return value
+}
+
+function institutionImageInBox(pdf, dataUrl, x, y, width, height) {
+  const image = pdf.getImageProperties(dataUrl)
+  const scale = Math.min(width / image.width, height / image.height)
+  const drawnWidth = image.width * scale
+  const drawnHeight = image.height * scale
+  const format = String(dataUrl).startsWith('data:image/jpeg') ? 'JPEG' : 'PNG'
+  pdf.addImage(dataUrl, format, x + (width - drawnWidth) / 2, y + (height - drawnHeight) / 2,
+    drawnWidth, drawnHeight, undefined, 'FAST')
+}
+
+async function buildInstitutionalAvalPdf(record, options) {
+  const certificate = normalizeIssuedCertificate(record)
+  if (certificate.CertificateSubject !== 'institutional_aval' || certificate.EstadoAval !== 'avalado'
+    || !String(certificate.AvalCodigoExterno || '').trim()) {
+    throw new Error('El certificado necesita un aval confirmado y su código institucional registrado.')
+  }
+  const institution = record?.InstitutionData
+  if (!institution?.institutionId || !institution?.agreementId || !String(institution?.name || '').trim()
+    || !String(institution?.authorityId || '').trim() || !String(institution?.authorityName || '').trim()
+    || !String(institution?.authorityRole || '').trim()) {
+    throw new Error('La emisión no tiene el snapshot completo de institución, convenio y autoridad firmante.')
+  }
+  const manager = options.signers?.manager || {}
+  if (!String(manager.name || '').trim() || !String(manager.title || '').trim()) {
+    throw new Error('Configure el nombre y cargo oficiales del gerente firmante antes de emitir.')
+  }
+  const missing = validateCertificateData(certificate)
+  if (missing.length) throw new Error(`Faltan datos del certificado: ${missing.join(', ')}.`)
+  const status = String(certificate.CertificateStatus || certificate.EstadoCertificado || '').toLowerCase()
+  if (status !== 'emitido' || !certificate.CodigoCertificado || !certificate.FechaEmisionCertificado) {
+    throw new Error('El certificado debe estar emitido oficialmente antes de generar el PDF.')
+  }
+  const externalAssets = options.institutionAssets || {}
+  const authoritySignature = requiredInstitutionalImage(externalAssets.authoritySignature, 'la autoridad institucional')
+  const institutionLogo = externalAssets.logo ? requiredInstitutionalImage(externalAssets.logo, 'el logotipo institucional') : ''
+  const institutionSeal = externalAssets.seal ? requiredInstitutionalImage(externalAssets.seal, 'el sello institucional') : ''
+  const managerSignature = requiredSignature(options.signatures?.manager, 'Gerencia General')
+  const issuerRuc = String(options.issuerRuc ?? CERTIFICATE_V2_ISSUER.ruc).trim()
+  const issuerFile = String(options.issuerFile ?? CERTIFICATE_V2_ISSUER.expediente).trim()
+  if (!/^\d{13}$/.test(issuerRuc) || !/^\d{4,12}$/.test(issuerFile)) throw new Error('Falta confirmar el RUC y expediente oficiales del emisor.')
+
+  const type = participantCertificateType(certificate.CertificateType)
+  const publicId = String(certificate.CertificatePublicId || certificate.ID)
+  const verificationUrl = buildVerificationUrl(publicId)
+  const [qr, background, logo, mark, seal, regular, bold, italic] = await Promise.all([
+    generateQrDataUrl(publicId),
+    ...['background', 'logo', 'mark', 'seal', 'regular', 'bold', 'italic'].map(key => asDataUrl(key, options.assetDataUrls)),
+  ])
+  const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: [WIDTH, HEIGHT], compress: true })
+  pdf.setFileId(deterministicCertificatePdfFileId(`${publicId}|${certificate.CodigoCertificado}|${certificate.TemplateVersion}`))
+  pdf.setCreationDate(deterministicCertificatePdfCreationDate(certificate.FechaEmisionCertificado))
+  addFonts(pdf, { regular, bold, italic })
+  pdf.addImage(background, 'PNG', 0, 0, WIDTH, HEIGHT)
+  pdf.addImage(logo, 'PNG', 140, 6.5, 40, 17)
+  pdf.setFillColor(255, 255, 255)
+  pdf.rect(159.8, 20.6, 20.7, 3.2, 'F')
+  pdf.saveGraphicsState()
+  pdf.setGState(new pdf.GState({ opacity: 0.055 }))
+  pdf.addImage(mark, 'PNG', 175, 78, 36, 44.4)
+  pdf.restoreGraphicsState()
+
+  if (institutionLogo) {
+    institutionImageInBox(pdf, institutionLogo, 265, 12, 34, 20)
+  }
+  pdf.setTextColor(...NAVY)
+  line(pdf, 'RESEARCH ASSESSOR TRAINING S.A.S.', 32, 180, 11.5, 10, 'CertificatePlex', 'bold')
+  line(pdf, `R.U.C.: ${issuerRuc} · Expediente: ${issuerFile}`, 37, 180, 9.5, 8)
+  if (institutionLogo) {
+    pdf.setFont('CertificatePlex', 'bold')
+    pdf.setFontSize(7.5)
+    pdf.text(String(institution.siglas || institution.name).slice(0, 52), 282, 36, { align: 'center' })
+  }
+  pdf.setDrawColor(...ORANGE)
+  pdf.setLineWidth(0.35)
+  pdf.line(66, 47, 94, 47)
+  pdf.line(226, 47, 254, 47)
+  pdf.setTextColor(...ORANGE)
+  pdf.setFillColor(...ORANGE)
+  diamond(pdf, 98, 47, 1.3)
+  diamond(pdf, 222, 47, 1.3)
+  pdf.setTextColor(...NAVY)
+  line(pdf, 'CERTIFICADO', 51, 170, 47, 37, 'times', 'bold')
+  pdf.setTextColor(...ORANGE)
+  line(pdf, type.heading, 61, 165, 28, 22, 'times', 'bold')
+  pdf.setTextColor(...NAVY)
+  line(pdf, 'Se certifica que:', 68.5, 180, 11, 9)
+  line(pdf, String(certificate.ClienteNombre).trim(), 78.5, 195, 30, 18, 'times', 'italic')
+  line(pdf, `Identificación: ${certificate.ClienteID}`, 84.3, 185, 11, 9)
+  line(pdf, type.intro, 91.2, 190, 11, 9)
+  line(pdf, String(certificate.ServicioNombre).trim(), 98.8, 195, 20, 12, 'times', 'bold')
+  line(pdf, `con una duración de ${normalizeDuration(certificate.Duracion)}, desarrollado desde`, 105.3, 190, 10, 8)
+  line(pdf, `el ${formatLongDate(certificate.FechaInicio)} hasta el ${formatLongDate(certificate.FechaFin)}, bajo la modalidad`, 110.5, 194, 10, 8)
+  line(pdf, `${certificate.Modalidad}.`, 115.7, 185, 10, 8)
+  pdf.setTextColor(...NAVY)
+  fittedText(pdf, `Aval institucional: ${institution.legalName || institution.name}${institution.siglas ? ` (${institution.siglas})` : ''}`, 160, 123, 232, 8.5, 6.5, 'bold')
+  fittedText(pdf, `Código de aval: ${certificate.AvalCodigoExterno}`, 160, 127.5, 232, 8, 6.2)
+  const agreementText = `Convenio: ${institution.agreementObject || institution.siglas || institution.name}${institution.agreementSignedAt ? ` · firmado ${formatLongDate(institution.agreementSignedAt)}` : ''}`
+  fittedText(pdf, agreementText, 160, 132, 232, 7.5, 5.8)
+  if (institution.resolutionName) {
+    const supportingDocument = institution.resolutionNotes || institution.resolutionName
+    fittedText(pdf, `Documento institucional: ${supportingDocument}${institution.resolutionDate ? ` · ${formatLongDate(institution.resolutionDate)}` : ''}`, 160, 135.2, 232, 6.4, 5)
+  }
+  line(pdf, `Riobamba, ${formatLongDate(certificate.FechaEmisionCertificado)}`, 138, 185, 9, 7)
+
+  signatureInBox(pdf, managerSignature, 76, 139, 49, 11)
+  signatureInBox(pdf, authoritySignature, 195, 139, 49, 11)
+  institutionImageInBox(pdf, institutionSeal || seal, 143, 137, 34, 20)
+  pdf.setDrawColor(...NAVY)
+  pdf.setLineWidth(0.25)
+  pdf.line(74, 150, 128, 150)
+  pdf.line(192, 150, 246, 150)
+  pdf.setFont('CertificatePlex', 'bold')
+  pdf.setTextColor(...NAVY)
+  fittedText(pdf, manager.name.trim(), 101, 155, 58, 10, 6, 'bold')
+  fittedText(pdf, institution.authorityName, 219, 155, 58, 10, 6, 'bold')
+  pdf.setFont('CertificatePlex', 'normal')
+  pdf.setTextColor(...ORANGE)
+  fittedText(pdf, manager.title.trim(), 101, 160, 58, 8.5, 5.5)
+  fittedText(pdf, institution.authorityRole, 219, 160, 58, 8.5, 5.5)
+
+  pdf.setDrawColor(...ORANGE)
+  pdf.setLineWidth(0.4)
+  pdf.roundedRect(261, 106, 49, 59, 3, 3)
+  pdf.setFont('CertificatePlex', 'bold')
+  pdf.setTextColor(...NAVY)
+  pdf.setFontSize(12)
+  pdf.text('VERIFICACIÓN', 285.5, 113, { align: 'center' })
+  pdf.addImage(qr, 'PNG', 270.5, 116, 30, 30)
+  pdf.link(270.5, 116, 30, 30, { url: verificationUrl })
+  pdf.setFontSize(8)
+  pdf.text(String(certificate.CodigoCertificado), 285.5, 152, { align: 'center' })
+  pdf.setFont('CertificatePlex', 'normal')
+  pdf.setFontSize(8)
+  pdf.text('Verificación en:', 285.5, 158, { align: 'center' })
+  pdf.setFont('CertificatePlex', 'bold')
+  pdf.text('ra-training.com/verificar', 285.5, 162.5, { align: 'center' })
+  pdf.setFontSize(8)
+  pdf.text(`Código único: ${certificate.CodigoCertificado}`, 22, 24, { align: 'left' })
+  pdf.setFont('CertificatePlex', 'normal')
+  pdf.text('Documento digital con trazabilidad', 22, 28.5, { align: 'left' })
+  verifiedRegisterBadge(pdf)
+  pdf.setFont('CertificatePlex', 'bold')
+  pdf.setFontSize(8)
+  pdf.text('Registro digital verificable', 247, 36, { align: 'left' })
+  pdf.setFillColor(...NAVY)
+  pdf.roundedRect(126, 166, 68, 14, 2, 2, 'F')
+  pdf.setDrawColor(255, 255, 255)
+  pdf.setLineWidth(0.3)
+  pdf.circle(142, 172.6, 2.8)
+  pdf.ellipse(142, 172.6, 1.3, 2.8)
+  pdf.line(139.2, 172.6, 144.8, 172.6)
+  pdf.setTextColor(255, 255, 255)
+  pdf.setFontSize(12)
+  pdf.setFont('CertificatePlex', 'normal')
+  pdf.text('ra-training.com', 168, 174, { align: 'center' })
+  pdf.setTextColor(...NAVY)
+  fittedText(pdf, `RESEARCH ASSESSOR TRAINING S.A.S. · R.U.C. ${issuerRuc} · EXPEDIENTE ${issuerFile} · DOCUMENTO DIGITAL VERIFICABLE`, 84, 173, 78, 4.5, 2.5)
+  fittedText(pdf, `Fecha de emisión: ${formatLongDate(certificate.FechaEmisionCertificado)} · DOCUMENTO DIGITAL VERIFICABLE · RESEARCH ASSESSOR TRAINING S.A.S.`, 252, 173, 118, 5.5, 3)
+  pdf.setProperties({ title: `Certificado avalado ${certificate.CodigoCertificado}`, subject: certificate.ServicioNombre, author: 'Research Assessor Training S.A.S.' })
+  const safeName = String(certificate.ClienteNombre).replace(/[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ]+/g, '_')
+  const safeInstitution = String(institution.siglas || institution.name).replace(/[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ]+/g, '_')
+  return { blob: pdf.output('blob'), filename: `certificado_aval_${safeInstitution}_${safeName}.pdf`,
+    verificationUrl, certificateCode: certificate.CodigoCertificado, templateVersion: certificate.TemplateVersion }
+}
+
 export async function buildCertificateV2Pdf(record, options = {}) {
+  if (record?.TemplateVersion === CERTIFICATE_INSTITUTIONAL_AVAL_TEMPLATE) return buildInstitutionalAvalPdf(record, options)
   const institutional = record?.TemplateVersion === CERTIFICATE_ITSAL_VERSION
-  if (!institutional && record?.TemplateVersion !== CERTIFICATE_V2_VERSION) throw new Error('Versión de plantilla incorrecta.')
+  if (!institutional && ![CERTIFICATE_V2_VERSION, CERTIFICATE_V3_VERSION].includes(record?.TemplateVersion)) throw new Error('Versión de plantilla incorrecta.')
   const certificate = normalizeIssuedCertificate(record)
   const professional = certificate.CertificateSubject === 'professional'
   if (institutional && certificate.CertificateSubject !== 'institutional_aval') throw new Error('El aval ITSAL no corresponde al tipo de certificado.')

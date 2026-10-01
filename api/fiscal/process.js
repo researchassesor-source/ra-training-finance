@@ -10,7 +10,7 @@
  */
 
 import { continuarFlujoFactura } from '../../lib/fiscal/orchestration/facturaOrchestrator.js'
-import { callGasActionAsUser, GasClientError } from '../../lib/fiscal/orchestration/gasClient.js'
+import { callGasActionAsUser, GasClientError, fiscalGasErrorResponse } from '../../lib/fiscal/orchestration/gasClient.js'
 import { loadSigningKeysFromEnv, SigningKeysNotConfiguredError } from '../../lib/fiscal/orchestration/loadSigningKeys.js'
 import { getActiveEnvironment, getEmisorConfig } from '../../lib/fiscal/emisorConfig.js'
 import { XadesSignError, XadesVerifyError } from '../../lib/fiscal/xadesSign.js'
@@ -43,8 +43,12 @@ export default async function handler(req, res) {
   }
   const { facturaId } = body || {}
   const token = getFiscalUserToken(req, body)
-  if (!token || !facturaId) {
-    res.status(400).json({ success: false, error: 'token y facturaId son obligatorios.' })
+  if (!token) {
+    res.status(401).json({ success: false, error: 'Sesión inválida o expirada. Por favor inicia sesión de nuevo.' })
+    return
+  }
+  if (!facturaId) {
+    res.status(400).json({ success: false, error: 'facturaId es obligatorio.' })
     return
   }
 
@@ -53,7 +57,8 @@ export default async function handler(req, res) {
     // es admin, requireFiscalAdmin del lado de Apps Script rechaza aquí mismo.
     await callGasActionAsUser('getFacturaFiscalCompleta', { facturaId }, token)
   } catch (err) {
-    res.status(403).json({ success: false, error: 'No autorizado.' })
+    const failure = fiscalGasErrorResponse(err, 'No se pudo validar el acceso a la factura.')
+    res.status(failure.status).json({ success: false, error: failure.error })
     return
   }
 

@@ -1,3 +1,10 @@
+import { SESSION_EXPIRED_MESSAGE, notifySessionExpired } from '../utils/sessionEvents'
+
+function rejectApiError(message, token) {
+  if (message === SESSION_EXPIRED_MESSAGE) notifySessionExpired(token)
+  throw new Error(message)
+}
+
 async function call(action, params = {}, token = null) {
   const body = { action, ...params }
   if (token) body.token = token
@@ -25,7 +32,7 @@ async function call(action, params = {}, token = null) {
       error.action = action
       throw error
     }
-    throw new Error(backendMessage)
+    rejectApiError(backendMessage, token)
   }
   return data
 }
@@ -61,7 +68,7 @@ async function fiscalFetch(path, options = {}) {
         const data = await res.json()
         message = data.error || message
       } catch { /* ignore */ }
-      throw new Error(message)
+      rejectApiError(message, token)
     }
     const blob = await res.blob()
     const disposition = res.headers.get('Content-Disposition') || ''
@@ -71,7 +78,7 @@ async function fiscalFetch(path, options = {}) {
   let data
   try { data = await res.json() }
   catch { throw new Error('El servidor devolvió una respuesta inválida.') }
-  if (!res.ok || data.success !== true) throw new Error(data.error || `Error HTTP ${res.status}`)
+  if (!res.ok || data.success !== true) rejectApiError(data.error || `Error HTTP ${res.status}`, token)
   return data
 }
 
@@ -221,31 +228,77 @@ export const api = {
 
   getInstitucionesAval: () =>
     callCached('getInstitucionesAval', {}, getToken()),
+  getInstitucionesMaestras: (filtros = {}) =>
+    call('getInstitucionesMaestras', { filtros }, getToken()),
+  getInstitucionMaestra: (id) =>
+    call('getInstitucionMaestra', { id }, getToken()),
+  getOpcionesInstitucionesMaestras: () =>
+    callCached('getOpcionesInstitucionesMaestras', {}, getToken()),
+  addInstitucionMaestra: (institucion, confirmarDuplicadoNombre = false) => {
+    bust('getInstitucionesMaestras', 'getOpcionesInstitucionesMaestras', 'getInstitucionesAval', 'getConvenios')
+    return call('addInstitucionMaestra', { institucion, confirmarDuplicadoNombre }, getToken())
+  },
+  updateInstitucionMaestra: (id, institucion, confirmarDuplicadoNombre = false) => {
+    bust('getInstitucionesMaestras', 'getOpcionesInstitucionesMaestras', 'getInstitucionesAval', 'getConvenios')
+    return call('updateInstitucionMaestra', { id, institucion, confirmarDuplicadoNombre }, getToken())
+  },
+  archivarInstitucionMaestra: (id) => {
+    bust('getInstitucionesMaestras', 'getOpcionesInstitucionesMaestras', 'getInstitucionesAval', 'getConvenios')
+    return call('archivarInstitucionMaestra', { id, confirmacion: 'ARCHIVAR_INSTITUCION' }, getToken())
+  },
+  addAutoridadInstitucion: (institucionId, autoridad) =>
+    call('addAutoridadInstitucion', { institucionId, autoridad }, getToken()),
+  updateAutoridadInstitucion: (id, autoridad) =>
+    call('updateAutoridadInstitucion', { id, autoridad }, getToken()),
+  archivarAutoridadInstitucion: (id) =>
+    call('archivarAutoridadInstitucion', { id, confirmacion: 'ARCHIVAR_AUTORIDAD' }, getToken()),
+  addActivoInstitucion: (institucionId, tipo, archivo, autoridadId = '') =>
+    call('addActivoInstitucion', { institucionId, tipo, archivo, autoridadId }, getToken()),
+  addDocumentoInstitucion: (documento) =>
+    call('addDocumentoInstitucion', documento, getToken()),
+  getArchivoInstitucionPrivado: (id) =>
+    call('getArchivoInstitucionPrivado', { id }, getToken()),
   getCertificadosAval: (filtros = {}) =>
     call('getCertificadosAval', { filtros }, getToken()),
+  getConveniosParaAval: (institucionId, convenioActualId = '') =>
+    call('getConveniosParaAval', { institucionId, convenioActualId }, getToken()),
+  configurarAvalPosteriorCertificado: (id, { institucionId, convenioId }) => {
+    bust('getInscripciones', 'getDashboard', 'getCertificadosAval')
+    return call('configurarAvalPosteriorCertificado', {
+      id, institucionId, convenioId, confirmacion: 'CONFIGURAR_AVAL_POSTERIOR',
+    }, getToken())
+  },
   marcarAval: (id, datos = {}) => {
-    bust('getInscripciones', 'getDashboard', 'getInstitucionesAval')
+    bust('getInscripciones', 'getDashboard', 'getInstitucionesAval', 'getCertificadosAval')
     return call('marcarAval', { id, ...datos }, getToken())
+  },
+  corregirAvalConfirmado: (id, datos = {}) => {
+    bust('getInscripciones', 'getInstitucionesAval', 'getCertificadosAval')
+    return call('corregirAvalConfirmado', { id, ...datos, confirmacion: 'CORREGIR_AVAL_CONFIRMADO' }, getToken())
   },
   emitirEntregableAval: (id) => call('emitirEntregableAval', { id }, getToken()),
   anularEntregableAval: (id, motivo) => call('anularEntregableAval', { id, motivo, confirmacion: 'ANULAR' }, getToken()),
   reemitirEntregableAval: (id, motivo) => call('reemitirEntregableAval', { id, motivo, confirmacion: 'REEMITIR' }, getToken()),
   guardarPdfEntregableAvalPrivado: (id, pdf) => call('guardarPdfEntregableAvalPrivado', { id, ...pdf }, getToken()),
-  leerPdfEntregableAvalPrivado: (id) => call('leerPdfEntregableAvalPrivado', { id }, getToken()),
+  leerPdfEntregableAvalPrivado: (id, versionId = '') => call('leerPdfEntregableAvalPrivado', { id, versionId }, getToken()),
   enviarEntregableAvalEmail: (id, email) => call('enviarEntregableAvalEmail', { id, email }, getToken()),
   resolverEnvioEntregableAval: (id, resultado, motivo) =>
     call('resolverEnvioEntregableAval', { id, resultado, motivo, confirmacion: 'RECONCILIAR_ENVIO_AVAL' }, getToken()),
 
   getEstadoFirmasCertificado: () =>
     call('getEstadoFirmasCertificado', {}, getToken()),
-  registrarFirmaOficialCertificado: (rol, pngBase64, confirmacion) =>
-    call('registrarFirmaOficialCertificado', { rol, pngBase64, confirmacion }, getToken()),
+  guardarDatosFirmanteCertificado: (nombre, cargo) =>
+    call('guardarDatosFirmanteCertificado', { nombre, cargo, confirmacion: 'CONFIRMO_DATOS_OFICIALES_DE_FIRMA' }, getToken()),
+  registrarFirmaOficialCertificado: (rol, pngBase64, confirmacion, version = 'v2') =>
+    call('registrarFirmaOficialCertificado', { rol, pngBase64, confirmacion, version }, getToken()),
   activarPlantillaCertificadoV2: (confirmacion) =>
     call('activarPlantillaCertificadoV2', { confirmacion }, getToken()),
+  activarPlantillaCertificadoV3: (confirmacion) =>
+    call('activarPlantillaCertificadoV3', { confirmacion }, getToken()),
   // No cachear ni registrar el contenido: las rúbricas salen de Drive privado
   // solo durante la generación de un PDF nuevo por una sesión administradora.
-  getFirmasOficialesCertificado: () =>
-    call('getFirmasOficialesCertificado', {}, getToken()),
+  getFirmasOficialesCertificado: (options = {}) =>
+    call('getFirmasOficialesCertificado', options, getToken()),
 
   getServicios: () =>
     callCached('getServicios', {}, getToken()),
@@ -258,6 +311,7 @@ export const api = {
     return call('updateServicio', { id, servicio }, getToken())
   },
   getCapacitadores: () => call('getCapacitadores', {}, getToken()),
+  getIdentityIntegrityReport: () => call('getIdentityIntegrityReport', {}, getToken()),
   addCapacitador: (capacitador) => call('addCapacitador', { capacitador }, getToken()),
   updateCapacitador: (id, capacitador) => call('updateCapacitador', { id, capacitador }, getToken()),
   preflightCertificadoCapacitador: (servicioId) =>
@@ -282,26 +336,18 @@ export const api = {
     return call('registrarEnvioMoodle', { id }, getToken())
   },
   addInscripcion: (inscripcion) => {
-    bust('getInscripciones', 'getDashboard')
+    bust('getInscripciones', 'getDashboard', 'getCertificadosAval')
     return call('addInscripcion', { inscripcion }, getToken())
   },
   updateInscripcion: (id, inscripcion, historicalKey = '') => {
-    bust('getInscripciones', 'getIngresos', 'getDashboard')
+    bust('getInscripciones', 'getIngresos', 'getDashboard', 'getCertificadosAval')
     return call('updateInscripcion', { id, historicalKey, inscripcion }, getToken())
   },
   verificarPagoInscripcion: async (id, correcciones = {}) => {
     bust('getInscripciones', 'getIngresos', 'getDashboard')
-    const result = await call('verificarPagoInscripcion', { id, ...correcciones }, getToken())
-    try {
-      const fiscal = await api.crearFacturaFiscalDesdeInscripcion(id)
-      bust('getFacturasFiscales')
-      return { ...result, fiscal }
-    } catch (err) {
-      return {
-        ...result,
-        fiscalWarning: err.message || 'Pago verificado; la factura fiscal requiere revisión administrativa.',
-      }
-    }
+    // Registrar/verificar el pago es una operación financiera independiente.
+    // La emisión SRI solo se inicia desde la acción explícita de facturación.
+    return call('verificarPagoInscripcion', { id, ...correcciones }, getToken())
   },
   emitirCertificado: (id) => {
     bust('getInscripciones', 'getDashboard')
@@ -315,8 +361,12 @@ export const api = {
     bust('getInscripciones', 'getDashboard')
     return call('reemitirCertificado', { id, motivo, confirmacion: 'REEMITIR' }, getToken())
   },
-  getCertificadoParaDescarga: (id) =>
-    call('getCertificadoParaDescarga', { id }, getToken()),
+  getCertificadoParaDescarga: (id, certificateId = '') =>
+    call('getCertificadoParaDescarga', { id, certificateId }, getToken()),
+  getHistorialCertificados: (id) =>
+    call('getHistorialCertificados', { id }, getToken()),
+  getCertificadoVersionParaDescarga: (inscripcionId, certificateId) =>
+    call('getCertificadoVersionParaDescarga', { inscripcionId, certificateId }, getToken()),
   registrarArtefactoCertificado: (id, artifact) => {
     bust('getInscripciones')
     return call('registrarArtefactoCertificado', { id, ...artifact }, getToken())
@@ -326,7 +376,7 @@ export const api = {
     return call('guardarPdfCertificadoPrivado', { id, ...artifact }, getToken())
   },
   leerPdfCertificadoPrivado: (id) =>
-    call('leerPdfCertificadoPrivado', { id }, getToken()),
+    call('leerPdfCertificadoPrivado', { id, certificateId: id }, getToken()),
   solicitarDescargaCertificado: (id, artifact) =>
     call('solicitarDescargaCertificado', { id, ...artifact }, getToken()),
   confirmarDescargaCertificado: (solicitudId, resultado, motivo = '') => {
@@ -341,9 +391,9 @@ export const api = {
     bust('getInscripciones')
     return call('actualizarEntregaCertificado', { id, estadoEntrega }, getToken())
   },
-  enviarCertificadoEmail: (id, archivo) => {
+  enviarCertificadoEmail: (id, { email } = {}) => {
     bust('getInscripciones')
-    return callPost('enviarCertificadoEmail', { id, ...archivo }, getToken())
+    return callPost('enviarCertificadoEmail', { id, email }, getToken())
   },
   getAuditoriaCertificados: (filtros = {}) =>
     call('getAuditoriaCertificados', { filtros }, getToken()),
@@ -390,16 +440,16 @@ export const api = {
   getConvenios: (filtros = {}) =>
     callCached('getConvenios', { filtros }, getToken()),
   addConvenio: (convenio) => {
-    bust('getConvenios')
+    bust('getConvenios', 'getConveniosParaAval', 'getCertificadosAval', 'getInscripciones')
     return call('addConvenio', { convenio }, getToken())
   },
   updateConvenio: (id, convenio) => {
-    bust('getConvenios')
+    bust('getConvenios', 'getConveniosParaAval', 'getCertificadosAval', 'getInscripciones')
     return call('updateConvenio', { id, convenio }, getToken())
   },
   deleteConvenio: (id) => {
-    bust('getConvenios')
-    return call('deleteConvenio', { id }, getToken())
+    bust('getConvenios', 'getConveniosParaAval', 'getCertificadosAval', 'getInscripciones')
+    return call('deleteConvenio', { id, confirmacion: 'ARCHIVAR_CONVENIO' }, getToken())
   },
 
   // ── Asistencia (timbradas) ──

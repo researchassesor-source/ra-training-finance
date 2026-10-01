@@ -49,4 +49,15 @@ describe('verificación histórica de certificados', () => {
     expect(await screen.findByRole('heading', { name: 'CERTIFICADO REEMITIDO' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Consultar certificado vigente' })).toHaveAttribute('href', '/verificar/CRT-V2')
   })
+
+  it.each([
+    ['certificado_normal', 'Certificado normal'],
+    ['certificado_avalado', 'Certificado con aval institucional'],
+  ])('distingue públicamente la variante %s sin confundirla con una versión', async (tipoDocumento, label) => {
+    state.response = { valido: true, data: { ...base, estado: 'vigente', tipoDocumento, version: 2 } }
+    renderVerification()
+    expect(await screen.findByText(label)).toBeInTheDocument()
+    expect(screen.getByText('2')).toBeInTheDocument()
+    expect(screen.getByText(/Tipo de documento/)).toBeInTheDocument()
+  })
 })

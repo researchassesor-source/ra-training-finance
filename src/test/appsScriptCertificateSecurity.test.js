@@ -63,8 +63,10 @@ describe('seguridad de certificados en Apps Script', () => {
     const reissueSource = functionSource('reemitirCertificado')
     expect(reissueSource).toContain("confirmacion !== 'REEMITIR'")
     expect(reissueSource).toContain("generateId('CRT')")
-    expect(reissueSource).toContain("CertificateStatus: 'reemitido'")
-    expect(reissueSource).toContain("accion: 'CERTIFICATE_REISSUED'")
+    expect(reissueSource).toContain("CertificateStatus: 'pendiente_pdf'")
+    expect(reissueSource).toContain("accion: 'CERTIFICATE_REISSUE_STARTED'")
+    expect(functionSource('registrarArtefactoCertificadoBajoBloqueo')).toContain("CertificateStatus: 'reemitido'")
+    expect(functionSource('registrarArtefactoCertificadoBajoBloqueo')).toContain("CERTIFICATE_REISSUE_COMPLETED")
   })
 
   it('mantiene visibles en verificación pública los estados anulado y reemitido', () => {

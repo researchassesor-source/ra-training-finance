@@ -61,12 +61,23 @@ describe('POST /api/fiscal/process — autenticación del token (Authorization B
     expect(callGasActionAsUserMock.mock.calls[0][2]).toBe('tok-body')
   })
 
-  it('sin token en ninguna fuente, responde 400 sin llegar a llamar a Apps Script', async () => {
+  it('sin token en ninguna fuente, responde 401 sin llegar a llamar a Apps Script', async () => {
     const res = mockRes()
     await handler({ method: 'POST', headers: {}, body: { facturaId: 'FACT-1' } }, res)
 
-    expect(res.statusCode).toBe(400)
+    expect(res.statusCode).toBe(401)
     expect(callGasActionAsUserMock).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['SESSION_INVALID', 401], ['FORBIDDEN', 403], ['NOT_FOUND', 404], ['UPSTREAM_ERROR', 502],
+  ])('clasifica el rechazo de la lectura previa como %i sin comenzar el procesamiento', async (code, status) => {
+    callGasActionAsUserMock.mockRejectedValueOnce(new GasClientError('rechazo simulado', { code }))
+    const res = mockRes()
+    await handler({ method: 'POST', headers: { authorization: 'Bearer tok' }, body: { facturaId: 'FACT-1' } }, res)
+
+    expect(res.statusCode).toBe(status)
+    expect(continuarFlujoFacturaMock).not.toHaveBeenCalled()
   })
 })
 

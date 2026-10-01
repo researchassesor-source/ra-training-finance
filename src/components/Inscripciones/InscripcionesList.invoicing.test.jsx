@@ -19,6 +19,7 @@ const apiMock = vi.hoisted(() => ({
   getServicios: vi.fn(async () => ({ data: [] })),
   getUsuarios: vi.fn(async () => ({ data: [] })),
   getInstitucionesAval: vi.fn(async () => ({ data: [] })),
+  getOpcionesInstitucionesMaestras: vi.fn(async () => ({ data: [] })),
   getConfigPagos: vi.fn(async () => ({ data: [] })),
   deleteInscripcion: vi.fn(async () => ({ success: true })),
   verificarPagoInscripcion: vi.fn(async () => ({ success: true })),
@@ -92,31 +93,49 @@ describe('facturación desde Inscripciones — flujo de pago (sección 8/9 previ
   })
   afterEach(() => cleanup())
 
-  it('pago verificado + factura creada -> aviso verde con número/estado', async () => {
+  it('verificar pago confirma el ingreso e informa que no emite factura automáticamente', async () => {
     apiMock.verificarPagoInscripcion.mockResolvedValueOnce({
       success: true,
-      fiscal: { success: true, data: { factura: { id: 'FAC-1', status: 'AUTHORIZED', documentNumber: '001-002-000000001' } } },
     })
     renderList()
     await screen.findByText('Participante Demo')
     fireEvent.click(screen.getByRole('button', { name: 'Verificar pago' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Confirmar' }))
 
-    expect(await screen.findByText('Pago verificado. Factura creada correctamente.')).toBeInTheDocument()
-    expect(screen.getByText(/001-002-000000001/)).toBeInTheDocument()
+    expect(await screen.findByText('Pago verificado e ingreso actualizado.')).toBeInTheDocument()
+    expect(screen.getByText(/No se emitió una factura en este paso/)).toBeInTheDocument()
+    expect(apiMock.crearFacturaFiscalDesdeInscripcion).not.toHaveBeenCalled()
   })
 
-  it('pago verificado + fiscalWarning -> aviso ámbar y el pago NO se revierte', async () => {
+  it('observación del ingreso se informa sin presentarla como un fallo fiscal', async () => {
     apiMock.verificarPagoInscripcion.mockResolvedValueOnce({
       success: true,
-      fiscalWarning: 'Falta cédula/RUC válido del cliente para facturar.',
+      warning: 'El registro del ingreso necesita revisión administrativa.',
     })
     renderList()
     await screen.findByText('Participante Demo')
     fireEvent.click(screen.getByRole('button', { name: 'Verificar pago' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Confirmar' }))
 
-    expect(await screen.findByText('Pago verificado, pero la factura no pudo generarse. Puede reintentarla sin duplicar el comprobante.')).toBeInTheDocument()
+    expect(await screen.findByText('Pago verificado; el ingreso requiere revisión.')).toBeInTheDocument()
+    expect(screen.getByText('El registro del ingreso necesita revisión administrativa.')).toBeInTheDocument()
+    expect(apiMock.crearFacturaFiscalDesdeInscripcion).not.toHaveBeenCalled()
+  })
+
+  it('si falla una emisión posterior, conserva el pago verificado y permite revisar/reintentar la factura', async () => {
+    state.rows = [baseRow({ EstadoPago: 'verificado' })]
+    apiMock.crearFacturaFiscalDesdeInscripcion.mockRejectedValueOnce(new Error('SRI no disponible.'))
+    renderList()
+    await screen.findByText('Participante Demo')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Emitir factura' }))
+    await screen.findByText('Emitir factura electrónica')
+    fireEvent.click(confirmDialogButton())
+
+    expect(await screen.findByText('La factura no pudo generarse. Puede reintentarla sin duplicar el comprobante.')).toBeInTheDocument()
+    expect(screen.getByText('SRI no disponible.')).toBeInTheDocument()
+    expect(apiMock.verificarPagoInscripcion).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'Emitir factura' })).toBeInTheDocument()
   })
 })
 
@@ -256,12 +275,9 @@ describe('protección histórica de facturación (confirmación obligatoria)', (
     expect(apiMock.verificarPagoInscripcion).not.toHaveBeenCalled()
   })
 
-  it('16. flujo nuevo existente: "Verificar pago" sigue intentando factura automática (sin ConfirmDialog fiscal)', async () => {
+  it('16. "Verificar pago" no llama a SRI; la emisión requiere la acción fiscal explícita', async () => {
     state.rows = [baseRow({ EstadoPago: 'pendiente' })]
-    apiMock.verificarPagoInscripcion.mockResolvedValueOnce({
-      success: true,
-      fiscal: { success: true, data: { factura: { id: 'FAC-1', status: 'AUTHORIZED', documentNumber: '001-002-000000001' } } },
-    })
+    apiMock.verificarPagoInscripcion.mockResolvedValueOnce({ success: true, data: { EstadoPago: 'verificado' } })
     renderList()
     await screen.findByText('Participante Demo')
 

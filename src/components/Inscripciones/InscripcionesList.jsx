@@ -56,13 +56,11 @@ function facturaEstadoInscripcion(item) {
   return human.tone === 'error' ? { ...human, label: 'Con novedad' } : human
 }
 
-/** Traduce la respuesta de crearFacturaFiscalDesdeInscripcion (o el fiscalWarning
- * de api.verificarPagoInscripcion) al aviso verde/ámbar pedido -- nunca presenta
- * una novedad fiscal como si el pago hubiera fallado. */
-function fiscalNoticeFromResponse(fiscalResponse, { justVerified = false } = {}) {
+/** Traduce la respuesta fiscal al aviso -- nunca presenta una factura como
+ * autorizada si SRI no la autorizó. */
+function fiscalNoticeFromResponse(fiscalResponse) {
   const data = fiscalResponse?.data
   const factura = data?.factura
-  const prefix = justVerified ? 'Pago verificado. ' : ''
   if (data?.idempotent) {
     return {
       tone: 'green',
@@ -72,21 +70,33 @@ function fiscalNoticeFromResponse(fiscalResponse, { justVerified = false } = {})
     }
   }
   if (data?.attention) {
-    return { tone: 'amber', message: `${prefix}La factura fue creada pero requiere atención.`, detail: data.reason || data.attention, factura }
+    return { tone: 'amber', message: 'La factura fue creada pero requiere atención.', detail: data.reason || data.attention, factura }
   }
   return {
     tone: 'green',
-    message: `${prefix}Factura creada correctamente.`,
+    message: 'Factura creada correctamente.',
     detail: factura ? [factura.documentNumber, fiscalHumanStatus(factura.status).label].filter(Boolean).join(' · ') : '',
     factura,
   }
 }
 
-function fiscalNoticeFromError(err, { justVerified = false } = {}) {
-  const message = justVerified
-    ? 'Pago verificado, pero la factura no pudo generarse. Puede reintentarla sin duplicar el comprobante.'
-    : 'La factura no pudo generarse. Puede reintentarla sin duplicar el comprobante.'
-  return { tone: 'amber', message, detail: err?.message || '' }
+function fiscalNoticeFromError(err) {
+  return {
+    tone: 'amber',
+    message: 'La factura no pudo generarse. Puede reintentarla sin duplicar el comprobante.',
+    detail: err?.message || '',
+  }
+}
+
+function paymentNoticeFromResponse(result) {
+  if (result?.warning) {
+    return { tone: 'amber', message: 'Pago verificado; el ingreso requiere revisión.', detail: result.warning }
+  }
+  return {
+    tone: 'green',
+    message: 'Pago verificado e ingreso actualizado.',
+    detail: 'No se emitió una factura en este paso. La facturación se realiza por separado desde «Emitir factura».',
+  }
 }
 
 export default function InscripcionesList() {
@@ -125,6 +135,10 @@ export default function InscripcionesList() {
   const [lifecycleConfirmed, setLifecycleConfirmed] = useState(false)
   const [lifecycleError, setLifecycleError] = useState('')
   const [lifecycleBusy, setLifecycleBusy] = useState(false)
+  const [historyTarget, setHistoryTarget] = useState(null)
+  const [historyRows, setHistoryRows] = useState([])
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyError, setHistoryError] = useState('')
   const [auditRetry, setAuditRetry] = useState(null)
   const [artifactRecovery, setArtifactRecovery] = useState(null)
   const [certificateNotice, setCertificateNotice] = useState('')
@@ -291,9 +305,7 @@ export default function InscripcionesList() {
       if (action.type === 'delete') await api.deleteInscripcion(action.item.ID)
       if (action.type === 'verify') {
         const result = await api.verificarPagoInscripcion(action.item.ID)
-        setFiscalNotice(result.fiscalWarning
-          ? fiscalNoticeFromError({ message: result.fiscalWarning }, { justVerified: true })
-          : fiscalNoticeFromResponse(result.fiscal, { justVerified: true }))
+        setFiscalNotice(paymentNoticeFromResponse(result))
       }
       if (action.type === 'invoice') {
         // Histórico/nuevo con pago ya verificado: SOLO factura, nunca reverifica el pago.
@@ -335,8 +347,15 @@ export default function InscripcionesList() {
     setLifecycleBusy(true)
     setLifecycleError('')
     try {
-      if (lifecycle.type === 'void') await api.anularCertificado(lifecycle.item.ID, reason)
-      else await api.reemitirCertificado(lifecycle.item.ID, reason)
+      const result = lifecycle.type === 'void'
+        ? await api.anularCertificado(lifecycle.item.ID, reason)
+        : await api.reemitirCertificado(lifecycle.item.ID, reason)
+      if (!result?.success) throw new Error(result?.error || 'No se pudo completar la operación del certificado.')
+      if (lifecycle.type === 'reissue') {
+        setLifecycleError('Versión creada. Generando y archivando su PDF…')
+        const prepared = await certificatePdfRepository.prepare({ ...result.data, CertificateStatus: 'emitido' })
+        saveAs(prepared.blob, prepared.filename)
+      }
       setLifecycle(null)
       load()
     } catch (err) {
@@ -398,7 +417,7 @@ export default function InscripcionesList() {
     finally { setProcessing('') }
   }
 
-  async function downloadCertificate(item) {
+  async function downloadCertificate(item, certificateVersionId = '') {
     if (!canManage) {
       setError(CERTIFICATE_PERMISSION_MESSAGE)
       return
@@ -412,6 +431,7 @@ export default function InscripcionesList() {
     try {
       const result = await downloadCertificateWithAudit({
         id: item.ID,
+        certificateVersionId,
         api,
         repository: certificatePdfRepository,
         preview,
@@ -435,6 +455,22 @@ export default function InscripcionesList() {
       }
     }
     finally { setProcessing('') }
+  }
+
+  async function openCertificateHistory(item) {
+    setHistoryTarget(item)
+    setHistoryRows([])
+    setHistoryError('')
+    setHistoryLoading(true)
+    try {
+      const result = await api.getHistorialCertificados(item.ID)
+      if (!result?.success) throw new Error(result?.error || 'No se pudo consultar el historial.')
+      setHistoryRows(result.data || [])
+    } catch (err) {
+      setHistoryError(err.message || 'No se pudo consultar el historial de versiones.')
+    } finally {
+      setHistoryLoading(false)
+    }
   }
 
   async function retryCertificateAudit() {
@@ -763,6 +799,7 @@ export default function InscripcionesList() {
                               : !avalVisual.valid ? avalVisual.error : 'Generar y emitir certificado académico'}
                           onClick={() => emitCertificate(item)} disabled={rowBusy || !issuanceConfigurationReady} css="hover:text-amber-600 hover:bg-amber-50" />}
                         {capabilities.canDownload && <Action icon={Award} label="Ver y descargar certificado académico" onClick={() => downloadCertificate(item)} disabled={rowBusy} css="hover:text-amber-600 hover:bg-amber-50" />}
+                        {canManage && capabilities.canDownload && <Action icon={History} label="Ver historial de versiones del certificado" onClick={() => openCertificateHistory(item)} disabled={rowBusy} css="hover:text-indigo-600 hover:bg-indigo-50" />}
                         {capabilities.canViewQr && <Action icon={QrCode} label="Ver y descargar QR" onClick={() => showQr(item)} disabled={rowBusy} />}
                         {capabilities.canDeliver && <Action icon={MailCheck} label="Entregar certificado" onClick={() => { setSelected(item); setModal('delivery') }} disabled={rowBusy} css="hover:text-emerald-600 hover:bg-emerald-50" />}
                         {capabilities.canVoid && <Action icon={Ban} label="Anular certificado" onClick={() => openLifecycle('void', item)} disabled={rowBusy} css="hover:text-red-600 hover:bg-red-50" />}
@@ -812,6 +849,64 @@ export default function InscripcionesList() {
         {modal === 'certificate-audit' && canManage && <AuditoriaCertificadosModal onClose={() => setModal(null)} />}
       </Modal>
 
+      <Modal open={Boolean(historyTarget)} onClose={() => { if (!historyLoading) setHistoryTarget(null) }}
+        title="Historial de versiones del certificado" size="lg">
+        {historyTarget && <div className="space-y-4">
+          <div className="rounded-xl border border-indigo-100 bg-indigo-50/70 p-4">
+            <p className="font-semibold text-slate-900">{historyTarget.ClienteNombre}</p>
+            <p className="mt-1 text-sm text-slate-600">{historyTarget.ServicioNombre}</p>
+            <p className="mt-2 text-xs text-indigo-900">Cada versión conserva su propio PDF y código. Las versiones anteriores no se regeneran ni se sobrescriben.</p>
+          </div>
+          {historyLoading ? <Spinner text="Cargando historial…" /> : historyError ? (
+            <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{historyError}</p>
+          ) : historyRows.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-slate-300 p-6 text-center text-sm text-slate-500">
+              Este registro todavía no tiene versiones de certificado archivadas.
+            </div>
+          ) : <>
+            {historyRows.some(version => version.estado === 'pendiente_pdf') && <p role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Hay una reemisión pendiente de archivo. La versión anterior mantiene la vigencia hasta confirmar el PDF.</p>}
+            <ol className="relative space-y-3 before:absolute before:bottom-4 before:left-[15px] before:top-4 before:w-px before:bg-slate-200">
+            {historyRows.map(version => {
+              const current = ['emitido', 'enviado'].includes(String(version.estado || '').toLowerCase())
+              const statusClass = current
+                ? 'bg-emerald-100 text-emerald-800'
+                : version.estado === 'pendiente_pdf' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-700'
+              return <li key={version.id || `${version.codigo}-${version.version}`} className="relative pl-10">
+                <span className={`absolute left-1 top-4 h-5 w-5 rounded-full border-4 border-white ${current ? 'bg-emerald-500' : 'bg-slate-400'}`} aria-hidden="true" />
+                <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="font-semibold text-slate-900">Versión {version.version}</h3>
+                        <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusClass}`}>{version.estado || 'Estado no disponible'}</span>
+                        {current && <span className="text-xs font-medium text-emerald-700">Vigente</span>}
+                      </div>
+                      <p className="mt-1 break-all font-mono text-xs text-slate-600">{version.codigo || 'Sin código'}</p>
+                      <p className="mt-2 text-xs text-slate-500">{version.fecha ? fmt.date(version.fecha) : 'Fecha no registrada'}{version.actor ? ` · por ${version.actor}` : ''}</p>
+                    </div>
+                    <button type="button" className="btn-secondary shrink-0 text-xs" disabled={!version.pdfArchivado || Boolean(processing)}
+                      title={!version.pdfArchivado ? 'El PDF original de esta versión no está disponible en el archivo privado.' : 'Descargar el PDF exacto de esta versión'}
+                      onClick={() => downloadCertificate(historyTarget, version.id)}>
+                      <Download size={14} /> {version.pdfArchivado ? 'Descargar PDF original' : 'PDF no archivado'}
+                    </button>
+                  </div>
+                  <dl className="mt-3 grid gap-x-4 gap-y-2 border-t border-slate-100 pt-3 text-xs sm:grid-cols-2">
+                    <div><dt className="text-slate-400">Plantilla</dt><dd className="mt-0.5 break-all text-slate-700">{version.plantilla || 'No registrada'}</dd></div>
+                    <div><dt className="text-slate-400">Integridad documental</dt><dd className="mt-0.5 text-slate-700">{version.snapshotVerificado ? 'Snapshot verificado' : 'Sin snapshot verificado'}</dd></div>
+                    {version.motivo && <div className="sm:col-span-2"><dt className="text-slate-400">Motivo registrado</dt><dd className="mt-0.5 text-slate-700">{version.motivo}</dd></div>}
+                    {!version.pdfArchivado && <div className="sm:col-span-2 text-amber-800">No se reconstruirá automáticamente con datos o plantilla actuales, para no presentarlo como el original.</div>}
+                  </dl>
+                </div>
+              </li>
+            })}
+            </ol>
+          </>}
+          <div className="flex justify-end border-t border-slate-100 pt-3">
+            <button type="button" className="btn-secondary" disabled={historyLoading} onClick={() => setHistoryTarget(null)}>Cerrar</button>
+          </div>
+        </div>}
+      </Modal>
+
       <Modal open={Boolean(lifecycle)} onClose={() => { if (!lifecycleBusy) setLifecycle(null) }}
         title={lifecycle?.type === 'void' ? 'Anular certificado' : 'Reemitir certificado'} size="sm">
         {lifecycle && (
@@ -823,7 +918,7 @@ export default function InscripcionesList() {
               <p className="mt-2 text-xs">
                 {lifecycle.type === 'void'
                   ? 'El certificado seguirá existiendo y su QR mostrará CERTIFICADO ANULADO.'
-                  : 'Se conservará el certificado anterior y se creará un identificador nuevo.'}
+                  : 'Se preparará una versión nueva con otro código. El certificado anterior seguirá vigente hasta que el PDF nuevo quede generado, verificado y archivado.'}
               </p>
             </div>
             <div>

@@ -166,9 +166,11 @@ async function step(promise, timeoutMs, message) {
   )
 }
 
-async function readCertificateWithSingleRetry({ api, id, preview, timeoutMs }) {
+async function readCertificateWithSingleRetry({ api, id, certificateVersionId, preview, timeoutMs }) {
   const read = () => step(
-    api.getCertificadoParaDescarga(id),
+    certificateVersionId
+      ? api.getCertificadoVersionParaDescarga(id, certificateVersionId)
+      : api.getCertificadoParaDescarga(id),
     timeoutMs,
     'El servidor no respondió a tiempo al consultar el certificado.',
   )
@@ -188,6 +190,7 @@ async function readCertificateWithSingleRetry({ api, id, preview, timeoutMs }) {
 
 export async function downloadCertificateWithAudit({
   id,
+  certificateVersionId = '',
   api,
   repository,
   preview,
@@ -205,6 +208,7 @@ export async function downloadCertificateWithAudit({
     const current = await readCertificateWithSingleRetry({
       api,
       id,
+      certificateVersionId,
       preview,
       timeoutMs: readRequestTimeoutMs,
     })
@@ -214,7 +218,7 @@ export async function downloadCertificateWithAudit({
     const historicalCriteria = Array.isArray(certificate.HistoricalCriteria)
       ? certificate.HistoricalCriteria
       : []
-    const isHistorical = certificate.IsHistoricalRecord === true || historicalCriteria.length > 0
+    const isHistorical = Boolean(certificateVersionId) || certificate.IsHistoricalRecord === true || historicalCriteria.length > 0
     if (certificate.HistoricalNormalizationRequired) {
       preview?.showStage('Validando la normalización del registro histórico antes de recuperar el PDF…')
     } else if (isHistorical) {
@@ -223,32 +227,35 @@ export async function downloadCertificateWithAudit({
       preview?.showStage('Obteniendo el PDF y verificando su integridad SHA-256…')
     }
     const prepared = await step(
-      repository.prepare(certificate, { allowHistoricalRecovery: true }),
+      repository.prepare(certificate, { allowHistoricalRecovery: false }),
       preparationTimeoutMs,
       'La preparación del PDF excedió el tiempo permitido.',
     )
 
-    preview?.showStage('Registrando el artefacto oficial…')
-    await step(api.registrarArtefactoCertificado(id, {
-      pdfHash: prepared.hash,
-      pdfStorageReference: prepared.reference,
-      templateVersion: prepared.templateVersion,
-      certificateVersion: prepared.certificateVersion,
-      historicalRecovery: prepared.historicalRecovered,
-      auditAction: prepared.auditAction,
-      historicalHashRebase: prepared.historicalHashRebaseRequired,
-      previousPdfHash: prepared.previousPdfHash,
-      originalArtifactUnavailable: prepared.historicalHashRebaseRequired,
-      historicalHashRebaseConfirmation: prepared.historicalHashRebaseRequired
-        ? HISTORICAL_HASH_REBASE_CONFIRMATION
-        : '',
-      historicalHashRebaseReason: prepared.historicalHashRebaseRequired
-        ? HISTORICAL_HASH_REBASE_REASON
-        : '',
-    }), requestTimeoutMs, 'El servidor no respondió a tiempo al registrar el PDF oficial.')
+    if (!certificateVersionId) {
+      preview?.showStage('Registrando el artefacto oficial…')
+      await step(api.registrarArtefactoCertificado(id, {
+        pdfHash: prepared.hash,
+        pdfStorageReference: prepared.reference,
+        templateVersion: prepared.templateVersion,
+        certificateVersion: prepared.certificateVersion,
+        historicalRecovery: prepared.historicalRecovered,
+        auditAction: prepared.auditAction,
+        historicalHashRebase: prepared.historicalHashRebaseRequired,
+        previousPdfHash: prepared.previousPdfHash,
+        originalArtifactUnavailable: prepared.historicalHashRebaseRequired,
+        historicalHashRebaseConfirmation: prepared.historicalHashRebaseRequired
+          ? HISTORICAL_HASH_REBASE_CONFIRMATION
+          : '',
+        historicalHashRebaseReason: prepared.historicalHashRebaseRequired
+          ? HISTORICAL_HASH_REBASE_REASON
+          : '',
+      }), requestTimeoutMs, 'El servidor no respondió a tiempo al registrar el PDF oficial.')
+    }
 
     preview?.showStage('Registrando la solicitud en la auditoría…')
     const request = await step(api.solicitarDescargaCertificado(id, {
+      certificateId: certificateVersionId || undefined,
       pdfHash: prepared.hash,
       pdfStorageReference: prepared.reference,
     }), requestTimeoutMs, 'La auditoría no respondió a tiempo antes de la descarga.')

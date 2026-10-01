@@ -20,6 +20,7 @@ vi.mock('../../../lib/fiscal/orchestration/loadSigningKeys.js', async importOrig
 
 const { default: handler, resolverClasificacionFiscalCurso } = await import('../../../api/fiscal/from-inscripcion.js')
 const { SigningKeysNotConfiguredError } = await import('../../../lib/fiscal/orchestration/loadSigningKeys.js')
+const { GasClientError } = await import('../../../lib/fiscal/orchestration/gasClient.js')
 
 function mockRes() {
   const res = { statusCode: null, body: null }
@@ -86,6 +87,26 @@ function callsFor(action) {
   return callGasActionAsUserMock.mock.calls.filter(call => call[0] === action)
 }
 
+describe('POST /api/fiscal/from-inscripcion — respuesta de sesión y permisos', () => {
+  it('sin token responde 401 antes de consultar o crear facturas', async () => {
+    const res = mockRes()
+    await handler({ method: 'POST', headers: {}, body: { inscripcionId: 'INS-1' } }, res)
+    expect(res.statusCode).toBe(401)
+    expect(callGasActionAsUserMock).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['SESSION_INVALID', 401], ['FORBIDDEN', 403],
+  ])('un fallo %s se mantiene diferenciado y no crea borrador', async (code, status) => {
+    callGasActionAsUserMock.mockRejectedValueOnce(new GasClientError('rechazo simulado', { code }))
+    const res = mockRes()
+    await handler({ method: 'POST', headers: { authorization: 'Bearer tok' }, body: { inscripcionId: 'INS-1' } }, res)
+    expect(res.statusCode).toBe(status)
+    expect(res.body.success).toBe(false)
+    expect(callsFor('crearBorradorFactura')).toHaveLength(0)
+  })
+})
+
 describe('POST /api/fiscal/from-inscripcion — guard de entorno Production (hotfix)', () => {
   it('1. Production sin SRI_ENVIRONMENT=production (ausente) -> bloquea antes del DRAFT, 0 llamadas GAS', async () => {
     process.env.VERCEL_ENV = 'production'
@@ -141,15 +162,117 @@ describe('POST /api/fiscal/from-inscripcion — guard de entorno Production (hot
 
 describe('POST /api/fiscal/from-inscripcion — aislamiento test/production e idempotencia', () => {
   it('conserva una cédula ecuatoriana con cero inicial al construir el borrador fiscal', async () => {
-    inscripcionesFixture = [validInscripcion({ ClienteID: '0102030405' })]
+    inscripcionesFixture = [validInscripcion({ ClienteID: '0601234560', ClienteTipoIdentificacion: 'CEDULA_EC' })]
     const res = mockRes()
     await handler({ method: 'POST', body: { token: 'tok', inscripcionId: 'INS-1' } }, res)
 
     expect(callsFor('crearBorradorFactura')).toHaveLength(1)
     expect(callsFor('crearBorradorFactura')[0][1]).toMatchObject({
       buyerIdentificationType: 'cedula',
-      buyerIdentification: '0102030405',
+      buyerIdentification: '0601234560',
     })
+  })
+
+  it('usa la identificación fiscal separada y su tipo, no la cédula del participante', async () => {
+    inscripcionesFixture = [validInscripcion({
+      ClienteID: '0601234560', ClienteTipoIdentificacion: 'CEDULA_EC',
+      RazonSocial: 'Empresa de Prueba S.A.', RUC: '0691787373001', TipoIdentificacionFactura: 'RUC_EC',
+    })]
+    const res = mockRes()
+    await handler({ method: 'POST', body: { token: 'tok', inscripcionId: 'INS-1' } }, res)
+
+    expect(callsFor('crearBorradorFactura')[0][1]).toMatchObject({
+      buyerName: 'Empresa de Prueba S.A.', buyerIdentificationType: 'ruc', buyerIdentification: '0691787373001',
+    })
+  })
+
+  it('envía consumidor final SRI como tipo 07 con sus trece nueves exactos', async () => {
+    inscripcionesFixture = [validInscripcion({
+      ClienteID: '0601234560', ClienteTipoIdentificacion: 'CEDULA_EC',
+      TipoIdentificacionFactura: '07', RUC: '9999999999999',
+    })]
+    const res = mockRes()
+    await handler({ method: 'POST', body: { token: 'tok', inscripcionId: 'INS-1' } }, res)
+
+    expect(res.statusCode).toBe(200)
+    expect(callsFor('crearBorradorFactura')[0][1]).toMatchObject({
+      buyerIdentificationType: 'consumidorFinal',
+      buyerIdentification: '9999999999999',
+    })
+  })
+
+  it('rechaza consumidor final si el identificador no es exactamente trece nueves', async () => {
+    inscripcionesFixture = [validInscripcion({
+      ClienteID: '0601234560', ClienteTipoIdentificacion: 'CEDULA_EC',
+      TipoIdentificacionFactura: 'CONSUMIDOR_FINAL', RUC: '9999999999998',
+    })]
+    const res = mockRes()
+    await handler({ method: 'POST', body: { token: 'tok', inscripcionId: 'INS-1' } }, res)
+
+    expect(res.statusCode).toBe(422)
+    expect(res.body.error).toMatch(/exactamente 9999999999999/)
+    expect(callsFor('crearBorradorFactura')).toHaveLength(0)
+  })
+
+  it('bloquea la factura si la identificación fiscal distinta no tiene tipo explícito', async () => {
+    inscripcionesFixture = [validInscripcion({
+      ClienteID: '0601234560', ClienteTipoIdentificacion: 'CEDULA_EC',
+      RazonSocial: 'Empresa de Prueba S.A.', RUC: '0691787373001',
+    })]
+    const res = mockRes()
+    await handler({ method: 'POST', body: { token: 'tok', inscripcionId: 'INS-1' } }, res)
+
+    expect(res.statusCode).toBe(422)
+    expect(res.body.error).toMatch(/Seleccione y guarde su tipo/i)
+    expect(callsFor('crearBorradorFactura')).toHaveLength(0)
+  })
+
+  it('rechaza cédula explícita con dígito verificador incorrecto antes de crear un borrador', async () => {
+    inscripcionesFixture = [validInscripcion({ ClienteID: '0601234567', ClienteTipoIdentificacion: 'CEDULA_EC' })]
+    const res = mockRes()
+    await handler({ method: 'POST', body: { token: 'tok', inscripcionId: 'INS-1' } }, res)
+
+    expect(res.statusCode).toBe(422)
+    expect(res.body.error).toMatch(/dígito verificador/)
+    expect(callsFor('crearBorradorFactura')).toHaveLength(0)
+  })
+
+  it('no intenta reconstruir una cédula recibida como número', async () => {
+    inscripcionesFixture = [validInscripcion({ ClienteID: 601234568, ClienteTipoIdentificacion: 'CEDULA_EC' })]
+    const res = mockRes()
+    await handler({ method: 'POST', body: { token: 'tok', inscripcionId: 'INS-1' } }, res)
+
+    expect(res.statusCode).toBe(422)
+    expect(res.body.error).toMatch(/llegó como número/)
+    expect(callsFor('crearBorradorFactura')).toHaveLength(0)
+  })
+
+  it('distingue pasaporte y RUC explícitos al preparar una factura', async () => {
+    inscripcionesFixture = [validInscripcion({ ClienteID: 'AB12345X', ClienteTipoIdentificacion: 'PASAPORTE' })]
+    const passportRes = mockRes()
+    await handler({ method: 'POST', body: { token: 'tok', inscripcionId: 'INS-1' } }, passportRes)
+    expect(callsFor('crearBorradorFactura').at(-1)[1]).toMatchObject({
+      buyerIdentificationType: 'pasaporte', buyerIdentification: 'AB12345X',
+    })
+
+    callGasActionAsUserMock.mockClear()
+    facturasPorEnvironment = { test: [], production: [] }
+    inscripcionesFixture = [validInscripcion({ ClienteID: '0691787373001', ClienteTipoIdentificacion: 'RUC_EC' })]
+    const rucRes = mockRes()
+    await handler({ method: 'POST', body: { token: 'tok', inscripcionId: 'INS-1' } }, rucRes)
+    expect(callsFor('crearBorradorFactura')[0][1]).toMatchObject({
+      buyerIdentificationType: 'ruc', buyerIdentification: '0691787373001',
+    })
+  })
+
+  it('exige tipo fiscal compatible para otros documentos explícitos', async () => {
+    inscripcionesFixture = [validInscripcion({ ClienteID: 'DOC-123', ClienteTipoIdentificacion: 'OTRO' })]
+    const res = mockRes()
+    await handler({ method: 'POST', body: { token: 'tok', inscripcionId: 'INS-1' } }, res)
+
+    expect(res.statusCode).toBe(422)
+    expect(res.body.error).toMatch(/no tiene una equivalencia fiscal/)
+    expect(callsFor('crearBorradorFactura')).toHaveLength(0)
   })
 
   it('8. un DRAFT test existente NO hace idempotente un intento production (InscripcionID + environment)', async () => {

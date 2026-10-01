@@ -41,6 +41,28 @@ function search(harness, q, extra = {}) {
 }
 
 describe('buscador libre de Inscripciones (filtros.q)', () => {
+  it('acepta tipo SRI 07 solo para identificación fiscal y exige los trece nueves', () => {
+    const harness = baseHarness()
+    const valid = harness.context.validarDatosInscripcion({
+      servicioId: 'SRV-1', clienteNombre: 'Participante Demo', clienteID: '0601234560',
+      clienteTipoIdentificacion: 'CEDULA_EC', ruc: '9999999999999', tipoIdentificacionFactura: '07',
+      monto: '20', metodoPago: 'Efectivo',
+    }, { permitirMetodoPagoPendiente: true })
+    const invalidValue = harness.context.validarDatosInscripcion({
+      servicioId: 'SRV-1', clienteNombre: 'Participante Demo', clienteID: '0601234560',
+      clienteTipoIdentificacion: 'CEDULA_EC', ruc: '9999999999998', tipoIdentificacionFactura: 'CONSUMIDOR_FINAL',
+      monto: '20', metodoPago: 'Efectivo',
+    }, { permitirMetodoPagoPendiente: true })
+    const invalidPersonalType = harness.context.validarDatosInscripcion({
+      servicioId: 'SRV-1', clienteNombre: 'Participante Demo', clienteID: '9999999999999',
+      clienteTipoIdentificacion: '07', monto: '20', metodoPago: 'Efectivo',
+    }, { permitirMetodoPagoPendiente: true })
+
+    expect(valid).toBe('')
+    expect(invalidValue).toMatch(/exactamente 9999999999999/)
+    expect(invalidPersonalType).toMatch(/solo es válido como tipo de identificación fiscal/)
+  })
+
   it('1. busca por nombre (case-insensitive, tolerante a espacios)', () => {
     const harness = baseHarness([inscripcion()])
     const result = search(harness, '  andrea  ')
@@ -58,6 +80,14 @@ describe('buscador libre de Inscripciones (filtros.q)', () => {
     const harness = baseHarness([inscripcion()])
     const result = search(harness, '0102030405')
     expect(result.data).toHaveLength(1)
+  })
+
+  it('preserva, devuelve y encuentra como texto una cédula válida que inicia en cero', () => {
+    const original = inscripcion({ ClienteID: '0601234560', ClienteTipoIdentificacion: 'CEDULA_EC' })
+    const harness = baseHarness([original])
+    const full = search(harness, '0601234560')
+
+    expect(full.data[0]).toMatchObject({ ClienteID: '0601234560', ClienteTipoIdentificacion: 'CEDULA_EC' })
   })
 
   it('4. busca por email', () => {
@@ -116,6 +146,25 @@ describe('buscador libre de Inscripciones (filtros.q)', () => {
       ClienteNombre: 'Persona Ejemplo', NumeroComprobante: '',
     })])
     expect(search(harness, '20').data).toHaveLength(0)
+  })
+
+  it('el diagnóstico de identificaciones es administrativo, solo lectura y devuelve conteos sin PII', () => {
+    const legacyNumeric = inscripcion({ ClienteID: 601234568, ClienteTipoIdentificacion: '' })
+    const explicitlyInvalid = inscripcion({ ID: 'INS-2', ClienteID: '0601234567', ClienteTipoIdentificacion: 'CEDULA_EC' })
+    const harness = baseHarness([legacyNumeric, explicitlyInvalid])
+    const before = harness.objects('Inscripciones')
+    const report = harness.context.processRequest({ action: 'getIdentityIntegrityReport', token: 'admin-token' })
+    const participantModule = report.data.modulos.find(item => item.modulo === 'Participantes / clientes')
+
+    expect(report).toMatchObject({ success: true, data: { soloLectura: true } })
+    expect(participantModule).toMatchObject({ registros: 2, celdasNumericas: 1, posiblesCerosInicialesPerdidos: 1, cedulasNoValidas: 1 })
+    expect(JSON.stringify(report)).not.toContain('601234568')
+    expect(JSON.stringify(report)).not.toContain('0601234567')
+    expect(harness.objects('Inscripciones')).toEqual(before)
+
+    const denied = harness.context.processRequest({ action: 'getIdentityIntegrityReport', token: 'seller-token' })
+    expect(denied.success).toBe(false)
+    expect(JSON.stringify(denied)).not.toContain('601234568')
   })
 })
 

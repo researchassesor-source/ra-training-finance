@@ -20,9 +20,14 @@ const apiMock = vi.hoisted(() => ({
   getServicios: vi.fn(async () => ({ data: [] })),
   getUsuarios: vi.fn(async () => ({ data: [] })),
   getInstitucionesAval: vi.fn(async () => ({ data: [] })),
+  getOpcionesInstitucionesMaestras: vi.fn(async () => ({ data: [] })),
   getConfigPagos: vi.fn(async () => ({ data: [] })),
   emitirCertificado: vi.fn(async () => ({ data: state.rows[0] })),
   getCertificadoParaDescarga: vi.fn(async () => ({ data: state.rows[0] })),
+  getHistorialCertificados: vi.fn(async () => ({ success: true, data: [
+    { id: 'CRT-OLD', codigo: 'RA-2026-OLD', version: 1, estado: 'reemitido', fecha: '2026-07-02T12:00:00.000Z', actor: 'admin.demo', motivo: 'Corrección documentada', plantilla: 'test-v1', pdfArchivado: true, snapshotVerificado: true },
+    { id: 'CRT-CURRENT', codigo: 'RA-2026-CURRENT', version: 2, estado: 'emitido', fecha: '2026-07-03T12:00:00.000Z', actor: 'admin.demo', plantilla: 'test-v2', pdfArchivado: true, snapshotVerificado: true },
+  ] })),
   registrarArtefactoCertificado: vi.fn(async () => ({ success: true })),
   solicitarDescargaCertificado: vi.fn(async () => { state.order.push('requested'); return { success: true, requestId: 'DLC-1' } }),
   confirmarDescargaCertificado: vi.fn(async (_id, result) => { state.order.push(result); return { success: true } }),
@@ -137,11 +142,24 @@ describe('acciones visibles en inscripciones', () => {
     renderList()
     await screen.findByText('Participante Demo')
     expect(screen.getByRole('button', { name: 'Ver y descargar certificado académico' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Ver historial de versiones del certificado' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Ver y descargar QR' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Entregar certificado' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Auditoría de certificados/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /No puede eliminarse una inscripción con certificado emitido/i })).toBeDisabled()
     expect(screen.queryByRole('button', { name: 'Eliminar inscripción' })).not.toBeInTheDocument()
+  })
+
+  it('abre el historial administrativo y presenta cada versión con descarga del PDF original', async () => {
+    state.user = { rol: 'admin', username: 'admin.demo', nombre: 'Admin Demo' }
+    renderList()
+    await screen.findByText('Participante Demo')
+    fireEvent.click(screen.getByRole('button', { name: 'Ver historial de versiones del certificado' }))
+    expect(await screen.findByRole('heading', { name: 'Historial de versiones del certificado' })).toBeInTheDocument()
+    expect(screen.getByText('RA-2026-OLD')).toBeInTheDocument()
+    expect(screen.getByText('Corrección documentada')).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: 'Descargar PDF original' })).toHaveLength(2)
+    expect(apiMock.getHistorialCertificados).toHaveBeenCalledWith('INS-DEMO-001')
   })
 
   it('oculta las acciones oficiales al vendedor y conserva el estado', async () => {

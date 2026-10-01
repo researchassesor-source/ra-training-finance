@@ -96,7 +96,7 @@ describe('ciclo de vida de certificados en Apps Script', () => {
     expect(harness.objects('AuditoriaCertificados').map(item => item.Accion)).toContain('CERTIFICATE_DELETE_REJECTED')
   })
 
-  it('reemite con identificador nuevo y mantiene verificable el original', () => {
+  it('mantiene vigente la versión previa hasta archivar la nueva y después conserva ambas versiones', () => {
     const harness = seededHarness()
     const { processRequest } = harness.context
     const reissued = processRequest({ action: 'reemitirCertificado', token: 'admin-token', id: 'INS-REISSUE', motivo: 'Corrección del nombre', confirmacion: 'REEMITIR' })
@@ -104,17 +104,72 @@ describe('ciclo de vida de certificados en Apps Script', () => {
     expect(reissued.data.ID).not.toBe('INS-REISSUE')
     expect(reissued.data.CodigoCertificado).not.toBe('RA-2026-ORIGINAL')
     expect(reissued.data.CertificateVersion).toBe(2)
+    expect(reissued.data.CertificateStatus).toBe('pendiente_pdf')
+    expect(processRequest({ action: 'reemitirCertificado', token: 'admin-token', id: 'INS-REISSUE', motivo: 'Corrección del nombre', confirmacion: 'REEMITIR' }))
+      .toMatchObject({ success: true, alreadyPrepared: true, data: { ID: reissued.data.ID } })
+    expect(processRequest({ action: 'reemitirCertificado', token: 'admin-token', id: 'INS-REISSUE', motivo: 'Otro motivo diferente', confirmacion: 'REEMITIR' }).success).toBe(false)
 
     const original = processRequest({ action: 'verificarCertificado', id: 'INS-REISSUE' })
-    expect(original).toMatchObject({ valido: true, data: { estado: 'reemitido', certificadoVigenteId: reissued.data.ID } })
+    expect(original).toMatchObject({ valido: true, data: { estado: 'vigente', version: 1 } })
     const current = processRequest({ action: 'verificarCertificado', id: reissued.data.ID })
-    expect(current).toMatchObject({ valido: true, data: { estado: 'vigente', version: 2 } })
+    expect(current.valido).toBe(false)
 
     const records = harness.objects('Certificados')
     expect(records).toHaveLength(2)
-    expect(records.find(item => item.ID === 'INS-REISSUE')).toMatchObject({ CertificateStatus: 'reemitido', ReissuedCertificateId: reissued.data.ID })
-    expect(records.find(item => item.ID === reissued.data.ID)).toMatchObject({ OriginalCertificateId: 'INS-REISSUE', CertificateStatus: 'emitido' })
-    expect(harness.locks).toEqual({ waits: 1, releases: 1 })
+    expect(records.find(item => item.ID === 'INS-REISSUE')).toMatchObject({ CertificateStatus: 'emitido', ReissuedCertificateId: '' })
+    expect(records.find(item => item.ID === reissued.data.ID)).toMatchObject({ OriginalCertificateId: 'INS-REISSUE', ReplacesCertificateId: 'INS-REISSUE', CertificateStatus: 'pendiente_pdf' })
+
+    const archived = processRequest({ action: 'registrarArtefactoCertificado', token: 'admin-token', id: reissued.data.ID,
+      pdfHash: 'e'.repeat(64), pdfStorageReference: `test-memory:${reissued.data.ID}:v2`,
+      templateVersion: reissued.data.TemplateVersion, certificateVersion: 2 })
+    expect(archived.success).toBe(true)
+    expect(processRequest({ action: 'verificarCertificado', id: 'INS-REISSUE' })).toMatchObject({
+      valido: true, data: { estado: 'reemitido', certificadoVigenteId: reissued.data.ID },
+    })
+    expect(processRequest({ action: 'verificarCertificado', id: reissued.data.ID })).toMatchObject({
+      valido: true, data: { estado: 'vigente', version: 2 },
+    })
+    expect(harness.objects('Certificados').find(item => item.ID === 'INS-REISSUE')).toMatchObject({
+      CertificateStatus: 'reemitido', ReissuedCertificateId: reissued.data.ID,
+    })
+    const history = processRequest({ action: 'getHistorialCertificados', token: 'admin-token', id: 'INS-REISSUE' })
+    expect(history.data).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'INS-REISSUE', version: 1, estado: 'reemitido', pdfArchivado: false }),
+      expect.objectContaining({ id: reissued.data.ID, version: 2, estado: 'emitido', pdfArchivado: true, snapshotVerificado: true }),
+    ]))
+    expect(processRequest({ action: 'getCertificadoVersionParaDescarga', token: 'admin-token',
+      inscripcionId: 'INS-REISSUE', certificateId: reissued.data.ID }))
+      .toMatchObject({ success: true, data: { ID: reissued.data.ID, CertificateVersion: 2, CodigoCertificado: reissued.data.CodigoCertificado } })
+    expect(processRequest({ action: 'getCertificadoVersionParaDescarga', token: 'admin-token',
+      inscripcionId: 'INS-VOID', certificateId: reissued.data.ID }).success).toBe(false)
+    expect(harness.locks).toEqual({ waits: 4, releases: 4 })
+  })
+
+  it('si falla la auditoría al archivar la reemisión, restaura el PDF y el certificado anterior sigue vigente', () => {
+    const harness = seededHarness()
+    const { processRequest } = harness.context
+    const prepared = processRequest({ action: 'reemitirCertificado', token: 'admin-token', id: 'INS-REISSUE',
+      motivo: 'Corrección auditada', confirmacion: 'REEMITIR' })
+    expect(prepared.success).toBe(true)
+    const auditSheet = harness.ensureSheet('AuditoriaCertificados')
+    const appendRow = auditSheet.appendRow.bind(auditSheet)
+    auditSheet.appendRow = () => { throw new Error('audit unavailable') }
+
+    const rejected = processRequest({ action: 'registrarArtefactoCertificado', token: 'admin-token', id: prepared.data.ID,
+      pdfHash: 'f'.repeat(64), pdfStorageReference: `test-memory:${prepared.data.ID}:v2`,
+      templateVersion: prepared.data.TemplateVersion, certificateVersion: 2 })
+    expect(rejected.success).toBe(false)
+    expect(harness.objects('Certificados').find(item => item.ID === 'INS-REISSUE'))
+      .toMatchObject({ CertificateStatus: 'emitido', ReissuedCertificateId: '' })
+    expect(harness.objects('Certificados').find(item => item.ID === prepared.data.ID))
+      .toMatchObject({ CertificateStatus: 'pendiente_pdf', PdfHash: '', PdfStorageReference: '' })
+    expect(harness.objects('Inscripciones').find(item => item.ID === 'INS-REISSUE'))
+      .toMatchObject({ EstadoCertificado: 'emitido', CodigoCertificado: 'RA-2026-ORIGINAL' })
+
+    auditSheet.appendRow = appendRow
+    expect(processRequest({ action: 'registrarArtefactoCertificado', token: 'admin-token', id: prepared.data.ID,
+      pdfHash: 'f'.repeat(64), pdfStorageReference: `test-memory:${prepared.data.ID}:v2`,
+      templateVersion: prepared.data.TemplateVersion, certificateVersion: 2 }).success).toBe(true)
   })
 
   it('reserva códigos únicos bajo LockService y mantiene la emisión idempotente', () => {

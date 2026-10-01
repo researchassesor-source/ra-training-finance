@@ -89,8 +89,23 @@ function processRequest(data) {
     updateUsuario:      () => updateUsuario(user, params),
     deleteUsuario:      () => deleteUsuario(user, params),
     getInstitucionesAval: () => getInstitucionesAval(user, params),
+    getInstitucionesMaestras: () => getInstitucionesMaestras(user, params),
+    getInstitucionMaestra: () => getInstitucionMaestra(user, params),
+    getOpcionesInstitucionesMaestras: () => getOpcionesInstitucionesMaestras(user, params),
+    addInstitucionMaestra: () => addInstitucionMaestra(user, params),
+    updateInstitucionMaestra: () => updateInstitucionMaestra(user, params),
+    archivarInstitucionMaestra: () => archivarInstitucionMaestra(user, params),
+    addAutoridadInstitucion: () => addAutoridadInstitucion(user, params),
+    updateAutoridadInstitucion: () => updateAutoridadInstitucion(user, params),
+    archivarAutoridadInstitucion: () => archivarAutoridadInstitucion(user, params),
+    addActivoInstitucion: () => addActivoInstitucion(user, params),
+    addDocumentoInstitucion: () => addDocumentoInstitucion(user, params),
+    getArchivoInstitucionPrivado: () => getArchivoInstitucionPrivado(user, params),
     getCertificadosAval: () => getCertificadosAval(user, params),
+    getConveniosParaAval: () => getConveniosParaAval(user, params),
+    configurarAvalPosteriorCertificado: () => configurarAvalPosteriorCertificado(user, params),
     marcarAval:          () => marcarAval(user, params),
+    corregirAvalConfirmado: () => corregirAvalConfirmado(user, params),
     emitirEntregableAval: () => emitirEntregableAval(user, params),
     anularEntregableAval: () => anularEntregableAval(user, params),
     reemitirEntregableAval: () => reemitirEntregableAval(user, params),
@@ -101,6 +116,7 @@ function processRequest(data) {
     addServicio:        () => addServicio(user, params),
     updateServicio:     () => updateServicio(user, params),
     getCapacitadores:   () => getCapacitadores(user, params),
+    getIdentityIntegrityReport: () => getIdentityIntegrityReport(user),
     addCapacitador:     () => addCapacitador(user, params),
     updateCapacitador:  () => updateCapacitador(user, params),
     preflightCertificadoCapacitador: () => preflightCertificadoCapacitador(user, params),
@@ -109,9 +125,11 @@ function processRequest(data) {
     anularCertificadoCapacitador: () => anularCertificadoCapacitador(user, params),
     reemitirCertificadoCapacitador: () => reemitirCertificadoCapacitador(user, params),
     getEstadoFirmasCertificado: () => getEstadoFirmasCertificado(user),
+    guardarDatosFirmanteCertificado: () => guardarDatosFirmanteCertificado(user, params),
     registrarFirmaOficialCertificado: () => registrarFirmaOficialCertificado(user, params),
     activarPlantillaCertificadoV2: () => activarPlantillaCertificadoV2(user, params),
-    getFirmasOficialesCertificado: () => getFirmasOficialesCertificado(user),
+    activarPlantillaCertificadoV3: () => activarPlantillaCertificadoV3(user, params),
+    getFirmasOficialesCertificado: () => getFirmasOficialesCertificado(user, params),
     getInscripciones:   () => getInscripciones(user, params),
     updateMoodleCredentials: () => updateMoodleCredentials(user, params),
     registrarEnvioMoodle: () => registrarEnvioMoodle(user, params),
@@ -122,6 +140,8 @@ function processRequest(data) {
     anularCertificado:   () => anularCertificado(user, params),
     reemitirCertificado: () => reemitirCertificado(user, params),
     getCertificadoParaDescarga: () => getCertificadoParaDescarga(user, params),
+    getHistorialCertificados: () => getHistorialCertificados(user, params),
+    getCertificadoVersionParaDescarga: () => getCertificadoVersionParaDescarga(user, params),
     registrarArtefactoCertificado: () => registrarArtefactoCertificado(user, params),
     guardarPdfCertificadoPrivado: () => guardarPdfCertificadoPrivado(user, params),
     leerPdfCertificadoPrivado: () => leerPdfCertificadoPrivado(user, params),
@@ -138,7 +158,7 @@ function processRequest(data) {
     getConvenios:       () => getConvenios(user, params),
     addConvenio:        () => addConvenio(user, params),
     updateConvenio:     () => updateConvenio(user, params),
-    deleteConvenio:     () => deleteRecord(user, 'Convenios', params, true),
+    deleteConvenio:     () => archivarConvenio(user, params),
     getCalendario:        () => getCalendario(user, params),
     deleteInscripcion:    () => deleteInscripcion(user, params),
     registrarTimbrada:    () => registrarTimbrada(user, params),
@@ -207,7 +227,7 @@ function respond(data) {
 // ─────────────────────────────────────────────
 
 const SHEET_HEADERS = {
-  Usuarios:         ['ID','Nombre','Email','Username','PasswordHash','Rol','Activo','FechaCreacion','InstitucionAval','Roles'],
+  Usuarios:         ['ID','Nombre','Email','Username','PasswordHash','Rol','Activo','FechaCreacion','InstitucionAval','Roles','InstitucionAvalID'],
   Ingresos:         ['ID','Fecha','Tipo','Modalidad','Concepto','Cliente','ContratoID','Monto','MetodoPago','Estado','Notas','CreadoPor','FechaCreacion','ClienteTelefono','Referencia'],
   Egresos:          ['ID','Fecha','Categoria','Concepto','Proveedor','Monto','Estado','AprobadoPor','FechaAprobacion','Notas','CreadoPor','FechaCreacion','ProveedorIdentificacion','FacturaCompraNumero','AutorizacionCompra','FechaEmisionFactura','BaseImponible0','BaseImponible15','IvaCompra','FormaPagoCompra','ReferenciaPagoCompra'],
   Pagos:            ['ID','Fecha','Tipo','Beneficiario','Concepto','Referencia','Monto','MetodoPago','EgresoID','ContratoID','Estado','Notas','CreadoPor','FechaCreacion'],
@@ -215,8 +235,8 @@ const SHEET_HEADERS = {
   Proyecciones:     ['ID','Evento','Tipo','FechaEstimada','MontoProyectado','MontoReal','Estado','Notas','CreadoPor','FechaCreacion'],
   Categorias:       ['ID','Nombre','Tipo','Activo'],
   Servicios:        ['ID','Nombre','Tipo','Modalidad','Precio','Duracion','Descripcion','Activo','FechaCreacion','FechaEvento','FechaFinEvento','LugarEvento','Capacitador','EstadoEvento','TipoCertificado','CapacitadorID'],
-  Capacitadores:    ['ID','Nombre','Identificacion','Resumen','Activo','CreadoPor','CreadoEn','ActualizadoPor','ActualizadoEn'],
-  Inscripciones:    ['ID','ClienteNombre','ClienteID','ClienteEmail','ClienteTelefono','ServicioID','ServicioNombre','Modalidad','FechaInicio','Monto','MetodoPago','RazonSocial','RUC','DireccionFactura','EstadoPago','EstadoCertificado','IngresoID','Notas','CreadoPor','FechaCreacion','FechaEmisionCertificado','RequiereAvalExterno','EstadoAval','AvalReferencia','FechaAval','ValorAval','FechaFin','NumeroComprobante','FechaPago','FechaVerificacionPago','VerificadoPor','InstitucionAval','CodigoCertificado','EmitidoPor','EstadoEntrega','FechaEntregaCertificado','EntregadoPor','AvalEnlaceExterno','AvalCodigoExterno','AvalTextoConfirmado','CertificateVersion','TemplateVersion','PdfHash','PdfStorageReference','OriginalCertificateId','ReissuedCertificateId','CertificateStatus','IssuedAt','IssuedBy','VoidedAt','VoidedBy','VoidReason','ReissueReason',
+  Capacitadores:    ['ID','Nombre','Identificacion','Resumen','Activo','CreadoPor','CreadoEn','ActualizadoPor','ActualizadoEn','TipoIdentificacion'],
+  Inscripciones:    ['ID','ClienteNombre','ClienteID','ClienteTipoIdentificacion','ClienteEmail','ClienteTelefono','ServicioID','ServicioNombre','Modalidad','FechaInicio','Monto','MetodoPago','RazonSocial','RUC','TipoIdentificacionFactura','DireccionFactura','EstadoPago','EstadoCertificado','IngresoID','Notas','CreadoPor','FechaCreacion','FechaEmisionCertificado','RequiereAvalExterno','EstadoAval','AvalReferencia','FechaAval','ValorAval','FechaFin','NumeroComprobante','FechaPago','FechaVerificacionPago','VerificadoPor','InstitucionAval','CodigoCertificado','EmitidoPor','EstadoEntrega','FechaEntregaCertificado','EntregadoPor','AvalEnlaceExterno','AvalCodigoExterno','AvalTextoConfirmado','CertificateVersion','TemplateVersion','PdfHash','PdfStorageReference','OriginalCertificateId','ReissuedCertificateId','CertificateStatus','IssuedAt','IssuedBy','VoidedAt','VoidedBy','VoidReason','ReissueReason',
                      // Modulo comercial CRM (aditivo) -- ver seccion MODULO COMERCIAL CRM.
                      // Insertadas ANTES de CRMEnrollmentID/CRMContactID/CRMCourseID/Origen a
                      // proposito: appsScriptCrmHandoff.test.js fija esas 4 como las ULTIMAS
@@ -229,17 +249,25 @@ const SHEET_HEADERS = {
                      'CertificateType',
                      'MoodleUsername','MoodlePassword','MoodleUrl','MoodleStatus','MoodleLoadedBy','MoodleLoadedAt','MoodleLastSentAt','MoodleNotes',
                      'CRMOfferType','CRMParentOrderID','CRMCompletionStatus','CRMCompletedAt',
-                     'CRMEnrollmentID','CRMContactID','CRMCourseID','Origen'],
+                     // Enlace canónico aditivo a la ficha maestra. InstitucionAval se
+                     // conserva como snapshot legible para registros históricos y consumidores existentes.
+                      'InstitucionID','ConvenioID','AvalInstitucionID','AvalConvenioID','AvalBaseTipoAplicado','AvalMontoBase','AvalPorcentajeAplicado','AvalMontoCalculado','AvalConfirmadoPor',
+                      'CRMEnrollmentID','CRMContactID','CRMCourseID','Origen'],
   Sesiones:         ['Token','Username','UserID','Rol','Nombre','Expira','Roles'],
   ConfigPagos:      ['ID','Nombre','Tipo','Detalles','Instrucciones','Activo','FechaCreacion'],
-  Convenios:        ['ID','Organizacion','Representante','Cargo','Objeto','ObligacionesRA','ObligacionesAliado','Vigencia','FechaInicio','FechaFin','Estado','Notas','CreadoPor','FechaCreacion'],
+  Convenios:        ['ID','Organizacion','Representante','Cargo','Objeto','ObligacionesRA','ObligacionesAliado','Vigencia','FechaInicio','FechaFin','Estado','Notas','CreadoPor','FechaCreacion','InstitucionID','FechaFirma','ArchivadoPor','ArchivadoEn','PorcentajeAval','BaseCalculoAval'],
+  Instituciones:    ['ID','Nombre','NombreLegal','NombreComercial','Siglas','Identificacion','TipoIdentificacion','Tipo','Telefono','Email','Direccion','Ciudad','Provincia','SitioWeb','Estado','Notas','CreadoPor','CreadoEn','ActualizadoPor','ActualizadoEn','ArchivadoPor','ArchivadoEn'],
+  AutoridadesInstitucion: ['ID','InstitucionID','Nombre','Identificacion','TipoIdentificacion','Cargo','Funcion','EsRepresentanteLegal','FirmaConvenios','FirmaCertificados','FechaInicio','FechaFin','Estado','Notas','CreadoPor','CreadoEn','ActualizadoPor','ActualizadoEn','ArchivadoPor','ArchivadoEn'],
+  ActivosInstitucionales: ['ID','InstitucionID','AutoridadID','Tipo','NombreArchivo','MimeType','DriveFileID','Sha256','TamanoBytes','Version','Estado','CreadoPor','CreadoEn'],
+  DocumentosInstitucionales: ['ID','InstitucionID','ConvenioID','Tipo','NombreArchivo','MimeType','DriveFileID','Sha256','TamanoBytes','FechaDocumento','Notas','Estado','CreadoPor','CreadoEn'],
+  AuditoriaInstituciones: ['ID','EntidadTipo','EntidadID','Accion','Usuario','Rol','FechaHora','EstadoAnterior','EstadoNuevo','Metadatos'],
   Asistencia:       ['ID','Username','Nombre','Tipo','Timestamp','Fecha','Notas','FechaCreacion'],
   FlujosSemanales:  ['ID','Username','NombreUsuario','Semana','FechaInicio','FechaFin','TotalHorasPlan','Estado','Notas','CreadoPor','FechaCreacion'],
   ActividadesFlujo: ['ID','FlujoID','Username','Titulo','Descripcion','DescripcionFormato','DiaSemana','HorasEstimadas','Estado','HorasReales','Notas','Checklist','Evidencia','Imagenes','EstadoRevision','HorasAprobadas','FeedbackRevision','EvidenciaRevision','ImagenesRevision','RevisadoPor','RevisadoEn','ReprogramadoDesde','ReprogramadoPara','CompletadoEn','FechaCreacion'],
   AuditoriaCertificados: ['ID','CertificadoID','InscripcionID','Usuario','Rol','Accion','FechaHora','EstadoAnterior','EstadoNuevo','Canal','Resultado','Motivo','Metadatos'],
   AuditoriaMoodle:   ['ID','InscripcionID','Usuario','Rol','Accion','FechaHora','Resultado','Metadatos'],
-  Certificados: ['ID','InscripcionID','CodigoCertificado','CertificateVersion','TemplateVersion','PdfHash','PdfStorageReference','OriginalCertificateId','ReissuedCertificateId','CertificateStatus','IssuedAt','IssuedBy','VoidedAt','VoidedBy','VoidReason','ReissueReason','CreatedAt','CertificateType'],
-  CertificadosProfesionales: ['ID','CapacitadorID','ServicioID','Rol','Nombre','Identificacion','Resumen','ServicioNombre','Duracion','Modalidad','FechaInicio','FechaFin','Lugar','CodigoCertificado','CertificateVersion','TemplateVersion','PdfHash','PdfStorageReference','OriginalCertificateId','ReissuedCertificateId','CertificateStatus','IssuedAt','IssuedBy','VoidedAt','VoidedBy','VoidReason','ReissueReason','CreatedAt'],
+  Certificados: ['ID','InscripcionID','CodigoCertificado','CertificateVersion','TemplateVersion','PdfHash','PdfStorageReference','OriginalCertificateId','ReplacesCertificateId','ReissuedCertificateId','CertificateStatus','IssuedAt','IssuedBy','VoidedAt','VoidedBy','VoidReason','ReissueReason','CreatedAt','CertificateType','CertificatePreparedAt','DocumentSnapshot','DocumentSnapshotHash'],
+  CertificadosProfesionales: ['ID','CapacitadorID','ServicioID','Rol','Nombre','Identificacion','Resumen','ServicioNombre','Duracion','Modalidad','FechaInicio','FechaFin','Lugar','CodigoCertificado','CertificateVersion','TemplateVersion','PdfHash','PdfStorageReference','OriginalCertificateId','ReissuedCertificateId','CertificateStatus','IssuedAt','IssuedBy','VoidedAt','VoidedBy','VoidReason','ReissueReason','CreatedAt','TipoIdentificacion','ReplacesCertificateId','CertificatePreparedAt','DocumentSnapshot','DocumentSnapshotHash'],
   DescargasCertificados: ['ID','CertificadoID','InscripcionID','Usuario','Rol','Estado','FechaSolicitud','FechaConfirmacion','Motivo','PdfHash','PdfStorageReference','Canal'],
   // Modulo comercial CRM (aditivo). Una compra = una fila, identidad CRMOrderID.
   // FinanceInscripcionID apunta a la UNICA inscripcion academica del enrollment
@@ -250,7 +278,11 @@ const SHEET_HEADERS = {
   // Certificados, para no romper resolvers que asumen un certificado principal por
   // inscripcion (asegurarRegistroCertificado, buscarCertificadoPublico,
   // resolverCertificadoAdministrativo).
-  EntregablesAval: ['ID','InscripcionID','EstadoValidacionExterna','ReferenciaExterna','EnlaceExterno','CodigoExterno','PdfHash','PdfStorageReference','EstadoEntregaFinal','FechaEntregaFinal','CreatedAt','UpdatedAt','CodigoCertificado','CertificateVersion','TemplateVersion','CertificateStatus','IssuedAt','IssuedBy','OriginalCertificateId','ReplacesCertificateId','ReissuedCertificateId','VoidedAt','VoidedBy','VoidReason','ReissueReason'],
+  EntregablesAval: ['ID','InscripcionID','EstadoValidacionExterna','ReferenciaExterna','EnlaceExterno','CodigoExterno','PdfHash','PdfStorageReference','EstadoEntregaFinal','FechaEntregaFinal','CreatedAt','UpdatedAt','CodigoCertificado','CertificateVersion','TemplateVersion','CertificateStatus','IssuedAt','IssuedBy','OriginalCertificateId','ReplacesCertificateId','ReissuedCertificateId','VoidedAt','VoidedBy','VoidReason','ReissueReason',
+    'CertificateInstitutionId','CertificateAgreementId','CertificateInstitutionName','CertificateInstitutionLegalName','CertificateInstitutionSiglas','CertificateInstitutionIdentification','CertificateInstitutionIdentificationType','CertificateInstitutionCity','CertificateInstitutionProvince','CertificateInstitutionAddress','CertificateInstitutionWebsite',
+    'CertificateAuthorityId','CertificateAuthorityName','CertificateAuthorityIdentification','CertificateAuthorityIdentificationType','CertificateAuthorityRole','CertificateAuthorityFunction','CertificateAuthoritySignatureAssetId','CertificateAuthoritySignatureSha256',
+    'CertificateInstitutionLogoAssetId','CertificateInstitutionLogoSha256','CertificateInstitutionSealAssetId','CertificateInstitutionSealSha256','CertificateAgreementObject','CertificateAgreementSignedAt','CertificateResolutionDocumentId','CertificateResolutionName','CertificateResolutionDate','CertificateResolutionNotes',
+    'CertificateManagerName','CertificateManagerTitle','CertificateManagerSignatureSha256','CertificatePreparedAt','DocumentSnapshot','DocumentSnapshotHash'],
   // Módulo fiscal SRI (feature/sri-integration-production-ready) — ver docs/fiscal/DATA_MODEL.md
   FacturasFiscales: ['ID','Environment','Status','InscripcionID','IdempotencyKey','DocumentType','IssueDate','Timezone','IssuerRuc','Establishment','EmissionPoint','Sequential','DocumentNumber','AccessKey','NumericCode','BuyerIdentificationType','BuyerIdentification','BuyerName','BuyerEmail','BuyerAddress','SubtotalWithoutTax','Subtotal0','SubtotalTaxed','DiscountCents','TaxTotal','GrandTotal','Currency','PaymentMethodInternal','SriPaymentCode','XmlVersion','SoftwareProviderMode','SoftwareProviderRuc','XmlGeneratedReference','XmlSignedReference','XmlAuthorizedReference','RideReference','Sha256Generated','Sha256Signed','Sha256Authorized','Sha256Ride','SriReceptionStatus','SriAuthorizationStatus','AuthorizationNumber','AuthorizationDate','LastSriMessage','RetryCount','CreatedBy','CreatedAt','UpdatedAt','AuthorizedAt','DeliveredAt','LastPolledAt','NextPollAt','XmlAuthorizedContent','ReviewFlag','ReviewReason'],
   FacturaItems: ['ID','FacturaID','Codigo','Descripcion','Cantidad','PrecioUnitarioCents','DescuentoCents','TaxRateBasisPoints','SriTaxCode','BaseCents','TotalCents','CatalogVersion','ConfirmedBy','CreatedAt'],
@@ -261,12 +293,18 @@ const SHEET_HEADERS = {
 
 const CERTIFICATE_TEMPLATE_VERSION = 'ra-canva-2026-v1';
 const CERTIFICATE_SECURITY_TEMPLATE_VERSION = 'ra-security-2026-v2';
+const CERTIFICATE_SECURITY_TEMPLATE_V3_VERSION = 'ra-security-2026-v3';
+const CERTIFICATE_INSTITUTIONAL_AVAL_TEMPLATE = 'ra-institutional-aval-2026';
 const CERTIFICATE_V2_ACTIVE_PROPERTY = 'CERTIFICATE_V2_ACTIVE';
+const CERTIFICATE_V3_ACTIVE_PROPERTY = 'CERTIFICATE_V3_ACTIVE';
+const CERTIFICATE_MANAGER_NAME_PROPERTY = 'CERTIFICATE_MANAGER_NAME';
+const CERTIFICATE_MANAGER_TITLE_PROPERTY = 'CERTIFICATE_MANAGER_TITLE';
 
-function propiedadFirmaCertificado_(rol) {
+function propiedadFirmaCertificado_(rol, version) {
   const value = String(rol || '').trim().toLowerCase();
-  if (value === 'director') return 'CERTIFICATE_DIRECTOR_SIGNATURE_FILE_ID';
-  if (value === 'manager') return 'CERTIFICATE_MANAGER_SIGNATURE_FILE_ID';
+  const suffix = String(version || 'v2').toLowerCase() === 'v3' ? 'V3_' : '';
+  if (value === 'director') return 'CERTIFICATE_' + suffix + 'DIRECTOR_SIGNATURE_FILE_ID';
+  if (value === 'manager') return 'CERTIFICATE_' + suffix + 'MANAGER_SIGNATURE_FILE_ID';
   throw new Error('Rol de firma desconocido.');
 }
 
@@ -275,9 +313,70 @@ function sha256BytesCertificado_(bytes) {
     .map(function(byte) { return ('0' + (byte & 255).toString(16)).slice(-2); }).join('');
 }
 
-function leerFirmaOficialCertificado_(rol) {
+function snapshotDocumentalCertificado_(tipo, datos) {
+  const serializado = JSON.stringify({ schemaVersion: 1, tipo: String(tipo || ''), datos: datos || {} });
+  return {
+    DocumentSnapshot: serializado,
+    DocumentSnapshotHash: sha256BytesCertificado_(Utilities.newBlob(serializado, 'text/plain').getBytes()),
+  };
+}
+
+function leerSnapshotDocumentalCertificado_(row) {
+  const serialized = String(row && row.DocumentSnapshot || '').trim();
+  const expectedHash = String(row && row.DocumentSnapshotHash || '').trim().toLowerCase();
+  if (!serialized || !/^[a-f0-9]{64}$/.test(expectedHash)) return null;
+  const actualHash = sha256BytesCertificado_(Utilities.newBlob(serialized, 'text/plain').getBytes());
+  if (actualHash !== expectedHash) return null;
+  try {
+    const parsed = JSON.parse(serialized);
+    return parsed && parsed.schemaVersion === 1 && parsed.datos && typeof parsed.datos === 'object'
+      ? parsed : null;
+  } catch (error) { return null; }
+}
+
+function huellasFirmasOficialesCertificado_() {
   const props = PropertiesService.getScriptProperties();
-  const key = propiedadFirmaCertificado_(rol);
+  const version = props.getProperty(CERTIFICATE_V3_ACTIVE_PROPERTY) === 'ON' ? 'v3' : 'v2';
+  return {
+    directorSignatureSha256: String(props.getProperty(propiedadFirmaCertificado_('director', version) + '_SHA256') || '').toLowerCase(),
+    managerSignatureSha256: String(props.getProperty(propiedadFirmaCertificado_('manager', version) + '_SHA256') || '').toLowerCase(),
+  };
+}
+
+function datosSnapshotCertificadoParticipante_(inscripcion, certificado) {
+  const servicio = servicioParaCertificado_(inscripcion) || {};
+  const duracion = mapaDuracionServicios()(inscripcion);
+  const enriched = inscripcionEnriquecida(
+    inscripcionSinMetadatosInternos(inscripcion),
+    mapaDuracionServicios(),
+    mapaUsuariosPorUsername()
+  );
+  return {
+    ClienteNombre: String(enriched.ClienteNombre || inscripcion.ClienteNombre || ''),
+    ClienteID: String(enriched.ClienteID || inscripcion.ClienteID || ''),
+    ClienteTipoIdentificacion: String(enriched.ClienteTipoIdentificacion || inscripcion.ClienteTipoIdentificacion || inscripcion.TipoIdentificacion || ''),
+    ServicioID: String(inscripcion.ServicioID || servicio.ID || ''),
+    ServicioNombre: String(enriched.ServicioNombre || inscripcion.ServicioNombre || servicio.Nombre || ''),
+    Duracion: String(duracion || servicio.Duracion || ''),
+    Modalidad: String(inscripcion.Modalidad || servicio.Modalidad || ''),
+    FechaInicio: String(inscripcion.FechaInicio || servicio.FechaEvento || ''),
+    FechaFin: String(inscripcion.FechaFin || servicio.FechaFinEvento || inscripcion.FechaInicio || ''),
+    Capacitador: String(servicio.Capacitador || ''),
+    ResumenCapacitador: String(servicio.ResumenCapacitador || ''),
+    Lugar: String(servicio.LugarEvento || servicio.Lugar || ''),
+    CertificateType: String(certificado.CertificateType || inscripcion.CertificateType || 'aprobacion'),
+    CodigoCertificado: String(certificado.CodigoCertificado || ''),
+    CertificateVersion: Number(certificado.CertificateVersion) || 1,
+    TemplateVersion: String(certificado.TemplateVersion || ''),
+    IssuedAt: String(certificado.IssuedAt || certificado.CertificatePreparedAt || ''),
+    IssuedBy: String(certificado.IssuedBy || ''),
+    SignatureHashes: huellasFirmasOficialesCertificado_(),
+  };
+}
+
+function leerFirmaOficialCertificado_(rol, version) {
+  const props = PropertiesService.getScriptProperties();
+  const key = propiedadFirmaCertificado_(rol, version);
   const id = String(props.getProperty(key) || '').trim();
   const expectedHash = String(props.getProperty(key + '_SHA256') || '').trim();
   if (!id || !expectedHash) throw new Error('Falta la firma oficial aprobada de ' + rol + '.');
@@ -288,6 +387,11 @@ function leerFirmaOficialCertificado_(rol) {
 
 function plantillaActivaCertificado_() {
   if (PropertiesService.getScriptProperties().getProperty(CERTIFICATE_V2_ACTIVE_PROPERTY) !== 'ON') return CERTIFICATE_TEMPLATE_VERSION;
+  if (PropertiesService.getScriptProperties().getProperty(CERTIFICATE_V3_ACTIVE_PROPERTY) === 'ON') {
+    leerFirmaOficialCertificado_('director', 'v3');
+    leerFirmaOficialCertificado_('manager', 'v3');
+    return CERTIFICATE_SECURITY_TEMPLATE_V3_VERSION;
+  }
   leerFirmaOficialCertificado_('director');
   leerFirmaOficialCertificado_('manager');
   return CERTIFICATE_SECURITY_TEMPLATE_VERSION;
@@ -299,20 +403,66 @@ function getEstadoFirmasCertificado(user) {
   return { success: true, data: {
     director: Boolean(props.getProperty(propiedadFirmaCertificado_('director'))),
     manager: Boolean(props.getProperty(propiedadFirmaCertificado_('manager'))),
+    directorV3: Boolean(props.getProperty(propiedadFirmaCertificado_('director', 'v3'))),
+    managerV3: Boolean(props.getProperty(propiedadFirmaCertificado_('manager', 'v3'))),
     plantillaActiva: props.getProperty(CERTIFICATE_V2_ACTIVE_PROPERTY) === 'ON',
-    versionActiva: props.getProperty(CERTIFICATE_V2_ACTIVE_PROPERTY) === 'ON'
-      ? CERTIFICATE_SECURITY_TEMPLATE_VERSION : CERTIFICATE_TEMPLATE_VERSION,
+    versionActiva: props.getProperty(CERTIFICATE_V3_ACTIVE_PROPERTY) === 'ON'
+      ? CERTIFICATE_SECURITY_TEMPLATE_V3_VERSION
+      : props.getProperty(CERTIFICATE_V2_ACTIVE_PROPERTY) === 'ON'
+        ? CERTIFICATE_SECURITY_TEMPLATE_VERSION : CERTIFICATE_TEMPLATE_VERSION,
+    managerSigner: {
+      name: String(props.getProperty(CERTIFICATE_MANAGER_NAME_PROPERTY) || ''),
+      title: String(props.getProperty(CERTIFICATE_MANAGER_TITLE_PROPERTY) || ''),
+    },
+    managerSignerConfigured: Boolean(String(props.getProperty(CERTIFICATE_MANAGER_NAME_PROPERTY) || '').trim()
+      && String(props.getProperty(CERTIFICATE_MANAGER_TITLE_PROPERTY) || '').trim()),
   } };
 }
 
-function registrarFirmaOficialCertificado(user, { rol, pngBase64, confirmacion } = {}) {
+function guardarDatosFirmanteCertificado(user, { nombre, cargo, confirmacion } = {}) {
+  requireCertificateAdmin(user, 'CERTIFICATE_SIGNER_DETAILS_WRITE', { canal: 'api' });
+  if (confirmacion !== 'CONFIRMO_DATOS_OFICIALES_DE_FIRMA') {
+    return { success: false, error: 'Confirme que el nombre y cargo corresponden al gerente firmante autorizado.' };
+  }
+  const cleanName = String(nombre || '').replace(/[\x00-\x1f\x7f]/g, ' ').replace(/\s+/g, ' ').trim();
+  const cleanTitle = String(cargo || '').replace(/[\x00-\x1f\x7f]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (cleanName.length < 3 || cleanName.length > 160 || cleanTitle.length < 3 || cleanTitle.length > 100) {
+    return { success: false, error: 'Ingrese nombre completo (3–160 caracteres) y cargo (3–100 caracteres).' };
+  }
+  return conBloqueoCertificados(function() {
+    const props = PropertiesService.getScriptProperties();
+    const before = {
+      name: String(props.getProperty(CERTIFICATE_MANAGER_NAME_PROPERTY) || ''),
+      title: String(props.getProperty(CERTIFICATE_MANAGER_TITLE_PROPERTY) || ''),
+    };
+    props.setProperty(CERTIFICATE_MANAGER_NAME_PROPERTY, cleanName);
+    props.setProperty(CERTIFICATE_MANAGER_TITLE_PROPERTY, cleanTitle);
+    try {
+      registrarAuditoriaCertificado({ certificadoId: '', inscripcionId: '', usuario: user.Username, rol: user.Rol,
+        accion: 'CERTIFICATE_SIGNER_DETAILS_UPDATED', canal: 'panel', resultado: 'ok',
+        metadatos: { signerRole: 'manager', fieldsConfigured: true } });
+    } catch (error) {
+      if (before.name) props.setProperty(CERTIFICATE_MANAGER_NAME_PROPERTY, before.name); else props.deleteProperty(CERTIFICATE_MANAGER_NAME_PROPERTY);
+      if (before.title) props.setProperty(CERTIFICATE_MANAGER_TITLE_PROPERTY, before.title); else props.deleteProperty(CERTIFICATE_MANAGER_TITLE_PROPERTY);
+      throw error;
+    }
+    return { success: true, data: { name: cleanName, title: cleanTitle } };
+  });
+}
+
+function registrarFirmaOficialCertificado(user, { rol, pngBase64, confirmacion, version } = {}) {
   requireCertificateAdmin(user, 'CERTIFICATE_SIGNATURE_REGISTER', { canal: 'api' });
   if (confirmacion !== 'CONFIRMO_FIRMA_AUTENTICA_Y_USO_AUTORIZADO') {
     return { success: false, error: 'Confirme que la rúbrica es auténtica y su uso está autorizado.' };
   }
   return conBloqueoCertificados(function() {
-    const key = propiedadFirmaCertificado_(rol);
+    const resolvedVersion = String(version || 'v2').toLowerCase();
+    if (['v2', 'v3'].indexOf(resolvedVersion) === -1) return { success: false, error: 'Versión de firma desconocida.' };
+    const key = propiedadFirmaCertificado_(rol, resolvedVersion);
     const props = PropertiesService.getScriptProperties();
+    if (resolvedVersion === 'v3' && props.getProperty(CERTIFICATE_V2_ACTIVE_PROPERTY) !== 'ON') {
+      return { success: false, error: 'Primero debe estar activa la plantilla v2.' };
+    }
     if (props.getProperty(key)) return { success: false, error: 'La firma ya está registrada. Una rotación requiere una nueva versión de plantilla.' };
     const encoded = String(pngBase64 || '').replace(/^data:image\/png;base64,/i, '');
     if (!/^[A-Za-z0-9+/]+=*$/.test(encoded) || encoded.length > 2100000) {
@@ -326,14 +476,14 @@ function registrarFirmaOficialCertificado(user, { rol, pngBase64, confirmacion }
       return { success: false, error: 'La imagen PNG está dañada o es demasiado pequeña para una firma oficial.' };
     }
     const hash = sha256BytesCertificado_(bytes);
-    const blob = Utilities.newBlob(bytes, 'image/png', 'firma-certificado-v2-' + rol + '.png');
+    const blob = Utilities.newBlob(bytes, 'image/png', 'firma-certificado-' + resolvedVersion + '-' + rol + '.png');
     const file = DriveApp.createFile(blob);
     try {
       file.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE);
       props.setProperty(key, file.getId());
       props.setProperty(key + '_SHA256', hash);
       registrarAuditoriaCertificado({ certificadoId: '', inscripcionId: '', usuario: user.Username, rol: user.Rol,
-        accion: 'CERTIFICATE_SIGNATURE_REGISTERED', canal: 'panel', resultado: 'ok', metadatos: { signerRole: rol, sha256: hash } });
+        accion: 'CERTIFICATE_SIGNATURE_REGISTERED', canal: 'panel', resultado: 'ok', metadatos: { signerRole: rol, version: resolvedVersion, sha256: hash } });
     } catch (error) {
       props.deleteProperty(key);
       props.deleteProperty(key + '_SHA256');
@@ -364,14 +514,59 @@ function activarPlantillaCertificadoV2(user, { confirmacion } = {}) {
   });
 }
 
-function getFirmasOficialesCertificado(user) {
+function activarPlantillaCertificadoV3(user, { confirmacion } = {}) {
+  requireCertificateAdmin(user, 'CERTIFICATE_TEMPLATE_V3_ACTIVATE', { canal: 'api' });
+  if (confirmacion !== 'ACTIVAR_CERTIFICADOS_SEGURIDAD_V3') return { success: false, error: 'Falta la confirmación explícita de activación.' };
+  return conBloqueoCertificados(function() {
+    const props = PropertiesService.getScriptProperties();
+    if (props.getProperty(CERTIFICATE_V2_ACTIVE_PROPERTY) !== 'ON') return { success: false, error: 'La plantilla v2 debe estar activa antes de activar v3.' };
+    if (props.getProperty(CERTIFICATE_V3_ACTIVE_PROPERTY) === 'ON') return { success: true, alreadyActive: true };
+    leerFirmaOficialCertificado_('director', 'v3');
+    leerFirmaOficialCertificado_('manager', 'v3');
+    props.setProperty(CERTIFICATE_V3_ACTIVE_PROPERTY, 'ON');
+    try {
+      registrarAuditoriaCertificado({ certificadoId: '', inscripcionId: '', usuario: user.Username, rol: user.Rol,
+        accion: 'CERTIFICATE_TEMPLATE_V3_ACTIVATED', canal: 'panel', resultado: 'ok',
+        metadatos: { templateVersion: CERTIFICATE_SECURITY_TEMPLATE_V3_VERSION } });
+    } catch (error) {
+      props.deleteProperty(CERTIFICATE_V3_ACTIVE_PROPERTY);
+      throw error;
+    }
+    return { success: true, data: { templateVersion: CERTIFICATE_SECURITY_TEMPLATE_V3_VERSION } };
+  });
+}
+
+function getFirmasOficialesCertificado(user, { templateVersion, managerSignatureSha256 } = {}) {
   requireCertificateAdmin(user, 'CERTIFICATE_SIGNATURE_READ', { canal: 'api' });
   if (PropertiesService.getScriptProperties().getProperty(CERTIFICATE_V2_ACTIVE_PROPERTY) !== 'ON') {
     return { success: false, error: 'La plantilla de seguridad aún no está activada.' };
   }
+  const props = PropertiesService.getScriptProperties();
+  const requestedTemplate = String(templateVersion || '').trim();
+  let version = requestedTemplate === CERTIFICATE_SECURITY_TEMPLATE_V3_VERSION ? 'v3' : 'v2';
+  if (requestedTemplate === CERTIFICATE_INSTITUTIONAL_AVAL_TEMPLATE) {
+    const requestedHash = String(managerSignatureSha256 || '').trim().toLowerCase();
+    const v2Hash = String(props.getProperty(propiedadFirmaCertificado_('manager', 'v2') + '_SHA256') || '').toLowerCase();
+    const v3Hash = String(props.getProperty(propiedadFirmaCertificado_('manager', 'v3') + '_SHA256') || '').toLowerCase();
+    if (!requestedHash || (requestedHash !== v2Hash && requestedHash !== v3Hash)) {
+      return { success: false, error: 'La firma del gerente no coincide con el snapshot institucional.' };
+    }
+    version = requestedHash === v2Hash ? 'v2' : 'v3';
+  } else if (requestedTemplate && requestedTemplate !== CERTIFICATE_SECURITY_TEMPLATE_VERSION
+      && requestedTemplate !== CERTIFICATE_SECURITY_TEMPLATE_V3_VERSION
+      && requestedTemplate !== CERTIFICATE_ITSAL_TEMPLATE_VERSION) {
+    return { success: false, error: 'Versión de plantilla desconocida.' };
+  }
+  if (version === 'v3' && props.getProperty(CERTIFICATE_V3_ACTIVE_PROPERTY) !== 'ON') {
+    return { success: false, error: 'La plantilla v3 no está activa.' };
+  }
   return { success: true, signatures: {
-    director: 'data:image/png;base64,' + leerFirmaOficialCertificado_('director'),
-    manager: 'data:image/png;base64,' + leerFirmaOficialCertificado_('manager'),
+    director: 'data:image/png;base64,' + leerFirmaOficialCertificado_('director', version),
+    manager: 'data:image/png;base64,' + leerFirmaOficialCertificado_('manager', version),
+  }, signers: {
+    manager: { name: String(props.getProperty(CERTIFICATE_MANAGER_NAME_PROPERTY) || ''),
+      title: String(props.getProperty(CERTIFICATE_MANAGER_TITLE_PROPERTY) || ''),
+      signatureSha256: String(props.getProperty(propiedadFirmaCertificado_('manager', version) + '_SHA256') || '').toLowerCase() },
   } };
 }
 
@@ -390,14 +585,20 @@ function getSheet(name) {
     }
   } else if (SHEET_HEADERS[name]) {
     // Auto-add any columns that exist in SHEET_HEADERS but not in the actual sheet
-    const lastCol = sheet.getLastColumn();
-    const existing = lastCol > 0 ? sheet.getRange(1, 1, 1, lastCol).getValues()[0] : [];
-    SHEET_HEADERS[name].forEach(function(h) {
-      if (existing.indexOf(h) === -1) {
-        const col = sheet.getLastColumn() + 1;
+      const lastCol = sheet.getLastColumn();
+      const existing = lastCol > 0 ? sheet.getRange(1, 1, 1, lastCol).getValues()[0] : [];
+      SHEET_HEADERS[name].forEach(function(h) {
+        if (existing.indexOf(h) === -1) {
+        const avalColumnsBeforeCrm = ['InstitucionID','ConvenioID','AvalInstitucionID','AvalConvenioID',
+          'AvalBaseTipoAplicado','AvalMontoBase','AvalPorcentajeAplicado','AvalMontoCalculado','AvalConfirmadoPor'];
+        const crmEnrollmentIndex = name === 'Inscripciones' && avalColumnsBeforeCrm.indexOf(h) !== -1
+          ? existing.indexOf('CRMEnrollmentID') : -1;
+        const col = crmEnrollmentIndex >= 0 ? crmEnrollmentIndex + 1 : sheet.getLastColumn() + 1;
+        if (crmEnrollmentIndex >= 0) sheet.insertColumnBefore(col);
         var cell = sheet.getRange(1, col);
         cell.setValue(h);
         cell.setFontWeight('bold').setBackground('#3730a3').setFontColor('#ffffff');
+        existing.splice(col - 1, 0, h);
       }
     });
   }
@@ -442,6 +643,10 @@ function updateRow(sheet, row, fieldMap) {
 
 const TEXT_SENSITIVE_HEADERS = {
   ID: true,
+  Identificacion: true,
+  TipoIdentificacion: true,
+  ClienteTipoIdentificacion: true,
+  TipoIdentificacionFactura: true,
   ClienteID: true,
   ClienteTelefono: true,
   RUC: true,
@@ -747,6 +952,8 @@ const INSCRIPTION_HEADER_ALIASES = {
   ID: ['idinscripcion', 'inscripcionid'],
   ClienteNombre: ['participante', 'nombreparticipante', 'cliente'],
   ClienteID: ['identificacion', 'cedula', 'ceduladeidentidad', 'documento'],
+  ClienteTipoIdentificacion: ['tipodocumento', 'tipoidentificacion', 'tipodeidentificacion', 'tipodocumentoparticipante'],
+  TipoIdentificacionFactura: ['tipoidentificacionfactura', 'tipodedocumentofactura', 'tipoidfactura'],
   ServicioID: ['cursoid', 'idservicio'],
   ServicioNombre: ['servicio', 'curso', 'nombrecurso'],
   FechaInicio: ['iniciocurso', 'fechainiciocurso'],
@@ -1086,6 +1293,24 @@ function institucionAvalDelUsuario(user) {
   return row ? String(row.InstitucionAval || '').trim() : '';
 }
 
+function institucionAvalIdDelUsuario_(user) {
+  const row = sheetToObjects(getSheet('Usuarios')).find(function(u) {
+    return u.ID === user.ID || u.Username === user.Username;
+  });
+  return row ? String(row.InstitucionAvalID || '').trim() : '';
+}
+
+function usuarioPuedeGestionarAvalDeInscripcion_(user, inscripcion) {
+  if (isAdmin(user)) return true;
+  if (!isAval(user)) return false;
+  const assignedId = institucionAvalIdDelUsuario_(user);
+  const recordId = String(inscripcion.InstitucionID || '').trim();
+  if (assignedId) return !!recordId && assignedId === recordId;
+  // Compatibilidad solo para filas y usuarios antiguos todavía sin IDs maestros.
+  const assignedName = institucionAvalDelUsuario(user);
+  return !recordId && !!assignedName && mismaInstitucionAval(inscripcion.InstitucionAval, assignedName);
+}
+
 function mismaInstitucionAval(a, b) {
   return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
 }
@@ -1148,12 +1373,50 @@ function handleLogout(token) {
   return { success: true };
 }
 
+function invalidarSesionesUsuario_(userId, usernames) {
+  const sheet = getSheet('Sesiones');
+  const id = String(userId || '');
+  const nombres = (usernames || []).map(function(username) { return String(username || ''); }).filter(Boolean);
+  const sessions = sheetToObjects(sheet).filter(function(session) {
+    return (id && String(session.UserID || '') === id)
+      || nombres.indexOf(String(session.Username || '')) !== -1;
+  });
+  // Borrar de abajo hacia arriba evita que los índices de las filas restantes cambien.
+  // Si falla la revocación, el cambio de cuenta debe abortar (fail closed).
+  try {
+    sessions.sort(function(a, b) { return b._row - a._row; }).forEach(function(session) {
+      sheet.deleteRow(session._row);
+    });
+  } catch (err) {
+    throw new Error('No se pudieron invalidar las sesiones existentes. El cambio de cuenta no se completó; reintente.');
+  }
+  return sessions.length;
+}
+
 // Endpoint público (sin token) para el QR de verificación de certificados.
 // Solo expone campos no sensibles y nunca revela si un ID existe pero
 // aún no fue emitido (mismo mensaje "no válido" para ambos casos).
 function handleVerificarCertificado({ id } = {}) {
-  if (!id) return { success: true, valido: false };
-  const entregaAval = sheetToObjects(getSheet('EntregablesAval')).find(function(item) { return item.ID === String(id); });
+  const identifier = String(id || '').trim();
+  if (!identifier) return { success: true, valido: false };
+  const matchesIdentifier = function(item) {
+    return String(item.ID || '') === identifier || String(item.CodigoCertificado || '') === identifier;
+  };
+  const avalMatches = sheetToObjects(getSheet('EntregablesAval')).filter(matchesIdentifier);
+  const professionalSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('CertificadosProfesionales');
+  const professionalMatches = professionalSheet ? sheetToObjects(professionalSheet).filter(matchesIdentifier) : [];
+  const normalSheetMatches = sheetToObjects(getSheet('Certificados')).filter(matchesIdentifier);
+  const normalResult = normalSheetMatches.length <= 1 ? buscarCertificadoPublico(identifier) : null;
+  const hasNormalMatch = normalSheetMatches.length > 0 || Boolean(normalResult);
+
+  // Los códigos visibles se reservan globalmente. Si un dato histórico ambiguo
+  // rompe esa regla, se falla cerrado y no se presenta un documento equivocado.
+  if (avalMatches.length > 1 || professionalMatches.length > 1
+      || normalSheetMatches.length > 1
+      || Number(Boolean(hasNormalMatch)) + avalMatches.length + professionalMatches.length > 1) {
+    return { success: true, valido: false };
+  }
+  const entregaAval = avalMatches[0] || null;
   if (entregaAval) {
     if (['emitido', 'anulado', 'reemitido'].indexOf(entregaAval.CertificateStatus) === -1 || !entregaAval.PdfHash || !entregaAval.PdfStorageReference) {
       return { success: true, valido: false };
@@ -1163,7 +1426,7 @@ function handleVerificarCertificado({ id } = {}) {
     return { success: true, valido: true, data: {
       codigo: entregaAval.CodigoCertificado, identificador: entregaAval.ID,
       estado: entregaAval.CertificateStatus === 'emitido' ? 'vigente' : entregaAval.CertificateStatus,
-      tipoSujeto: 'aval_institucional', certificadoVigenteId: entregaAval.ReissuedCertificateId || '',
+       tipoSujeto: 'aval_institucional', tipoDocumento: 'certificado_avalado', certificadoVigenteId: entregaAval.ReissuedCertificateId || '',
       nombre: inscripcionAval.ClienteNombre, servicio: inscripcionAval.ServicioNombre,
       duracion: mapaDuracionServicios()(inscripcionAval), modalidad: inscripcionAval.Modalidad,
       fechaInicio: inscripcionAval.FechaInicio, fechaFin: inscripcionAval.FechaFin || '',
@@ -1173,20 +1436,20 @@ function handleVerificarCertificado({ id } = {}) {
       avalCodigoExterno: entregaAval.CodigoExterno || '', avalEnlaceExterno: entregaAval.EnlaceExterno || '',
     } };
   }
-  const professional = buscarCertificadoProfesional_(String(id));
+  const professional = professionalMatches[0] || null;
   if (professional) {
     const estadoProfesional = estadoPublicoCertificado(professional);
     if (['vigente', 'anulado', 'reemitido'].indexOf(estadoProfesional) === -1) return { success: true, valido: false };
     return { success: true, valido: true, data: {
       codigo: professional.CodigoCertificado, identificador: professional.ID, estado: estadoProfesional,
-      tipoSujeto: 'profesional', rolProfesional: professional.Rol,
+      tipoSujeto: 'profesional', tipoDocumento: 'certificado_profesional', rolProfesional: professional.Rol,
       nombre: professional.Nombre, servicio: professional.ServicioNombre, duracion: professional.Duracion,
       modalidad: professional.Modalidad, fechaInicio: professional.FechaInicio, fechaFin: professional.FechaFin,
       fechaEmision: professional.IssuedAt, version: Number(professional.CertificateVersion) || 1,
       certificadoVigenteId: estadoProfesional === 'reemitido' ? professional.ReissuedCertificateId || '' : '',
     } };
   }
-  const resultado = buscarCertificadoPublico(id);
+  const resultado = normalResult;
   if (!resultado) return { success: true, valido: false };
   const row = resultado.inscripcion;
   const certificado = resultado.certificado;
@@ -1200,6 +1463,7 @@ function handleVerificarCertificado({ id } = {}) {
     data: {
       codigo:          certificado.CodigoCertificado || row.CodigoCertificado || codigoCertificadoEstable(row),
       identificador:   certificado.ID || row.ID,
+      tipoDocumento:   'certificado_normal',
       estado:          estado,
       nombre:          row.ClienteNombre,
       servicio:        row.ServicioNombre,
@@ -1659,7 +1923,7 @@ function getUsuarios(user) {
   const data = sheetToObjects(getSheet('Usuarios')).map(u => ({
     ID: u.ID, Nombre: u.Nombre, Email: u.Email, Username: u.Username,
     Rol: u.Rol, Roles: u.Roles || serializarRoles_(u.Rol), Activo: u.Activo, FechaCreacion: u.FechaCreacion,
-    InstitucionAval: u.InstitucionAval || '',
+    InstitucionAval: u.InstitucionAval || '', InstitucionAvalID: u.InstitucionAvalID || '',
   }));
   return { success: true, data };
 }
@@ -1675,15 +1939,17 @@ function addUsuario(user, { usuario }) {
     Rol: usuario.roles !== undefined ? '' : (usuario.rol || 'usuario'),
   });
   const rol = rolPrincipal_(roles);
-  const institucionAval = roles.indexOf('aval') !== -1 ? String(usuario.institucionAval || '').trim() : '';
-  if (roles.indexOf('aval') !== -1 && !institucionAval) {
-    return { success: false, error: 'Asigne una institucion al usuario de aval.' };
+  const institucionAvalID = roles.indexOf('aval') !== -1 ? String(usuario.institucionAvalId || '').trim() : '';
+  const institucionAvalRecord = institucionAvalID ? institucionPorId_(institucionAvalID) : null;
+  if (roles.indexOf('aval') !== -1 && (!institucionAvalRecord || institucionAvalRecord.Estado !== 'activo')) {
+    return { success: false, error: 'Asigne al usuario de aval una institución activa de la ficha maestra.' };
   }
+  const institucionAval = institucionAvalRecord ? String(institucionAvalRecord.Nombre || '').trim() : '';
   const id   = generateId('USR');
   const hash = hashPassword(usuario.password);
   const now  = new Date().toISOString();
   appendRowPreservandoTexto_(sheet, SHEET_HEADERS.Usuarios, [
-    id, usuario.nombre, usuario.email || '', usuario.username, hash, rol, true, now, institucionAval, serializarRoles_(roles),
+    id, usuario.nombre, usuario.email || '', usuario.username, hash, rol, true, now, institucionAval, serializarRoles_(roles), institucionAvalID,
   ]);
   return { success: true, id };
 }
@@ -1699,15 +1965,28 @@ function updateUsuario(user, { id, usuario }) {
     Rol: usuario.roles !== undefined ? '' : (usuario.rol || row.Rol),
   });
   const rol = rolPrincipal_(roles);
+  const retainsLegacyInstitution = roles.indexOf('aval') !== -1 && !row.InstitucionAvalID
+    && usuario.institucionAvalId === undefined
+    && String(usuario.institucionAval === undefined ? row.InstitucionAval || '' : usuario.institucionAval).trim()
+      === String(row.InstitucionAval || '').trim();
+  const institucionAvalID = roles.indexOf('aval') !== -1
+    ? String(usuario.institucionAvalId !== undefined ? usuario.institucionAvalId : row.InstitucionAvalID || '').trim()
+    : '';
+  const institucionAvalRecord = institucionAvalID ? institucionPorId_(institucionAvalID) : null;
+  if (roles.indexOf('aval') !== -1 && !retainsLegacyInstitution
+      && (!institucionAvalRecord || (institucionAvalRecord.Estado !== 'activo' && institucionAvalID !== String(row.InstitucionAvalID || '')))) {
+    return { success: false, error: 'Asigne al usuario de aval una institución activa de la ficha maestra.' };
+  }
   const institucionAval = roles.indexOf('aval') !== -1
-    ? String(usuario.institucionAval !== undefined ? usuario.institucionAval : row.InstitucionAval || '').trim()
+    ? (institucionAvalRecord ? String(institucionAvalRecord.Nombre || '').trim() : (retainsLegacyInstitution ? String(row.InstitucionAval || '').trim() : ''))
     : '';
   if (roles.indexOf('aval') !== -1 && !institucionAval) {
-    return { success: false, error: 'Asigne una institucion al usuario de aval.' };
+    return { success: false, error: 'Asigne una institución registrada al usuario de aval.' };
   }
   const fields = {
     Nombre: usuario.nombre, Email: usuario.email,
     Rol: rol, Roles: serializarRoles_(roles), Activo: usuario.activo, InstitucionAval: institucionAval,
+    InstitucionAvalID: institucionAvalID,
   };
   // Permitir cambio de username con verificación de unicidad
   if (usuario.username && usuario.username !== row.Username) {
@@ -1717,6 +1996,17 @@ function updateUsuario(user, { id, usuario }) {
     fields.Username = usuario.username;
   }
   if (usuario.password) fields.PasswordHash = hashPassword(usuario.password);
+  const boolActivo = function(value) { return value === true || String(value).toUpperCase() === 'TRUE'; };
+  const cambiaAcceso = serializarRoles_(roles) !== serializarRoles_(rolesUsuario_(row))
+    || (usuario.activo !== undefined && boolActivo(usuario.activo) !== boolActivo(row.Activo))
+    || Boolean(fields.Username && fields.Username !== row.Username)
+    || Boolean(usuario.password);
+  // El alcance institucional se consulta desde la ficha vigente de Usuarios en
+  // cada petición; no está congelado dentro del token de sesión. Por eso su
+  // cambio se aplica inmediatamente sin cerrar sesiones válidas del usuario.
+  // Revocar antes de persistir un cambio de autenticación evita tokens antiguos
+  // activos si la escritura de la hoja de sesiones falla.
+  if (cambiaAcceso) invalidarSesionesUsuario_(id, [row.Username, fields.Username]);
   updateRow(sheet, row, fields);
   return { success: true };
 }
@@ -1734,15 +2024,9 @@ function deleteUsuario(user, { id }) {
     });
     if (otrosAdmins.length === 0) return { success: false, error: 'Debe existir al menos un administrador activo.' };
   }
+  // Revocar primero: si falla, la cuenta no debe borrarse dejando tokens vivos.
+  invalidarSesionesUsuario_(id, [row.Username]);
   sheet.deleteRow(row._row);
-  // Invalidar todas las sesiones activas del usuario eliminado — sin esto
-  // seguiría con acceso hasta que su token expire solo (hasta 24h).
-  const sesSheet = getSheet('Sesiones');
-  let sesiones = sheetToObjects(sesSheet).filter(function(s) { return s.Username === row.Username; });
-  while (sesiones.length > 0) {
-    sesSheet.deleteRow(sesiones[0]._row);
-    sesiones = sheetToObjects(sesSheet).filter(function(s) { return s.Username === row.Username; });
-  }
   return { success: true };
 }
 
@@ -1750,14 +2034,122 @@ function deleteUsuario(user, { id }) {
 // SERVICIOS
 // ─────────────────────────────────────────────
 
-function validarCapacitador_(data) {
+const TIPOS_IDENTIFICACION = {
+  CEDULA_EC: 'CEDULA_EC',
+  RUC_EC: 'RUC_EC',
+  PASAPORTE: 'PASAPORTE',
+  CONSUMIDOR_FINAL: 'CONSUMIDOR_FINAL',
+  OTRO: 'OTRO',
+  NO_ESPECIFICADO: 'NO_ESPECIFICADO',
+};
+
+function normalizarTipoIdentificacion_(value) {
+  const source = String(value || '').trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+  const aliases = {
+    CEDULA_EC: TIPOS_IDENTIFICACION.CEDULA_EC,
+    CEDULA: TIPOS_IDENTIFICACION.CEDULA_EC,
+    'CEDULA ECUATORIANA': TIPOS_IDENTIFICACION.CEDULA_EC,
+    ECUADORIAN_ID: TIPOS_IDENTIFICACION.CEDULA_EC,
+    RUC_EC: TIPOS_IDENTIFICACION.RUC_EC,
+    RUC: TIPOS_IDENTIFICACION.RUC_EC,
+    ECUADORIAN_RUC: TIPOS_IDENTIFICACION.RUC_EC,
+    '04': TIPOS_IDENTIFICACION.RUC_EC,
+    '05': TIPOS_IDENTIFICACION.CEDULA_EC,
+    '06': TIPOS_IDENTIFICACION.PASAPORTE,
+    '07': TIPOS_IDENTIFICACION.CONSUMIDOR_FINAL,
+    '08': TIPOS_IDENTIFICACION.OTRO,
+    PASSPORT: TIPOS_IDENTIFICACION.PASAPORTE,
+    PASAPORTE: TIPOS_IDENTIFICACION.PASAPORTE,
+    OTRO: TIPOS_IDENTIFICACION.OTRO,
+    OTHER: TIPOS_IDENTIFICACION.OTRO,
+    OTRO_DOCUMENTO: TIPOS_IDENTIFICACION.OTRO,
+    NO_ESPECIFICADO: TIPOS_IDENTIFICACION.NO_ESPECIFICADO,
+    UNSPECIFIED: TIPOS_IDENTIFICACION.NO_ESPECIFICADO,
+    CEDULAEC: TIPOS_IDENTIFICACION.CEDULA_EC,
+    EXTERIOR: TIPOS_IDENTIFICACION.OTRO,
+    CONSUMIDOR_FINAL: TIPOS_IDENTIFICACION.CONSUMIDOR_FINAL,
+    'CONSUMIDOR FINAL': TIPOS_IDENTIFICACION.CONSUMIDOR_FINAL,
+  };
+  return aliases[source] || '';
+}
+
+function esCedulaEcuatorianaValida_(value) {
+  if (typeof value !== 'string' || !/^\d{10}$/.test(value)) return false;
+  const province = Number(value.slice(0, 2));
+  const thirdDigit = Number(value.charAt(2));
+  const ordinaryProvince = province >= 1 && province <= 24;
+  const consularDocument = province === 30 && (thirdDigit === 4 || thirdDigit === 5);
+  if ((!ordinaryProvince && !consularDocument) || thirdDigit > 5) return false;
+  let sum = 0;
+  for (let index = 0; index < 9; index += 1) {
+    const digit = value.charCodeAt(index) - 48;
+    const product = digit * (index % 2 === 0 ? 2 : 1);
+    sum += product > 9 ? product - 9 : product;
+  }
+  return (10 - (sum % 10)) % 10 === value.charCodeAt(9) - 48;
+}
+
+function validarIdentificacion_(tipo, value, options) {
+  options = options || {};
+  if (value === null || value === undefined || value === '') return options.required ? 'Ingrese la identificación.' : '';
+  const legacyUnchanged = options.allowLegacyUnchanged
+    && normalizarTipoIdentificacion_(tipo) === TIPOS_IDENTIFICACION.NO_ESPECIFICADO
+    && String(value) === String(options.legacyOriginal);
+  if (typeof value !== 'string' && !legacyUnchanged) {
+    return 'La identificación debe enviarse como texto para preservar sus ceros iniciales.';
+  }
+  const identification = String(value).trim();
+  if (!identification) return options.required ? 'Ingrese la identificación.' : '';
+  const documentType = normalizarTipoIdentificacion_(tipo);
+  if (documentType === TIPOS_IDENTIFICACION.NO_ESPECIFICADO && legacyUnchanged) return '';
+  if (!documentType) return 'Seleccione el tipo de identificación.';
+  if (documentType === TIPOS_IDENTIFICACION.CEDULA_EC) {
+    if (!/^\d{10}$/.test(identification)) return 'La cédula ecuatoriana debe contener exactamente 10 dígitos.';
+    if (!esCedulaEcuatorianaValida_(identification)) {
+      return 'La cédula no supera la validación de estructura y dígito verificador; esto no confirma la identidad de la persona.';
+    }
+    return '';
+  }
+  if (documentType === TIPOS_IDENTIFICACION.RUC_EC) {
+    return /^\d{13}$/.test(identification)
+      ? ''
+      : 'El RUC ecuatoriano debe contener exactamente 13 dígitos. El formato no confirma su vigencia ni existencia.';
+  }
+  if (documentType === TIPOS_IDENTIFICACION.CONSUMIDOR_FINAL) {
+    if (!options.allowConsumerFinal) {
+      return 'Consumidor final solo es válido como tipo de identificación fiscal de facturación.';
+    }
+    return identification === '9999999999999'
+      ? ''
+      : 'Para consumidor final, la identificación SRI debe ser exactamente 9999999999999.';
+  }
+  if (![TIPOS_IDENTIFICACION.PASAPORTE, TIPOS_IDENTIFICACION.OTRO, TIPOS_IDENTIFICACION.NO_ESPECIFICADO].includes(documentType)) {
+    return 'Seleccione un tipo de identificación válido.';
+  }
+  if (documentType === TIPOS_IDENTIFICACION.NO_ESPECIFICADO && !options.allowUnspecified) {
+    return 'Seleccione el tipo de identificación.';
+  }
+  return /^[\p{L}\p{N}][\p{L}\p{N} .\/-]{0,63}$/u.test(identification)
+    ? ''
+    : 'El documento admite hasta 64 caracteres alfanuméricos, espacios, punto, guion o barra.';
+}
+
+function validarCapacitador_(data, options) {
+  options = options || {};
   const nombre = String(data.nombre || '').trim().replace(/\s+/g, ' ');
-  const identificacion = String(data.identificacion || '').trim();
+  const rawIdentification = data.identificacion === undefined ? '' : data.identificacion;
+  const identificacion = typeof rawIdentification === 'string' ? rawIdentification.trim() : rawIdentification;
+  const tipoIdentificacion = normalizarTipoIdentificacion_(data.tipoIdentificacion || data.TipoIdentificacion || '');
   const resumen = String(data.resumen || '').trim();
   if (nombre.length < 5 || nombre.length > 160) throw new Error('Ingrese el nombre completo del capacitador (5 a 160 caracteres).');
-  if (identificacion && !/^[A-Za-z0-9.-]{5,32}$/.test(identificacion)) throw new Error('La identificación del capacitador no tiene un formato válido.');
+  const identityError = validarIdentificacion_(tipoIdentificacion, identificacion, {
+    allowLegacyUnchanged: !!options.allowLegacyUnchanged,
+    legacyOriginal: options.legacyOriginal,
+    allowUnspecified: !!options.allowUnspecified,
+  });
+  if (identityError) throw new Error(identityError);
   if (resumen.length > 1000) throw new Error('El resumen profesional no puede superar 1000 caracteres.');
-  return { nombre: nombre, identificacion: identificacion, resumen: resumen };
+  return { nombre: nombre, identificacion: identificacion, tipoIdentificacion: tipoIdentificacion, resumen: resumen };
 }
 
 function getCapacitadores(user) {
@@ -1765,22 +2157,95 @@ function getCapacitadores(user) {
   return { success: true, data: sheetToObjects(getSheet('Capacitadores')) };
 }
 
+function getIdentityIntegrityReport(user) {
+  requireAdmin(user);
+  const definitions = [
+    { sheet: 'Capacitadores', field: 'Identificacion', typeField: 'TipoIdentificacion', label: 'Capacitadores' },
+    { sheet: 'Inscripciones', field: 'ClienteID', typeField: 'ClienteTipoIdentificacion', label: 'Participantes / clientes' },
+    { sheet: 'Inscripciones', field: 'RUC', typeField: 'TipoIdentificacionFactura', label: 'Identificación fiscal de facturación' },
+    { sheet: 'CertificadosProfesionales', field: 'Identificacion', typeField: 'TipoIdentificacion', label: 'Certificados de capacitadores' },
+    { sheet: 'Egresos', field: 'ProveedorIdentificacion', label: 'Proveedores' },
+    { sheet: 'FacturasFiscales', field: 'BuyerIdentification', typeField: 'BuyerIdentificationType', label: 'Facturación electrónica SRI' },
+  ];
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  const data = definitions.map(function(definition) {
+    const sheet = spreadsheet.getSheetByName(definition.sheet);
+    if (!sheet || sheet.getLastRow() < 2 || sheet.getLastColumn() < 1) {
+      return { modulo: definition.label, registros: 0, celdasNumericas: 0, posiblesCerosInicialesPerdidos: 0, cedulasNoValidas: 0, duplicadosTipados: 0 };
+    }
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0]
+      .map(function(header) { return String(header || '').trim(); });
+    const fieldIndex = headers.indexOf(definition.field);
+    const typeIndex = definition.typeField ? headers.indexOf(definition.typeField) : -1;
+    if (fieldIndex < 0) {
+      return { modulo: definition.label, registros: 0, celdasNumericas: 0, posiblesCerosInicialesPerdidos: 0, cedulasNoValidas: 0, duplicadosTipados: 0 };
+    }
+    const rowCount = sheet.getLastRow() - 1;
+    const identityValues = sheet.getRange(2, fieldIndex + 1, rowCount, 1).getValues();
+    const typeValues = typeIndex >= 0
+      ? sheet.getRange(2, typeIndex + 1, rowCount, 1).getValues()
+      : Array.from({ length: rowCount }, function() { return ['']; });
+    let registros = 0;
+    let celdasNumericas = 0;
+    let posiblesCerosInicialesPerdidos = 0;
+    let cedulasNoValidas = 0;
+    let duplicadosTipados = 0;
+    const seen = Object.create(null);
+    identityValues.forEach(function(row, index) {
+      const raw = row[0];
+      if (raw === '' || raw === null || raw === undefined) return;
+      registros += 1;
+      const value = typeof raw === 'string' ? raw.trim() : String(raw);
+      const documentType = typeIndex >= 0 ? normalizarTipoIdentificacion_(typeValues[index][0]) : '';
+      const tipoNoEspecificado = !documentType || documentType === TIPOS_IDENTIFICACION.NO_ESPECIFICADO;
+      if (typeof raw === 'number') celdasNumericas += 1;
+      // Es un indicio, no una reparación: Sheets puede haber descartado el cero
+      // antes de que Finance recibiera el valor. También se marcan cadenas cortas
+      // con longitud sospechosa para no perder el hallazgo si alguien abrió/guardó
+      // un legacy como texto sin completar ni validar el documento.
+      if ((documentType === TIPOS_IDENTIFICACION.CEDULA_EC && /^\d{9}$/.test(value))
+        || (tipoNoEspecificado && (/^\d{9}$/.test(value) || (definition.field === 'RUC' && /^\d{12}$/.test(value))))) {
+        posiblesCerosInicialesPerdidos += 1;
+      }
+      if (documentType === TIPOS_IDENTIFICACION.CEDULA_EC && !esCedulaEcuatorianaValida_(value)) cedulasNoValidas += 1;
+      if (documentType && value) {
+        const key = documentType + '|' + value.toUpperCase();
+        if (seen[key]) duplicadosTipados += 1;
+        seen[key] = true;
+      }
+    });
+    return { modulo: definition.label, registros: registros, celdasNumericas: celdasNumericas,
+      posiblesCerosInicialesPerdidos: posiblesCerosInicialesPerdidos, cedulasNoValidas: cedulasNoValidas,
+      duplicadosTipados: duplicadosTipados };
+  });
+  return { success: true, data: { soloLectura: true, generadoEn: new Date().toISOString(), modulos: data,
+    advertencia: 'Los conteos son diagnósticos, no demuestran pérdida ni pertenencia del documento. No se modificó ningún registro y no se reconstruyen ceros automáticamente.' } };
+}
+
 function addCapacitador(user, { capacitador } = {}) {
   requireAdmin(user);
   return conBloqueoCertificados(function() {
     const data = validarCapacitador_(capacitador || {});
     const sheet = getSheet('Capacitadores');
-    if (data.identificacion && sheetToObjects(sheet).some(function(item) { return item.Identificacion === data.identificacion; })) {
+    const identityKey = data.tipoIdentificacion + '|' + String(data.identificacion || '').trim().toUpperCase();
+    if (data.identificacion && sheetToObjects(sheet).some(function(item) {
+      return (normalizarTipoIdentificacion_(item.TipoIdentificacion) || TIPOS_IDENTIFICACION.NO_ESPECIFICADO)
+        + '|' + String(item.Identificacion || '').trim().toUpperCase() === identityKey;
+    })) {
       return { success: false, error: 'Ya existe un capacitador con esa identificación.' };
     }
     const now = new Date().toISOString();
     const id = generateId('CAP');
-    sheet.appendRow([id, data.nombre, data.identificacion, data.resumen, true, user.Username, now, user.Username, now]);
+    const rowNumber = appendObjectBySheetHeaders_(sheet, {
+      ID: id, Nombre: data.nombre, Identificacion: data.identificacion, Resumen: data.resumen,
+      Activo: true, CreadoPor: user.Username, CreadoEn: now, ActualizadoPor: user.Username,
+      ActualizadoEn: now, TipoIdentificacion: data.tipoIdentificacion,
+    });
     try {
       registrarAuditoriaCertificado({ certificadoId: '', inscripcionId: '', usuario: user.Username, rol: user.Rol,
         accion: 'TRAINER_PROFILE_CREATED', canal: 'panel', resultado: 'ok', metadatos: { capacitadorId: id } });
     } catch (error) {
-      sheet.deleteRow(sheet.getLastRow());
+      sheet.deleteRow(rowNumber);
       throw error;
     }
     return { success: true, id: id };
@@ -1797,17 +2262,31 @@ function updateCapacitador(user, { id, capacitador } = {}) {
     const data = validarCapacitador_({
       nombre: input.nombre === undefined ? row.Nombre : input.nombre,
       identificacion: input.identificacion === undefined ? row.Identificacion : input.identificacion,
+      tipoIdentificacion: input.tipoIdentificacion === undefined && input.TipoIdentificacion === undefined
+        ? (row.TipoIdentificacion || TIPOS_IDENTIFICACION.NO_ESPECIFICADO)
+        : (input.tipoIdentificacion || input.TipoIdentificacion),
       resumen: input.resumen === undefined ? row.Resumen : input.resumen,
+    }, {
+      allowLegacyUnchanged: !row.TipoIdentificacion
+        && String(input.identificacion === undefined ? row.Identificacion : input.identificacion) === String(row.Identificacion),
+      legacyOriginal: row.Identificacion,
+      allowUnspecified: !row.TipoIdentificacion,
     });
-    if (data.identificacion && sheetToObjects(sheet).some(function(item) { return item.ID !== id && item.Identificacion === data.identificacion; })) {
+    const identityKey = data.tipoIdentificacion + '|' + String(data.identificacion || '').trim().toUpperCase();
+    if (data.identificacion && sheetToObjects(sheet).some(function(item) {
+      return item.ID !== id
+        && (normalizarTipoIdentificacion_(item.TipoIdentificacion) || TIPOS_IDENTIFICACION.NO_ESPECIFICADO)
+          + '|' + String(item.Identificacion || '').trim().toUpperCase() === identityKey;
+    })) {
       return { success: false, error: 'Ya existe otro capacitador con esa identificación.' };
     }
-    const previous = { Nombre: row.Nombre, Identificacion: row.Identificacion, Resumen: row.Resumen,
+    const previous = { Nombre: row.Nombre, Identificacion: row.Identificacion, TipoIdentificacion: row.TipoIdentificacion, Resumen: row.Resumen,
       Activo: row.Activo, ActualizadoPor: row.ActualizadoPor, ActualizadoEn: row.ActualizadoEn };
     const serviceSheet = getSheet('Servicios');
     const linked = sheetToObjects(serviceSheet).filter(function(item) { return item.CapacitadorID === id; });
     try {
-      updateRow(sheet, row, { Nombre: data.nombre, Identificacion: data.identificacion, Resumen: data.resumen,
+      updateRow(sheet, row, { Nombre: data.nombre, Identificacion: data.identificacion,
+        TipoIdentificacion: data.tipoIdentificacion, Resumen: data.resumen,
         Activo: input.activo === undefined ? row.Activo : input.activo,
         ActualizadoPor: user.Username, ActualizadoEn: new Date().toISOString() });
       linked.forEach(function(item) { updateRow(serviceSheet, item, { Capacitador: data.nombre }); });
@@ -1852,6 +2331,10 @@ function preflightCertificadoCapacitador(user, { servicioId } = {}) {
   else if (!trainer) blockers.push('La ficha de capacitador vinculada no existe o está duplicada.');
   if (trainer && !esVerdadero(trainer.Activo)) blockers.push('La ficha del capacitador está inactiva.');
   if (trainer && !String(trainer.Identificacion || '').trim()) blockers.push('Falta la identificación del capacitador.');
+  if (trainer && trainer.Identificacion && trainer.TipoIdentificacion
+      && validarIdentificacion_(trainer.TipoIdentificacion, String(trainer.Identificacion), {})) {
+    blockers.push(validarIdentificacion_(trainer.TipoIdentificacion, String(trainer.Identificacion), {}));
+  }
   if (trainer && !String(trainer.Resumen || '').trim()) blockers.push('Falta el resumen profesional del capacitador.');
   if (trainer && String(service.Capacitador || '').trim() !== String(trainer.Nombre || '').trim()) {
     blockers.push('El nombre mostrado en el servicio no coincide con la ficha vinculada.');
@@ -1879,13 +2362,18 @@ function preflightCertificadoCapacitador(user, { servicioId } = {}) {
   return { success: true, data: {
     tipo: 'capacitador', servicioId: service.ID, capacitadorId: trainerId,
     nombre: trainer ? trainer.Nombre : '', identificacion: trainer ? trainer.Identificacion : '',
+    tipoIdentificacion: trainer ? (trainer.TipoIdentificacion || TIPOS_IDENTIFICACION.NO_ESPECIFICADO) : '',
     resumen: trainer ? trainer.Resumen : '', curso: service.Nombre || '',
     duracion: duration, modalidad: service.Modalidad || '', fechaInicio: start, fechaFin: end,
     datosCompletos: blockers.length === 0, bloqueosDatos: blockers,
     certificadoId: current ? current.ID : '', codigoCertificado: current ? current.CodigoCertificado : '',
     historial: previous.map(function(item) { return { id: item.ID, codigo: item.CodigoCertificado,
       version: Number(item.CertificateVersion) || 1, estado: estadoNormalizadoCertificado(item),
-      pdfArchivado: Boolean(item.PdfHash && item.PdfStorageReference) }; }),
+      fecha: item.IssuedAt || item.CertificatePreparedAt || '', actor: item.IssuedBy || '',
+      motivo: item.ReissueReason || item.VoidReason || '', plantilla: item.TemplateVersion || '',
+      snapshotVerificado: Boolean(leerSnapshotDocumentalCertificado_(item)),
+      pdfArchivado: Boolean(item.PdfHash && /^[a-f0-9]{64}$/i.test(String(item.PdfHash))
+        && String(item.PdfStorageReference || '').indexOf('certificate-drive:') === 0) }; }),
     emisionHabilitada: blockers.length === 0 && templateReady && previous.length === 0,
     bloqueoEmision: previous.length && !current ? 'Ya existe una versión histórica; utilice reemisión en vez de crear otro certificado.'
       : templateReady ? (blockers.length ? 'Complete las condiciones del evento.' : '')
@@ -1905,12 +2393,16 @@ function buscarCertificadoProfesional_(identifier) {
 function certificadoProfesionalParaCliente_(row) {
   return {
     ID: row.ID, CertificatePublicId: row.ID, CertificateSubject: 'professional', ProfessionalRole: row.Rol,
-    ClienteNombre: row.Nombre, ClienteID: row.Identificacion, ServicioNombre: row.ServicioNombre,
+    ClienteNombre: row.Nombre, ClienteID: row.Identificacion, ClienteTipoIdentificacion: row.TipoIdentificacion || TIPOS_IDENTIFICACION.NO_ESPECIFICADO,
+    ServicioNombre: row.ServicioNombre,
     Duracion: row.Duracion, Modalidad: row.Modalidad, FechaInicio: row.FechaInicio, FechaFin: row.FechaFin,
     CodigoCertificado: row.CodigoCertificado, CertificateVersion: Number(row.CertificateVersion) || 1,
     TemplateVersion: row.TemplateVersion, CertificateStatus: row.CertificateStatus,
     EstadoCertificado: row.CertificateStatus, FechaEmisionCertificado: row.IssuedAt,
     PdfHash: row.PdfHash || '', PdfStorageReference: row.PdfStorageReference || '',
+    IssuedBy: row.IssuedBy || '', ReissueReason: row.ReissueReason || '',
+    OriginalCertificateId: row.OriginalCertificateId || '', ReplacesCertificateId: row.ReplacesCertificateId || '',
+    ReissuedCertificateId: row.ReissuedCertificateId || '', CertificatePreparedAt: row.CertificatePreparedAt || '',
   };
 }
 
@@ -1926,24 +2418,32 @@ function emitirCertificadoCapacitador(user, { servicioId } = {}) {
     }
     if (!info.emisionHabilitada) return { success: false, error: info.bloqueosDatos.concat(info.bloqueoEmision).filter(Boolean).join(' ') };
     const templateVersion = plantillaActivaCertificado_();
-    if (templateVersion !== CERTIFICATE_SECURITY_TEMPLATE_VERSION) return { success: false, error: 'La plantilla profesional todavía no está activa.' };
+    if ([CERTIFICATE_SECURITY_TEMPLATE_VERSION, CERTIFICATE_SECURITY_TEMPLATE_V3_VERSION].indexOf(templateVersion) === -1) return { success: false, error: 'La plantilla profesional todavía no está activa.' };
     const id = generateId('CPR');
     const now = new Date().toISOString();
     const code = generarCodigoCertificadoUnico({ ID: id, FechaEmisionCertificado: now }, id, '');
     const sheet = getSheet('CertificadosProfesionales');
     const record = {
       ID: id, CapacitadorID: info.capacitadorId, ServicioID: info.servicioId, Rol: 'capacitador',
-      Nombre: info.nombre, Identificacion: info.identificacion, Resumen: info.resumen,
+      Nombre: info.nombre, Identificacion: info.identificacion, TipoIdentificacion: info.tipoIdentificacion, Resumen: info.resumen,
       ServicioNombre: info.curso, Duracion: info.duracion, Modalidad: info.modalidad,
       FechaInicio: info.fechaInicio, FechaFin: info.fechaFin, Lugar: '',
       CodigoCertificado: code, CertificateVersion: 1, TemplateVersion: templateVersion,
       CertificateStatus: 'emitido', IssuedAt: now, IssuedBy: user.Username, CreatedAt: now,
     };
-    sheet.appendRow(SHEET_HEADERS.CertificadosProfesionales.map(function(header) { return record[header] === undefined ? '' : record[header]; }));
+    Object.assign(record, snapshotDocumentalCertificado_('profesional', {
+      Nombre: record.Nombre, Identificacion: record.Identificacion, TipoIdentificacion: record.TipoIdentificacion,
+      Resumen: record.Resumen, ServicioNombre: record.ServicioNombre, Duracion: record.Duracion,
+      Modalidad: record.Modalidad, FechaInicio: record.FechaInicio, FechaFin: record.FechaFin,
+      CodigoCertificado: record.CodigoCertificado, CertificateVersion: record.CertificateVersion,
+      TemplateVersion: record.TemplateVersion, IssuedAt: now, IssuedBy: user.Username,
+      SignatureHashes: huellasFirmasOficialesCertificado_(),
+    }));
+    const certificateRowNumber = appendObjectBySheetHeaders_(sheet, record);
     try {
       registrarAuditoriaCertificado({ certificadoId: code, inscripcionId: '', usuario: user.Username, rol: user.Rol,
         accion: 'TRAINER_CERTIFICATE_ISSUED', canal: 'panel', resultado: 'ok', metadatos: { certificateId: id, servicioId: info.servicioId, capacitadorId: info.capacitadorId } });
-    } catch (error) { sheet.deleteRow(sheet.getLastRow()); throw error; }
+    } catch (error) { sheet.deleteRow(certificateRowNumber); throw error; }
     return { success: true, data: certificadoProfesionalParaCliente_(buscarCertificadoProfesional_(id)) };
   });
 }
@@ -1951,8 +2451,12 @@ function emitirCertificadoCapacitador(user, { servicioId } = {}) {
 function getCertificadoCapacitadorParaDescarga(user, { id } = {}) {
   requireCertificateAdmin(user, 'TRAINER_CERTIFICATE_DOWNLOAD', { canal: 'api' });
   const row = buscarCertificadoProfesional_(String(id || ''));
-  if (!row || ['emitido', 'enviado'].indexOf(estadoNormalizadoCertificado(row)) === -1) {
-    return { success: false, error: 'No existe un certificado profesional vigente con ese identificador.' };
+  const status = estadoNormalizadoCertificado(row || {});
+  if (!row || ['emitido', 'enviado', 'reemitido', 'anulado'].indexOf(status) === -1) {
+    return { success: false, error: 'No existe una versión de certificado profesional descargable con ese identificador.' };
+  }
+  if (!String(row.PdfStorageReference || '').startsWith('certificate-drive:') || !/^[a-f0-9]{64}$/i.test(String(row.PdfHash || ''))) {
+    return { success: false, error: 'Esta versión no tiene un PDF histórico íntegro archivado; no se regeneró con la plantilla actual.' };
   }
   return { success: true, data: certificadoProfesionalParaCliente_(row) };
 }
@@ -1983,27 +2487,62 @@ function reemitirCertificadoCapacitador(user, { id, motivo, confirmacion } = {})
   return conBloqueoCertificados(function() {
     const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('CertificadosProfesionales');
     const original = buscarCertificadoProfesional_(String(id || ''));
-    if (!sheet || !original || ['emitido', 'anulado'].indexOf(estadoNormalizadoCertificado(original)) === -1) {
+    if (!sheet || !original) {
       return { success: false, error: 'La versión profesional no se puede reemitir.' };
     }
+    const allVersions = sheetToObjects(sheet).filter(function(item) {
+      return item.CapacitadorID === original.CapacitadorID && item.ServicioID === original.ServicioID && item.Rol === original.Rol;
+    });
+    const pending = allVersions.find(function(item) {
+      return item.ReplacesCertificateId === original.ID && estadoNormalizadoCertificado(item) === 'pendiente_pdf';
+    });
+    if (pending) {
+      if (String(pending.ReissueReason || '') !== String(motivo).trim()) {
+        return { success: false, error: 'Ya existe una reemisión pendiente. Reintente con el mismo motivo para completar esa versión.' };
+      }
+      return { success: true, alreadyPrepared: true, data: certificadoProfesionalParaCliente_(pending) };
+    }
+    if (['emitido', 'enviado', 'anulado'].indexOf(estadoNormalizadoCertificado(original)) === -1) {
+      return { success: false, error: 'Solo una versión vigente o anulada puede reemitirse.' };
+    }
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const trainers = sheetToObjects(ss.getSheetByName('Capacitadores')).filter(function(item) { return item.ID === original.CapacitadorID; });
+    const services = sheetToObjects(ss.getSheetByName('Servicios')).filter(function(item) { return item.ID === original.ServicioID; });
+    if (trainers.length !== 1 || services.length !== 1 || String(services[0].CapacitadorID || '') !== String(trainers[0].ID || '')) {
+      return { success: false, error: 'No se pudo vincular de forma inequívoca la ficha vigente del capacitador y el servicio.' };
+    }
+    const trainer = trainers[0];
+    const service = services[0];
     const newId = generateId('CPR');
     const now = new Date().toISOString();
+    const version = allVersions.reduce(function(max, item) { return Math.max(max, Number(item.CertificateVersion) || 1); }, 0) + 1;
+    const code = generarCodigoCertificadoUnico({ ID: newId, FechaEmisionCertificado: now }, newId, '');
     const next = Object.assign({}, original, {
-      ID: newId, CodigoCertificado: generarCodigoCertificadoUnico({ ID: newId, FechaEmisionCertificado: now }, newId, ''),
-      CertificateVersion: (Number(original.CertificateVersion) || 1) + 1, TemplateVersion: plantillaActivaCertificado_(),
+      ID: newId, CodigoCertificado: code,
+      Nombre: trainer.Nombre, Identificacion: trainer.Identificacion, TipoIdentificacion: trainer.TipoIdentificacion || TIPOS_IDENTIFICACION.NO_ESPECIFICADO,
+      Resumen: trainer.Resumen, ServicioNombre: service.Nombre, Duracion: service.Duracion,
+      Modalidad: service.Modalidad || '', FechaInicio: fechaSolo(service.FechaEvento), FechaFin: fechaSolo(service.FechaFinEvento || service.FechaEvento),
+      CertificateVersion: version, TemplateVersion: plantillaActivaCertificado_(),
       PdfHash: '', PdfStorageReference: '', OriginalCertificateId: original.OriginalCertificateId || original.ID,
-      ReissuedCertificateId: '', CertificateStatus: 'emitido', IssuedAt: now, IssuedBy: user.Username,
+      ReplacesCertificateId: original.ID, ReissuedCertificateId: '', CertificateStatus: 'pendiente_pdf',
+      CertificatePreparedAt: now, IssuedAt: '', IssuedBy: user.Username,
       VoidedAt: '', VoidedBy: '', VoidReason: '', ReissueReason: String(motivo).trim(), CreatedAt: now,
     });
-    sheet.appendRow(SHEET_HEADERS.CertificadosProfesionales.map(function(header) { return next[header] === undefined ? '' : next[header]; }));
+    Object.assign(next, snapshotDocumentalCertificado_('profesional', {
+      Nombre: next.Nombre, Identificacion: next.Identificacion, TipoIdentificacion: next.TipoIdentificacion,
+      Resumen: next.Resumen, ServicioNombre: next.ServicioNombre, Duracion: next.Duracion,
+      Modalidad: next.Modalidad, FechaInicio: next.FechaInicio, FechaFin: next.FechaFin,
+      CodigoCertificado: next.CodigoCertificado, CertificateVersion: next.CertificateVersion,
+      TemplateVersion: next.TemplateVersion, IssuedAt: next.CertificatePreparedAt, IssuedBy: user.Username,
+      SignatureHashes: huellasFirmasOficialesCertificado_(),
+    }));
+    const certificateRowNumber = appendObjectBySheetHeaders_(sheet, next);
     try {
-      updateRow(sheet, original, { CertificateStatus: 'reemitido', ReissuedCertificateId: newId, ReissueReason: String(motivo).trim() });
       registrarAuditoriaCertificado({ certificadoId: next.CodigoCertificado, inscripcionId: '', usuario: user.Username, rol: user.Rol,
-        accion: 'TRAINER_CERTIFICATE_REISSUED', estadoAnterior: original.CertificateStatus, estadoNuevo: 'reemitido', canal: 'panel', resultado: 'ok', motivo: String(motivo).trim(),
-        metadatos: { originalCertificateId: original.ID, newCertificateId: newId } });
+        accion: 'TRAINER_CERTIFICATE_REISSUE_STARTED', estadoAnterior: original.CertificateStatus, estadoNuevo: 'pendiente_pdf', canal: 'panel', resultado: 'pendiente', motivo: String(motivo).trim(),
+        metadatos: { originalCertificateId: original.ID, newCertificateId: newId, version: version, templateVersion: next.TemplateVersion } });
     } catch (error) {
-      updateRow(sheet, original, { CertificateStatus: original.CertificateStatus, ReissuedCertificateId: original.ReissuedCertificateId, ReissueReason: original.ReissueReason });
-      sheet.deleteRow(sheet.getLastRow());
+      sheet.deleteRow(certificateRowNumber);
       throw error;
     }
     return { success: true, data: certificadoProfesionalParaCliente_(buscarCertificadoProfesional_(newId)) };
@@ -2240,6 +2779,40 @@ function validarDatosInscripcion(inscripcion, options) {
   if (!inscripcion) return 'Los datos de la inscripción son obligatorios.';
   if (!inscripcion.servicioId && !inscripcion.servicioNombre) return 'Seleccione un servicio.';
   if (!String(inscripcion.clienteNombre || '').trim()) return 'Ingrese el nombre del participante.';
+  const identityError = validarIdentificacion_(inscripcion.clienteTipoIdentificacion, inscripcion.clienteID, {
+    allowLegacyUnchanged: !!options.allowLegacyIdentityUnchanged,
+    legacyOriginal: options.legacyIdentityOriginal,
+    allowUnspecified: !!options.allowUnspecifiedIdentity,
+  });
+  if (identityError) return identityError;
+  const rawTaxIdentity = inscripcion.ruc;
+  const unchangedLegacyTaxIdentity = options.allowLegacyTaxIdentityUnchanged
+    && String(rawTaxIdentity === undefined || rawTaxIdentity === null ? '' : rawTaxIdentity)
+      === String(options.legacyTaxIdentityOriginal === undefined || options.legacyTaxIdentityOriginal === null ? '' : options.legacyTaxIdentityOriginal);
+  if (rawTaxIdentity !== undefined && rawTaxIdentity !== null && rawTaxIdentity !== ''
+      && typeof rawTaxIdentity !== 'string' && !unchangedLegacyTaxIdentity) {
+    return 'La identificación fiscal debe enviarse como texto para preservar sus ceros iniciales.';
+  }
+  if (rawTaxIdentity !== undefined && rawTaxIdentity !== null && String(rawTaxIdentity).trim()) {
+    const sameAsParticipant = typeof inscripcion.clienteID === 'string'
+      && String(rawTaxIdentity).trim() === inscripcion.clienteID.trim();
+    const billingType = normalizarTipoIdentificacion_(inscripcion.tipoIdentificacionFactura)
+      || (sameAsParticipant ? normalizarTipoIdentificacion_(inscripcion.clienteTipoIdentificacion) : '');
+    const unchangedLegacyBillingType = options.allowLegacyBillingTypeUnchanged
+      && unchangedLegacyTaxIdentity
+      && (!billingType || billingType === TIPOS_IDENTIFICACION.NO_ESPECIFICADO);
+    if (!billingType && !unchangedLegacyBillingType) {
+      return 'Seleccione el tipo de identificación fiscal para los datos de facturación.';
+    }
+    if (!unchangedLegacyBillingType) {
+      const billingIdentityError = validarIdentificacion_(billingType, rawTaxIdentity, {
+        allowConsumerFinal: true,
+        allowLegacyUnchanged: unchangedLegacyTaxIdentity && billingType === TIPOS_IDENTIFICACION.NO_ESPECIFICADO,
+        legacyOriginal: options.legacyTaxIdentityOriginal,
+      });
+      if (billingIdentityError) return 'Identificación fiscal: ' + billingIdentityError;
+    }
+  }
   const monto = Number(inscripcion.monto);
   if (String(inscripcion.monto === undefined ? '' : inscripcion.monto).trim() === '' || !isFinite(monto) || monto < 0) return 'Ingrese un monto válido.';
   if (!options.permitirMetodoPagoPendiente && !String(inscripcion.metodoPago || '').trim()) return 'Seleccione el método de pago.';
@@ -2368,6 +2941,10 @@ function getInscripciones(user, { filtros = {} } = {}) {
   if (hasta) data = data.filter(i => new Date(i.FechaCreacion).getTime() <= hasta.getTime());
   data.sort(function(a, b) { return new Date(b.FechaCreacion || 0) - new Date(a.FechaCreacion || 0); });
   const duracionDe = mapaDuracionServicios();
+  const agreements = sheetToObjects(getSheet('Convenios'));
+  const services = sheetToObjects(getSheet('Servicios'));
+  const agreementById = {};
+  agreements.forEach(function(item) { agreementById[String(item.ID || '')] = item; });
   const usuarios = mapaUsuariosPorUsername();
   // Default seguro para la vista administrativa productiva: si no se pide
   // explícitamente 'test', el estado fiscal mostrado en Inscripciones es SIEMPRE de
@@ -2584,9 +3161,18 @@ function importCrmEnrollment(user, { idempotencyKey, inscripcion } = {}) {
       return { success: false, error: 'El correo del participante no es válido.' };
     }
     const participantPhone = String(valorCrmPreferido(participant.phone, inscripcion.clienteTelefono) || '').trim();
-    const identification = participant.identification === null
-      ? ''
-      : String(valorCrmPreferido(participant.identification, inscripcion.clienteID) || '').trim();
+    const rawIdentification = valorCrmPreferido(participant.identification, inscripcion.clienteID);
+    const rawIdentificationType = valorCrmPreferido(
+      participant.identificationType,
+      valorCrmPreferido(participant.identification_type,
+        valorCrmPreferido(inscripcion.identificationType, inscripcion.clienteTipoIdentificacion)),
+    );
+    const identificationType = rawIdentificationType === undefined || rawIdentificationType === null || rawIdentificationType === ''
+      ? TIPOS_IDENTIFICACION.NO_ESPECIFICADO
+      : normalizarTipoIdentificacion_(rawIdentificationType);
+    const identificationError = validarIdentificacion_(identificationType, rawIdentification, { allowUnspecified: true });
+    if (identificationError) return { success: false, error: 'La identificación enviada por CRM no es válida: ' + identificationError };
+    const identification = rawIdentification === undefined || rawIdentification === null ? '' : String(rawIdentification).trim();
     const requestedServiceId = String(valorCrmPreferido(inscripcion.financeServiceId, inscripcion.serviceId) || '').trim();
     const requestedCourse = valorCrmPreferido(inscripcion.courseTitle, inscripcion.servicioNombre);
     const service = requestedServiceId
@@ -2622,6 +3208,7 @@ function importCrmEnrollment(user, { idempotencyKey, inscripcion } = {}) {
       ID: id,
       ClienteNombre: participantName,
       ClienteID: identification,
+      ClienteTipoIdentificacion: identificationType,
       ClienteEmail: participantEmail,
       ClienteTelefono: participantPhone,
       ServicioID: service.ID,
@@ -2633,6 +3220,7 @@ function importCrmEnrollment(user, { idempotencyKey, inscripcion } = {}) {
       MetodoPago: '',
       RazonSocial: '',
       RUC: '',
+      TipoIdentificacionFactura: '',
       DireccionFactura: '',
       EstadoPago: 'pendiente',
       EstadoCertificado: 'pendiente',
@@ -2711,7 +3299,38 @@ function addInscripcion(user, params) {
   if (esSolicitudImportacionCrm(params)) return importCrmEnrollment(user, params);
   const inscripcion = params && params.inscripcion;
   if (!isVendedor(user)) throw new Error('Acceso denegado.');
-  const validationError = validarDatosInscripcion(inscripcion);
+  const requiereAval = !!(inscripcion && inscripcion.requiereAvalExterno);
+  let institucionAval = '';
+  let institucionAvalId = '';
+  let convenioAvalId = '';
+  let servicioAval = null;
+  if (requiereAval) {
+    institucionAvalId = String(inscripcion.institucionAvalId || '').trim();
+    if (!institucionAvalId) return { success: false, error: 'Seleccione una institución de la ficha maestra para el aval.' };
+    if (isAval(user) && !isAdmin(user)) {
+      const assignedInstitutionId = institucionAvalIdDelUsuario_(user);
+      if (!assignedInstitutionId || assignedInstitutionId !== institucionAvalId) {
+        return { success: false, error: 'Su usuario institucional solo puede registrar avales para la institución que tiene asignada.' };
+      }
+    }
+    const institutionResult = resolverInstitucionMaestra_(institucionAvalId, { permitirInactiva: false });
+    if (!institutionResult.success) return institutionResult;
+    institucionAval = institutionResult.data.Nombre;
+    convenioAvalId = String(inscripcion.convenioId || '').trim();
+    const agreementResult = resolverConvenioEconomicoAval_(convenioAvalId, institucionAvalId);
+    if (!agreementResult.success) return agreementResult;
+    const serviceId = String(inscripcion.servicioId || '').trim();
+    servicioAval = serviceId && sheetToObjects(getSheet('Servicios')).find(function(item) { return String(item.ID || '') === serviceId; });
+    if (!servicioAval || !esVerdadero(servicioAval.Activo)) {
+      return { success: false, error: 'Seleccione un servicio activo de la lista para registrar un aval institucional.' };
+    }
+    if (String(inscripcion.servicioNombre || '').trim() !== String(servicioAval.Nombre || '').trim()) {
+      return { success: false, error: 'El nombre del servicio no coincide con el servicio seleccionado. Vuelva a seleccionarlo.' };
+    }
+  }
+  const validationError = validarDatosInscripcion(requiereAval
+    ? Object.assign({}, inscripcion, { institucionAval: institucionAval })
+    : inscripcion);
   if (validationError) return { success: false, error: validationError };
   const sheet    = getSheet('Inscripciones');
   const id       = generateId('INS');
@@ -2719,25 +3338,29 @@ function addInscripcion(user, params) {
   const estadosPago = ['pendiente', 'pagado', 'verificado', 'cancelado'];
   const estadoSolicitado = estadosPago.indexOf(inscripcion.estadoPago) > -1 ? inscripcion.estadoPago : 'pendiente';
   const estadoPago = isAdmin(user) ? estadoSolicitado : 'pendiente';
-  const requiereAval = !!inscripcion.requiereAvalExterno;
   const numeroComprobante = String(inscripcion.numeroComprobante || '').trim();
   const fechaPago = fechaSolo(inscripcion.fechaPago);
 
   appendInscripcionPorEncabezados(sheet, {
     ID: id,
     ClienteNombre: inscripcion.clienteNombre,
-    ClienteID: inscripcion.clienteID || '',
+    ClienteID: typeof inscripcion.clienteID === 'string' ? inscripcion.clienteID.trim() : (inscripcion.clienteID || ''),
+    ClienteTipoIdentificacion: normalizarTipoIdentificacion_(inscripcion.clienteTipoIdentificacion || '') || '',
     ClienteEmail: inscripcion.clienteEmail || '',
     ClienteTelefono: inscripcion.clienteTelefono || '',
-    ServicioID: inscripcion.servicioId || '',
-    ServicioNombre: inscripcion.servicioNombre,
+    ServicioID: servicioAval ? servicioAval.ID : (inscripcion.servicioId || ''),
+    ServicioNombre: servicioAval ? servicioAval.Nombre : inscripcion.servicioNombre,
     Modalidad: inscripcion.modalidad || 'N/A',
     FechaInicio: fechaSolo(inscripcion.fechaInicio),
     FechaFin: fechaSolo(inscripcion.fechaFin),
     Monto: Number(inscripcion.monto) || 0,
     MetodoPago: inscripcion.metodoPago || '',
     RazonSocial: inscripcion.razonSocial || '',
-    RUC: inscripcion.ruc || '',
+    RUC: typeof inscripcion.ruc === 'string' ? inscripcion.ruc.trim() : (inscripcion.ruc || ''),
+    TipoIdentificacionFactura: normalizarTipoIdentificacion_(inscripcion.tipoIdentificacionFactura)
+      || (String(inscripcion.ruc || '').trim()
+        && String(inscripcion.ruc).trim() === String(inscripcion.clienteID || '').trim()
+        ? normalizarTipoIdentificacion_(inscripcion.clienteTipoIdentificacion) : ''),
     DireccionFactura: inscripcion.direccionFactura || '',
     EstadoPago: estadoPago,
     EstadoCertificado: 'pendiente',
@@ -2755,7 +3378,9 @@ function addInscripcion(user, params) {
     FechaPago: fechaPago,
     FechaVerificacionPago: estadoPago === 'verificado' ? now : '',
     VerificadoPor: estadoPago === 'verificado' ? user.Username : '',
-    InstitucionAval: requiereAval ? String(inscripcion.institucionAval || '').trim() : '',
+    InstitucionAval: requiereAval ? institucionAval : '',
+    InstitucionID: requiereAval ? institucionAvalId : '',
+    ConvenioID: requiereAval ? convenioAvalId : '',
     CodigoCertificado: '',
     EmitidoPor: '',
     EstadoEntrega: 'pendiente',
@@ -2883,9 +3508,83 @@ function updateInscripcionBajoBloqueo(user, { id, historicalKey, inscripcion } =
     return { success: false, error: 'No se pueden limpiar las fechas obligatorias de un certificado emitido.' };
   }
 
+  const requiereAval = tienePropiedad(inscripcion, 'requiereAvalExterno')
+    ? !!inscripcion.requiereAvalExterno
+    : esVerdadero(row.RequiereAvalExterno);
+  let institucionAval = requiereAval ? String(row.InstitucionAval || '').trim() : '';
+  let institucionAvalId = requiereAval ? String(row.InstitucionID || '').trim() : '';
+  const nombreInstitucionSolicitado = String(inscripcion.institucionAval || '').trim();
+  const nombreInstitucionCambioSinId = requiereAval && tienePropiedad(inscripcion, 'institucionAval')
+    && nombreInstitucionSolicitado !== String(row.InstitucionAval || '').trim()
+    && !(tienePropiedad(inscripcion, 'institucionAvalId') && String(inscripcion.institucionAvalId || '').trim());
+  if (nombreInstitucionCambioSinId) {
+    const crmLegacySnapshot = String(row.Origen || '').trim().toUpperCase() === 'CRM' && !row.InstitucionID;
+    if (!crmLegacySnapshot) {
+      return { success: false, error: 'Seleccione una institución de la ficha maestra; no se puede cambiar solo el nombre.' };
+    }
+    // Compatibilidad con el endpoint comercial previo: el CRM aún envía un
+    // snapshot textual y no recibe IDs internos de Finance. No se autoenlaza.
+    institucionAval = nombreInstitucionSolicitado;
+  }
+  if (requiereAval && tienePropiedad(inscripcion, 'institucionAvalId')) {
+    const requestedId = String(inscripcion.institucionAvalId || '').trim();
+    if (requestedId) {
+      const institutionResult = resolverInstitucionMaestra_(requestedId, {
+        permitirInactiva: requestedId === String(row.InstitucionID || '').trim(),
+      });
+      if (!institutionResult.success) return institutionResult;
+      institucionAvalId = requestedId;
+      institucionAval = requestedId === String(row.InstitucionID || '').trim()
+        ? String(row.InstitucionAval || institutionResult.data.Nombre).trim()
+        : institutionResult.data.Nombre;
+    } else if (row.InstitucionID) {
+      // Mantener la relación existente si el formulario no cambia la institución.
+      institucionAvalId = String(row.InstitucionID).trim();
+      institucionAval = String(row.InstitucionAval || '').trim();
+    } else if (String(inscripcion.institucionAval || '').trim() !== String(row.InstitucionAval || '').trim()
+        && String(row.Origen || '').trim().toUpperCase() !== 'CRM') {
+      return { success: false, error: 'Seleccione una institución de la ficha maestra; no se puede cambiar solo el nombre.' };
+    }
+  }
+  if (requiereAval && !institucionAval && !institucionAvalId) {
+    return { success: false, error: 'Seleccione una institución de la ficha maestra para el aval.' };
+  }
+  if (requiereAval && isAval(user) && !isAdmin(user)) {
+    const assignedInstitutionId = institucionAvalIdDelUsuario_(user);
+    if (!assignedInstitutionId || assignedInstitutionId !== institucionAvalId) {
+      return { success: false, error: 'Su usuario institucional solo puede gestionar avales de la institución que tiene asignada.' };
+    }
+  }
+  const convenioAvalId = requiereAval
+    ? String(tienePropiedad(inscripcion, 'convenioId') ? inscripcion.convenioId || '' : row.ConvenioID || '').trim()
+    : '';
+  const convenioCambioSolicitado = requiereAval && tienePropiedad(inscripcion, 'convenioId')
+    && convenioAvalId !== String(row.ConvenioID || '').trim();
+  const institucionCambioSolicitado = requiereAval && institucionAvalId
+    && institucionAvalId !== String(row.InstitucionID || '').trim();
+  if (requiereAval && convenioAvalId && (convenioCambioSolicitado || institucionCambioSolicitado)) {
+    const agreementResult = resolverConvenioEconomicoAval_(convenioAvalId, institucionAvalId);
+    if (!agreementResult.success) return agreementResult;
+  }
+  if (requiereAval && !convenioAvalId && (convenioCambioSolicitado || institucionCambioSolicitado)) {
+    return { success: false, error: 'Seleccione un convenio vigente asociado a la institución para el aval.' };
+  }
   const merged = {
     clienteNombre: tienePropiedad(inscripcion, 'clienteNombre') ? inscripcion.clienteNombre : row.ClienteNombre,
     clienteID: tienePropiedad(inscripcion, 'clienteID') ? inscripcion.clienteID : row.ClienteID,
+    clienteTipoIdentificacion: tienePropiedad(inscripcion, 'clienteTipoIdentificacion')
+      ? inscripcion.clienteTipoIdentificacion
+      : (row.ClienteTipoIdentificacion || TIPOS_IDENTIFICACION.NO_ESPECIFICADO),
+    ruc: tienePropiedad(inscripcion, 'ruc') ? inscripcion.ruc : row.RUC,
+    tipoIdentificacionFactura: tienePropiedad(inscripcion, 'tipoIdentificacionFactura')
+      ? inscripcion.tipoIdentificacionFactura
+      : (row.TipoIdentificacionFactura || (
+        String(row.RUC === undefined || row.RUC === null ? '' : row.RUC).trim()
+          && String(row.RUC === undefined || row.RUC === null ? '' : row.RUC).trim()
+            === String(row.ClienteID === undefined || row.ClienteID === null ? '' : row.ClienteID).trim()
+          ? (row.ClienteTipoIdentificacion || TIPOS_IDENTIFICACION.NO_ESPECIFICADO)
+          : TIPOS_IDENTIFICACION.NO_ESPECIFICADO
+      )),
     clienteEmail: tienePropiedad(inscripcion, 'clienteEmail') ? inscripcion.clienteEmail : row.ClienteEmail,
     clienteTelefono: tienePropiedad(inscripcion, 'clienteTelefono') ? inscripcion.clienteTelefono : row.ClienteTelefono,
     servicioId: tienePropiedad(inscripcion, 'servicioId') ? inscripcion.servicioId : row.ServicioID,
@@ -2897,27 +3596,61 @@ function updateInscripcionBajoBloqueo(user, { id, historicalKey, inscripcion } =
     metodoPago: tienePropiedad(inscripcion, 'metodoPago') ? inscripcion.metodoPago : row.MetodoPago,
     numeroComprobante: tienePropiedad(inscripcion, 'numeroComprobante') ? inscripcion.numeroComprobante : row.NumeroComprobante,
     fechaPago: tienePropiedad(inscripcion, 'fechaPago') ? inscripcion.fechaPago : row.FechaPago,
-    requiereAvalExterno: tienePropiedad(inscripcion, 'requiereAvalExterno')
-      ? inscripcion.requiereAvalExterno : esVerdadero(row.RequiereAvalExterno),
-    institucionAval: tienePropiedad(inscripcion, 'institucionAval') ? inscripcion.institucionAval : row.InstitucionAval,
+    requiereAvalExterno: requiereAval,
+    institucionAval: institucionAval,
+    institucionAvalId: institucionAvalId,
+    convenioId: convenioAvalId,
   };
+  if (requiereAval && (tienePropiedad(inscripcion, 'servicioId') || tienePropiedad(inscripcion, 'servicioNombre'))) {
+    const selectedServiceId = String(merged.servicioId || '').trim();
+    if (selectedServiceId) {
+      const selectedService = sheetToObjects(getSheet('Servicios')).find(function(item) { return String(item.ID || '') === selectedServiceId; });
+      if (!selectedService) return { success: false, error: 'El servicio seleccionado ya no existe. Elija un servicio válido.' };
+      const serviceChanged = selectedServiceId !== String(row.ServicioID || '').trim();
+      if (serviceChanged && !esVerdadero(selectedService.Activo)) {
+        return { success: false, error: 'No se puede asociar un aval nuevo a un servicio inactivo.' };
+      }
+      if (String(merged.servicioNombre || '').trim() !== String(selectedService.Nombre || '').trim()) {
+        return { success: false, error: 'El nombre del servicio no coincide con el servicio seleccionado. Vuelva a seleccionarlo.' };
+      }
+    } else if (tienePropiedad(inscripcion, 'servicioId') && String(inscripcion.servicioId || '').trim() !== String(row.ServicioID || '').trim()) {
+      return { success: false, error: 'Seleccione un servicio válido de la lista para cambiar el servicio asociado al aval.' };
+    }
+  }
   const validationError = validarDatosInscripcion(merged, {
     permitirMetodoPagoPendiente: String(row.Origen || '').trim().toUpperCase() === 'CRM'
       && String(row.EstadoPago || '').trim() !== 'verificado'
       && !String(merged.metodoPago || '').trim(),
+    allowLegacyIdentityUnchanged: !row.ClienteTipoIdentificacion
+      && normalizarTipoIdentificacion_(merged.clienteTipoIdentificacion) === TIPOS_IDENTIFICACION.NO_ESPECIFICADO
+      && String(merged.clienteID === undefined || merged.clienteID === null ? '' : merged.clienteID) === String(row.ClienteID === undefined || row.ClienteID === null ? '' : row.ClienteID),
+    legacyIdentityOriginal: row.ClienteID,
+    allowUnspecifiedIdentity: String(row.Origen || '').trim().toUpperCase() === 'CRM' && !row.ClienteTipoIdentificacion,
+    allowLegacyTaxIdentityUnchanged: String(merged.ruc === undefined || merged.ruc === null ? '' : merged.ruc)
+      === String(row.RUC === undefined || row.RUC === null ? '' : row.RUC),
+    legacyTaxIdentityOriginal: row.RUC,
+    allowLegacyBillingTypeUnchanged: !row.TipoIdentificacionFactura
+      && String(merged.ruc === undefined || merged.ruc === null ? '' : merged.ruc)
+        === String(row.RUC === undefined || row.RUC === null ? '' : row.RUC),
   });
   if (validationError) return { success: false, error: validationError };
 
-  const requiereAval = tienePropiedad(inscripcion, 'requiereAvalExterno')
-    ? !!inscripcion.requiereAvalExterno
-    : esVerdadero(row.RequiereAvalExterno);
-  const institucionAval = requiereAval
-    ? String(tienePropiedad(inscripcion, 'institucionAval') ? inscripcion.institucionAval : (row.InstitucionAval || '')).trim()
-    : '';
   const cambiaConfiguracionAval = requiereAval !== esVerdadero(row.RequiereAvalExterno)
-    || (requiereAval && !mismaInstitucionAval(institucionAval, row.InstitucionAval));
+    || (requiereAval && (!mismaInstitucionAval(institucionAval, row.InstitucionAval)
+      || String(institucionAvalId || '') !== String(row.InstitucionID || '')
+      || String(convenioAvalId || '') !== String(row.ConvenioID || '')));
   if (['emitido','enviado'].indexOf(estadoCertificado) !== -1 && cambiaConfiguracionAval) {
     return { success: false, error: 'No puede cambiar el tipo o la institución de aval de un certificado ya emitido.' };
+  }
+  if (row.EstadoAval === 'avalado') {
+    const confirmedCriticalChanges = [
+      ['ClienteNombre', merged.clienteNombre], ['ClienteID', merged.clienteID], ['ServicioID', merged.servicioId],
+      ['ServicioNombre', merged.servicioNombre], ['Monto', merged.monto], ['InstitucionID', institucionAvalId],
+      ['ConvenioID', convenioAvalId], ['RequiereAvalExterno', requiereAval],
+    ].some(function(pair) { return campoInscripcionCambioReal(row, pair[0], pair[1]); });
+    if (confirmedCriticalChanges) {
+      return { success: false, error: 'El aval confirmado protege participante, servicio, institución, convenio y base económica. Solicite una corrección administrativa auditada.' };
+    }
   }
   let estadoPago = row.EstadoPago;
   if (isAdmin(user) && inscripcion.estadoPago && inscripcion.estadoPago !== 'verificado') estadoPago = inscripcion.estadoPago;
@@ -2937,13 +3670,19 @@ function updateInscripcionBajoBloqueo(user, { id, historicalKey, inscripcion } =
 
   const fieldMap = {};
   const mappings = {
-    clienteNombre: 'ClienteNombre', clienteID: 'ClienteID', clienteEmail: 'ClienteEmail',
+    clienteNombre: 'ClienteNombre', clienteID: 'ClienteID', clienteTipoIdentificacion: 'ClienteTipoIdentificacion', clienteEmail: 'ClienteEmail',
     clienteTelefono: 'ClienteTelefono', servicioId: 'ServicioID', servicioNombre: 'ServicioNombre',
     modalidad: 'Modalidad', metodoPago: 'MetodoPago', razonSocial: 'RazonSocial', ruc: 'RUC',
+    tipoIdentificacionFactura: 'TipoIdentificacionFactura',
     direccionFactura: 'DireccionFactura', notas: 'Notas',
   };
   Object.keys(mappings).forEach(function(inputField) {
-    if (tienePropiedad(inscripcion, inputField)) fieldMap[mappings[inputField]] = inscripcion[inputField];
+    if (tienePropiedad(inscripcion, inputField)) {
+      const value = inscripcion[inputField];
+      fieldMap[mappings[inputField]] = (inputField === 'clienteID' || inputField === 'ruc') && typeof value === 'string'
+        ? value.trim()
+        : value;
+    }
   });
   if (tienePropiedad(inscripcion, 'fechaInicio')) fieldMap.FechaInicio = fechaInicioNueva;
   if (tienePropiedad(inscripcion, 'fechaFin')) fieldMap.FechaFin = fechaFinNueva;
@@ -2951,15 +3690,27 @@ function updateInscripcionBajoBloqueo(user, { id, historicalKey, inscripcion } =
   if (tienePropiedad(inscripcion, 'estadoPago')) fieldMap.EstadoPago = estadoPago;
   if (tienePropiedad(inscripcion, 'numeroComprobante')) fieldMap.NumeroComprobante = numeroComprobanteNuevo;
   if (tienePropiedad(inscripcion, 'fechaPago')) fieldMap.FechaPago = fechaPagoNueva;
-  if (tienePropiedad(inscripcion, 'requiereAvalExterno') || tienePropiedad(inscripcion, 'institucionAval')) {
+  if (tienePropiedad(inscripcion, 'requiereAvalExterno') || tienePropiedad(inscripcion, 'institucionAval')
+      || tienePropiedad(inscripcion, 'institucionAvalId') || tienePropiedad(inscripcion, 'convenioId')) {
     fieldMap.RequiereAvalExterno = requiereAval;
     fieldMap.InstitucionAval = institucionAval;
+    fieldMap.InstitucionID = institucionAvalId;
+    fieldMap.ConvenioID = convenioAvalId;
     fieldMap.EstadoAval = requiereAval ? (cambiaConfiguracionAval ? 'pendiente' : (row.EstadoAval || 'pendiente')) : '';
     fieldMap.AvalReferencia = cambiaConfiguracionAval ? '' : row.AvalReferencia;
     fieldMap.FechaAval = cambiaConfiguracionAval ? '' : row.FechaAval;
     fieldMap.ValorAval = cambiaConfiguracionAval ? 0 : row.ValorAval;
     fieldMap.AvalEnlaceExterno = cambiaConfiguracionAval ? '' : row.AvalEnlaceExterno;
     fieldMap.AvalCodigoExterno = cambiaConfiguracionAval ? '' : row.AvalCodigoExterno;
+    if (cambiaConfiguracionAval) {
+      fieldMap.AvalInstitucionID = '';
+      fieldMap.AvalConvenioID = '';
+      fieldMap.AvalBaseTipoAplicado = '';
+      fieldMap.AvalMontoBase = '';
+      fieldMap.AvalPorcentajeAplicado = '';
+      fieldMap.AvalMontoCalculado = '';
+      fieldMap.AvalConfirmadoPor = '';
+    }
   }
   const changedFields = Object.keys(fieldMap).filter(function(field) {
     return campoInscripcionCambioReal(row, field, fieldMap[field]);
@@ -3122,6 +3873,11 @@ function codigoCertificadoEnUso(codigo, exceptCertificateId, exceptInscripcionId
   if (usadoEnCertificados) return true;
   const professionalSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('CertificadosProfesionales');
   if (professionalSheet && sheetToObjects(professionalSheet).some(function(item) {
+    return String(item.CodigoCertificado || '').trim().toUpperCase() === normalized
+      && String(item.ID || '') !== String(exceptCertificateId || '');
+  })) return true;
+  const avalSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('EntregablesAval');
+  if (avalSheet && sheetToObjects(avalSheet).some(function(item) {
     return String(item.CodigoCertificado || '').trim().toUpperCase() === normalized
       && String(item.ID || '') !== String(exceptCertificateId || '');
   })) return true;
@@ -3310,7 +4066,9 @@ function criteriosCertificadoLegacy(certificado, inscripcion) {
 function certificadoParaCliente(certificado, inscripcion) {
   const legacyCriteria = criteriosCertificadoLegacy(certificado, inscripcion);
   const missingRequired = datosFaltantesCertificado(inscripcion);
-  return Object.assign({}, inscripcionEnriquecida(inscripcionSinMetadatosInternos(inscripcion), mapaDuracionServicios(), mapaUsuariosPorUsername()), {
+  const snapshot = leerSnapshotDocumentalCertificado_(certificado);
+  const currentData = inscripcionEnriquecida(inscripcionSinMetadatosInternos(inscripcion), mapaDuracionServicios(), mapaUsuariosPorUsername());
+  return Object.assign({}, currentData, snapshot && snapshot.tipo === 'participante' ? snapshot.datos : {}, {
     ID: certificado.ID,
     InscripcionID: inscripcion.ID,
     CertificatePublicId: certificado.ID,
@@ -3436,7 +4194,7 @@ function emitirCertificadoBajoBloqueo(user, { id } = {}) {
   if (!servicioCertificado) return { success: false, error: 'No se pudo vincular de forma inequívoca el servicio del certificado.' };
   const certificateType = tipoCertificadoServicio_(servicioCertificado.TipoCertificado);
   const activeTemplate = plantillaActivaCertificado_();
-  if (certificateType !== 'aprobacion' && activeTemplate !== CERTIFICATE_SECURITY_TEMPLATE_VERSION) {
+  if (certificateType !== 'aprobacion' && [CERTIFICATE_SECURITY_TEMPLATE_VERSION, CERTIFICATE_SECURITY_TEMPLATE_V3_VERSION].indexOf(activeTemplate) === -1) {
     return { success: false, error: 'El servicio requiere un certificado de ' + certificateType + ', pero la plantilla oficial sigue pendiente de firmas y activación. No se emitió un certificado incorrecto.' };
   }
 
@@ -3487,7 +4245,12 @@ function emitirCertificadoBajoBloqueo(user, { id } = {}) {
     canal: 'panel',
     resultado: 'ok',
   });
-  const certificado = asegurarRegistroCertificado(updated, user);
+  let certificado = asegurarRegistroCertificado(updated, user);
+  if (!certificado.DocumentSnapshot) {
+    const snapshot = snapshotDocumentalCertificado_('participante', datosSnapshotCertificadoParticipante_(updated, certificado));
+    updateRow(getSheet('Certificados'), certificado, snapshot);
+    certificado = sheetToObjects(getSheet('Certificados')).find(function(item) { return item.ID === certificado.ID; }) || Object.assign({}, certificado, snapshot);
+  }
   return { success: true, data: certificadoParaCliente(certificado, updated) };
 }
 
@@ -3554,62 +4317,66 @@ function reemitirCertificadoBajoBloqueo(user, { id, motivo, confirmacion } = {})
   const inscripcion = resolved.inscripcion;
   const estadoAnterior = estadoNormalizadoCertificado(original);
   if (estadoAnterior === 'reemitido') return { success: false, error: 'Este identificador corresponde a un certificado histórico ya reemitido.' };
+  const certificateSheet = getSheet('Certificados');
+  const versions = sheetToObjects(certificateSheet).filter(function(item) { return item.InscripcionID === inscripcion.ID; });
+  const pendingChildren = versions.filter(function(item) {
+    return item.ReplacesCertificateId === original.ID && estadoNormalizadoCertificado(item) === 'pendiente_pdf';
+  });
+  if (pendingChildren.length) {
+    const pending = pendingChildren[0];
+    if (String(pending.ReissueReason || '') !== motivoSeguro) {
+      return { success: false, error: 'Ya hay una reemisión pendiente de archivo. Reintente con el mismo motivo para completar esa versión.' };
+    }
+    return { success: true, alreadyPrepared: true, data: certificadoParaCliente(pending, inscripcion) };
+  }
+  if (estadoAnterior !== 'emitido' && estadoAnterior !== 'enviado' && estadoAnterior !== 'anulado') {
+    return { success: false, error: 'Solo una versión vigente o anulada puede reemitirse.' };
+  }
   const ahora = new Date().toISOString();
   const nuevoId = generateId('CRT');
-  const nuevaVersion = (Number(original.CertificateVersion) || 1) + 1;
+  const nuevaVersion = versions.reduce(function(max, item) { return Math.max(max, Number(item.CertificateVersion) || 1); }, 0) + 1;
   const activeTemplate = plantillaActivaCertificado_();
+  const certificateType = original.CertificateType || inscripcion.CertificateType || 'aprobacion';
+  if (certificateType !== 'aprobacion' && [CERTIFICATE_SECURITY_TEMPLATE_VERSION, CERTIFICATE_SECURITY_TEMPLATE_V3_VERSION].indexOf(activeTemplate) === -1) {
+    return { success: false, error: 'La plantilla oficial vigente no está lista para reemitir este tipo de certificado.' };
+  }
   const nuevoCodigo = generarCodigoCertificadoUnico(
     { ID: nuevoId, FechaEmisionCertificado: ahora },
     nuevoId,
     inscripcion.ID
   );
-  const nuevo = appendCertificado({
+  const nuevo = appendCertificado(Object.assign({
     ID: nuevoId,
     InscripcionID: inscripcion.ID,
     CodigoCertificado: nuevoCodigo,
     CertificateVersion: nuevaVersion,
     TemplateVersion: activeTemplate,
-    CertificateType: original.CertificateType || inscripcion.CertificateType || 'aprobacion',
+    CertificateType: certificateType,
     OriginalCertificateId: original.ID,
-    CertificateStatus: 'emitido',
-    IssuedAt: ahora,
+    ReplacesCertificateId: original.ID,
+    CertificateStatus: 'pendiente_pdf',
+    CertificatePreparedAt: ahora,
+    IssuedAt: '',
     IssuedBy: user.Username,
     ReissueReason: motivoSeguro,
     CreatedAt: ahora,
-  });
-  const certSheet = getSheet('Certificados');
-  updateRow(certSheet, original, {
-    CertificateStatus: 'reemitido',
-    ReissuedCertificateId: nuevo.ID,
-    ReissueReason: motivoSeguro,
-  });
-  const insSheet = getSheet('Inscripciones');
-  updateRow(insSheet, inscripcion, {
-    EstadoCertificado: 'reemitido',
-    CodigoCertificado: nuevo.CodigoCertificado,
-    FechaEmisionCertificado: nuevo.IssuedAt,
-    EmitidoPor: user.Username,
-    CertificateStatus: 'emitido',
-    CertificateVersion: nuevaVersion,
-    TemplateVersion: nuevo.TemplateVersion,
-    CertificateType: nuevo.CertificateType,
-    OriginalCertificateId: original.ID,
-    ReissuedCertificateId: nuevo.ID,
-    ReissueReason: motivoSeguro,
-    EstadoEntrega: 'pendiente',
-    FechaEntregaCertificado: '',
-    EntregadoPor: '',
-  });
-  registrarAuditoriaCertificado({
+  }, snapshotDocumentalCertificado_('participante', datosSnapshotCertificadoParticipante_(inscripcion, {
+    ID: nuevoId, CodigoCertificado: nuevoCodigo, CertificateVersion: nuevaVersion,
+    TemplateVersion: activeTemplate, CertificateType: certificateType,
+    CertificatePreparedAt: ahora, IssuedBy: user.Username,
+  }))));
+  const newRowNumber = certificateSheet.getLastRow();
+  try {
+    registrarAuditoriaCertificado({
     certificadoId: nuevo.CodigoCertificado,
     inscripcionId: inscripcion.ID,
     usuario: user.Username,
     rol: user.Rol,
-    accion: 'CERTIFICATE_REISSUED',
+    accion: 'CERTIFICATE_REISSUE_STARTED',
     estadoAnterior: estadoAnterior,
-    estadoNuevo: 'reemitido',
+    estadoNuevo: 'pendiente_pdf',
     canal: 'panel',
-    resultado: 'ok',
+    resultado: 'pendiente',
     motivo: motivoSeguro,
     metadatos: {
       originalCertificateId: original.ID,
@@ -3618,18 +4385,48 @@ function reemitirCertificadoBajoBloqueo(user, { id, motivo, confirmacion } = {})
       templateVersion: nuevo.TemplateVersion,
     },
   });
-  const updatedIns = sheetToObjects(insSheet).find(function(item) { return item.ID === inscripcion.ID; });
-  return { success: true, data: certificadoParaCliente(nuevo, updatedIns) };
+  } catch (error) {
+    certificateSheet.deleteRow(newRowNumber);
+    throw error;
+  }
+  return { success: true, data: certificadoParaCliente(nuevo, inscripcion) };
 }
 
-function getCertificadoParaDescarga(user, { id } = {}) {
+function resolverCertificadoVersionAdministrativo_(inscripcionId, certificateId) {
+  const inscripcion = sheetToObjects(getSheet('Inscripciones')).find(function(item) { return item.ID === String(inscripcionId || ''); });
+  if (!inscripcion) return null;
+  const certificate = sheetToObjects(getSheet('Certificados')).find(function(item) { return item.ID === String(certificateId || ''); }) || null;
+  if (certificate) {
+    if (certificate.InscripcionID !== inscripcion.ID) return null;
+    return { certificado: certificate, inscripcion: inscripcion };
+  }
+  if (String(certificateId || '') === inscripcion.ID || String(certificateId || '') === String(inscripcion.CodigoCertificado || '')) {
+    return { certificado: certificadoHistoricoDesdeInscripcion(inscripcion), inscripcion: inscripcion };
+  }
+  return null;
+}
+
+function certificadoVersionParaDescarga_(resolved, allowHistorical) {
+  if (!resolved) return { success: false, error: 'La versión solicitada no pertenece a esta inscripción.' };
+  const certificate = resolved.certificado;
+  const status = estadoNormalizadoCertificado(certificate);
+  const allowed = allowHistorical ? ['emitido', 'enviado', 'reemitido', 'anulado'] : ['emitido', 'enviado'];
+  if (allowed.indexOf(status) === -1) return { success: false, error: 'Esta versión no está disponible para descarga.' };
+  if (!String(certificate.PdfStorageReference || '').trim() || !/^[a-f0-9]{64}$/i.test(String(certificate.PdfHash || ''))) {
+    return { success: false, error: 'Esta versión no tiene un PDF original íntegro archivado. No se regeneró con la plantilla actual.' };
+  }
+  return { success: true, data: certificadoParaCliente(certificate, resolved.inscripcion) };
+}
+
+function getCertificadoParaDescarga(user, { id, certificateId } = {}) {
   requireCertificateAdmin(user, 'CERTIFICATE_DOWNLOAD_READ', { inscripcionId: id, canal: 'api' });
+  if (certificateId) return certificadoVersionParaDescarga_(resolverCertificadoVersionAdministrativo_(id, certificateId), true);
   const resolved = resolverCertificadoAdministrativo(id, user);
   if (!resolved) return { success: false, error: 'Certificado no encontrado.' };
   const estado = estadoNormalizadoCertificado(resolved.certificado);
-  if (estado === 'anulado') return { success: false, error: 'El certificado est\u00e1 anulado y no puede descargarse.' };
+  if (estado === 'anulado') return { success: false, error: 'El certificado está anulado y no puede descargarse.' };
   if (['emitido', 'enviado'].indexOf(estado) === -1) {
-    return { success: false, error: 'El certificado no est\u00e1 vigente para descarga.' };
+    return { success: false, error: 'El certificado no está vigente para descarga.' };
   }
   const missing = datosFaltantesCertificado(resolved.inscripcion);
   if (!String(resolved.inscripcion.ID || '').trim()) {
@@ -3640,12 +4437,31 @@ function getCertificadoParaDescarga(user, { id } = {}) {
     const prefix = criteriosCertificadoLegacy(resolved.certificado, resolved.inscripcion).length
       ? 'El registro histórico requiere normalización: '
       : 'Faltan datos obligatorios del certificado: ';
-    return {
-      success: false,
-      error: prefix + (fechaFinMissing ? 'falta FechaFin. ' : '') + 'Complete: ' + missing.join(', ') + '.',
-    };
+    return { success: false, error: prefix + (fechaFinMissing ? 'falta FechaFin. ' : '') + 'Complete: ' + missing.join(', ') + '.' };
   }
   return { success: true, data: certificadoParaCliente(resolved.certificado, resolved.inscripcion) };
+}
+
+function getHistorialCertificados(user, { id } = {}) {
+  requireCertificateAdmin(user, 'CERTIFICATE_HISTORY_READ', { inscripcionId: id, canal: 'api' });
+  const inscripcion = sheetToObjects(getSheet('Inscripciones')).find(function(item) { return item.ID === String(id || ''); });
+  if (!inscripcion) return { success: false, error: 'Inscripción no encontrada.' };
+  let versions = sheetToObjects(getSheet('Certificados')).filter(function(item) { return item.InscripcionID === inscripcion.ID; });
+  if (!versions.length && certificadoProtegidoContraEliminacion(inscripcion)) versions = [certificadoHistoricoDesdeInscripcion(inscripcion)];
+  versions.sort(function(a, b) { return (Number(b.CertificateVersion) || 1) - (Number(a.CertificateVersion) || 1); });
+  return { success: true, data: versions.map(function(item) { return {
+    id: item.ID || '', codigo: item.CodigoCertificado || '', version: Number(item.CertificateVersion) || 1,
+    estado: estadoNormalizadoCertificado(item), plantilla: item.TemplateVersion || '',
+    fecha: item.IssuedAt || item.CertificatePreparedAt || '', actor: item.IssuedBy || '',
+    motivo: item.ReissueReason || item.VoidReason || '',
+    pdfArchivado: Boolean(item.PdfStorageReference && /^[a-f0-9]{64}$/i.test(String(item.PdfHash || ''))),
+    snapshotVerificado: Boolean(leerSnapshotDocumentalCertificado_(item)),
+  }; }) };
+}
+
+function getCertificadoVersionParaDescarga(user, { inscripcionId, certificateId } = {}) {
+  requireCertificateAdmin(user, 'CERTIFICATE_DOWNLOAD_READ', { inscripcionId: inscripcionId, canal: 'api' });
+  return certificadoVersionParaDescarga_(resolverCertificadoVersionAdministrativo_(inscripcionId, certificateId), true);
 }
 
 function esCertificadoHistoricoParaRebase(certificado, inscripcion) {
@@ -3740,10 +4556,14 @@ function guardarPdfCertificadoPrivado(user, params) {
   });
 }
 
-function leerPdfCertificadoPrivado(user, { id } = {}) {
+function leerPdfCertificadoPrivado(user, { id, certificateId } = {}) {
   requireCertificateAdmin(user, 'CERTIFICATE_PRIVATE_PDF_READ', { inscripcionId: id, canal: 'api' });
-  const professional = buscarCertificadoProfesional_(String(id || ''));
+  const exactId = String(certificateId || id || '');
+  const professional = buscarCertificadoProfesional_(exactId);
   if (professional) {
+    if (['emitido', 'enviado', 'reemitido', 'anulado'].indexOf(estadoNormalizadoCertificado(professional)) === -1) {
+      return { success: false, error: 'Esta versión profesional todavía no es descargable.' };
+    }
     const professionalRef = String(professional.PdfStorageReference || '').trim();
     const professionalHash = String(professional.PdfHash || '').trim().toLowerCase();
     if (professionalRef.indexOf('certificate-drive:') !== 0 || !/^[a-f0-9]{64}$/.test(professionalHash)) {
@@ -3755,8 +4575,19 @@ function leerPdfCertificadoPrivado(user, { id } = {}) {
     return { success: true, reference: professionalRef, hash: professionalHash,
       contentBase64: Utilities.base64Encode(professionalBytes), filename: professionalFile.getName() };
   }
-  const resolved = resolverCertificadoAdministrativo(id, user);
+  const exactCertificate = sheetToObjects(getSheet('Certificados')).find(function(item) { return item.ID === exactId; }) || null;
+  let resolved = null;
+  if (exactCertificate) {
+    const linked = sheetToObjects(getSheet('Inscripciones')).find(function(item) { return item.ID === exactCertificate.InscripcionID; }) || null;
+    if (!linked) return { success: false, error: 'La versión no tiene una inscripción asociada.' };
+    resolved = { certificado: exactCertificate, inscripcion: linked };
+  } else {
+    resolved = resolverCertificadoAdministrativo(id, user);
+  }
   if (!resolved) return { success: false, error: 'Certificado no encontrado.' };
+  if (['emitido', 'enviado', 'reemitido', 'anulado'].indexOf(estadoNormalizadoCertificado(resolved.certificado)) === -1) {
+    return { success: false, error: 'Esta versión todavía no es descargable.' };
+  }
   const reference = String(resolved.certificado.PdfStorageReference || '').trim();
   const expectedHash = String(resolved.certificado.PdfHash || '').trim().toLowerCase();
   if (reference.indexOf('certificate-drive:') !== 0 || !/^[a-f0-9]{64}$/.test(expectedHash)) {
@@ -3776,7 +4607,9 @@ function guardarPdfCertificadoProfesional_(user, p) {
   return conBloqueoCertificados(function() {
     const sheet = getSheet('CertificadosProfesionales');
     const row = buscarCertificadoProfesional_(String(p.id || ''));
-    if (!row || estadoNormalizadoCertificado(row) !== 'emitido') return { success: false, error: 'El certificado profesional no está vigente.' };
+    const status = estadoNormalizadoCertificado(row || {});
+    const isPendingReissue = status === 'pendiente_pdf' && String(row.ReplacesCertificateId || '').trim();
+    if (!row || (status !== 'emitido' && !isPendingReissue)) return { success: false, error: 'El certificado profesional no está vigente ni pendiente de archivo.' };
     if (Number(p.certificateVersion) !== Number(row.CertificateVersion) || String(p.templateVersion || '') !== String(row.TemplateVersion || '')) {
       return { success: false, error: 'La versión del PDF profesional no corresponde al registro.' };
     }
@@ -3799,12 +4632,35 @@ function guardarPdfCertificadoProfesional_(user, p) {
     const file = folder.createFile(Utilities.newBlob(bytes, 'application/pdf', 'CERT_PRO_' + String(row.CodigoCertificado).replace(/[^a-zA-Z0-9._-]/g, '_') + '_v' + row.CertificateVersion + '.pdf'));
     try { file.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE); } catch (error) { /* Drive crea archivos privados. */ }
     const savedRef = 'certificate-drive:' + file.getId();
+    const previous = { PdfHash: row.PdfHash || '', PdfStorageReference: row.PdfStorageReference || '',
+      CertificateStatus: row.CertificateStatus || '', IssuedAt: row.IssuedAt || '', IssuedBy: row.IssuedBy || '' };
+    let parent = null;
+    let previousParent = null;
     try {
-      updateRow(sheet, row, { PdfHash: hash, PdfStorageReference: savedRef });
+      const update = { PdfHash: hash, PdfStorageReference: savedRef };
+      if (isPendingReissue) {
+        parent = sheetToObjects(sheet).find(function(item) { return item.ID === row.ReplacesCertificateId; }) || null;
+        if (!parent || ['emitido', 'enviado', 'anulado'].indexOf(estadoNormalizadoCertificado(parent)) === -1) {
+          file.setTrashed(true);
+          return { success: false, error: 'La versión profesional anterior ya no es vigente; no se archivó la reemisión.' };
+        }
+        previousParent = { CertificateStatus: parent.CertificateStatus || '', ReissuedCertificateId: parent.ReissuedCertificateId || '', ReissueReason: parent.ReissueReason || '' };
+        update.CertificateStatus = 'emitido';
+        update.IssuedAt = row.CertificatePreparedAt || new Date().toISOString();
+        update.IssuedBy = row.IssuedBy || user.Username;
+      }
+      updateRow(sheet, row, update);
+      if (isPendingReissue) {
+        updateRow(sheet, parent, { CertificateStatus: 'reemitido', ReissuedCertificateId: row.ID, ReissueReason: row.ReissueReason || '' });
+      }
       registrarAuditoriaCertificado({ certificadoId: row.CodigoCertificado, inscripcionId: '', usuario: user.Username, rol: user.Rol,
-        accion: 'TRAINER_CERTIFICATE_PDF_ARCHIVED', canal: 'api', resultado: 'ok', metadatos: { certificateId: row.ID, sha256: hash } });
+        accion: isPendingReissue ? 'TRAINER_CERTIFICATE_REISSUE_COMPLETED' : 'TRAINER_CERTIFICATE_PDF_ARCHIVED',
+        estadoAnterior: status, estadoNuevo: isPendingReissue ? 'emitido' : status, canal: 'api', resultado: 'ok',
+        motivo: isPendingReissue ? String(row.ReissueReason || '') : '',
+        metadatos: { certificateId: row.ID, replacesCertificateId: parent ? parent.ID : '', sha256: hash, version: Number(row.CertificateVersion) || 1 } });
     } catch (error) {
-      updateRow(sheet, row, { PdfHash: '', PdfStorageReference: '' });
+      updateRow(sheet, row, previous);
+      if (parent && previousParent) updateRow(sheet, parent, previousParent);
       file.setTrashed(true);
       throw error;
     }
@@ -3843,8 +4699,9 @@ function registrarArtefactoCertificadoBajoBloqueo(user, {
   const certificado = resolved.certificado;
   const inscripcion = resolved.inscripcion;
   const estado = estadoNormalizadoCertificado(certificado);
-  if (estado !== 'emitido' && estado !== 'enviado') {
-    return { success: false, error: 'Solo un certificado vigente puede registrar un artefacto PDF.' };
+  const isPendingReissue = estado === 'pendiente_pdf' && String(certificado.ReplacesCertificateId || '').trim();
+  if (estado !== 'emitido' && estado !== 'enviado' && !isPendingReissue) {
+    return { success: false, error: 'Solo una versión vigente o una reemisión pendiente puede registrar un artefacto PDF.' };
   }
   const expectedVersion = Number(certificado.CertificateVersion) || 1;
   if (Number(certificateVersion || expectedVersion) !== expectedVersion) {
@@ -3888,13 +4745,34 @@ function registrarArtefactoCertificadoBajoBloqueo(user, {
     PdfHash: certificado.PdfHash || '',
     PdfStorageReference: certificado.PdfStorageReference || '',
     TemplateVersion: certificado.TemplateVersion || '',
+    CertificateStatus: certificado.CertificateStatus || '',
+    IssuedAt: certificado.IssuedAt || '',
+    IssuedBy: certificado.IssuedBy || '',
   };
   const previousEnrollmentArtifact = {
     PdfHash: inscripcion.PdfHash || '',
     PdfStorageReference: inscripcion.PdfStorageReference || '',
     CertificateVersion: inscripcion.CertificateVersion || '',
     TemplateVersion: inscripcion.TemplateVersion || '',
+    CertificateStatus: inscripcion.CertificateStatus || '',
+    EstadoCertificado: inscripcion.EstadoCertificado || '',
+    CodigoCertificado: inscripcion.CodigoCertificado || '',
+    FechaEmisionCertificado: inscripcion.FechaEmisionCertificado || '',
+    EmitidoPor: inscripcion.EmitidoPor || '',
+    IssuedAt: inscripcion.IssuedAt || '',
+    IssuedBy: inscripcion.IssuedBy || '',
+    CertificateType: inscripcion.CertificateType || '',
+    OriginalCertificateId: inscripcion.OriginalCertificateId || '',
+    ReissuedCertificateId: inscripcion.ReissuedCertificateId || '',
+    ReissueReason: inscripcion.ReissueReason || '',
+    EstadoEntrega: inscripcion.EstadoEntrega || '',
+    FechaEntregaCertificado: inscripcion.FechaEntregaCertificado || '',
+    EntregadoPor: inscripcion.EntregadoPor || '',
   };
+  const certificateSheet = getSheet('Certificados');
+  const enrollmentSheet = getSheet('Inscripciones');
+  let replacedCertificate = null;
+  let previousReplacedState = null;
   const certificateArtifactUpdate = {
     PdfHash: hash,
     PdfStorageReference: storageReference,
@@ -3905,27 +4783,76 @@ function registrarArtefactoCertificadoBajoBloqueo(user, {
   };
   if (!historicalHashRebaseAuthorized) {
     certificateArtifactUpdate.TemplateVersion = resolvedTemplate;
-    enrollmentArtifactUpdate.CertificateVersion = expectedVersion;
-    enrollmentArtifactUpdate.TemplateVersion = resolvedTemplate;
+    if (!isPendingReissue) {
+      enrollmentArtifactUpdate.CertificateVersion = expectedVersion;
+      enrollmentArtifactUpdate.TemplateVersion = resolvedTemplate;
+    }
   }
-  updateRow(getSheet('Certificados'), certificado, certificateArtifactUpdate);
-  updateRow(getSheet('Inscripciones'), inscripcion, enrollmentArtifactUpdate);
+  if (isPendingReissue) {
+    replacedCertificate = sheetToObjects(certificateSheet).find(function(item) {
+      return item.ID === String(certificado.ReplacesCertificateId);
+    }) || null;
+    const replacedState = estadoNormalizadoCertificado(replacedCertificate || {});
+    if (!replacedCertificate || ['emitido', 'enviado', 'anulado'].indexOf(replacedState) === -1) {
+      return { success: false, error: 'La versión que se intenta reemplazar ya no es la vigente; no se archivó el PDF.' };
+    }
+    const expectedCurrentId = String(inscripcion.ReissuedCertificateId || '').trim() || String(inscripcion.ID || '');
+    if (expectedCurrentId !== String(replacedCertificate.ID) && inscripcion.CodigoCertificado !== replacedCertificate.CodigoCertificado) {
+      return { success: false, error: 'La inscripción cambió de versión durante la reemisión; no se modificó su certificado vigente.' };
+    }
+    previousReplacedState = {
+      CertificateStatus: replacedCertificate.CertificateStatus || '',
+      ReissuedCertificateId: replacedCertificate.ReissuedCertificateId || '',
+      ReissueReason: replacedCertificate.ReissueReason || '',
+    };
+    certificateArtifactUpdate.CertificateStatus = 'emitido';
+    certificateArtifactUpdate.IssuedAt = certificado.CertificatePreparedAt || new Date().toISOString();
+    certificateArtifactUpdate.IssuedBy = certificado.IssuedBy || user.Username;
+    Object.assign(enrollmentArtifactUpdate, {
+      EstadoCertificado: 'emitido',
+      CodigoCertificado: certificado.CodigoCertificado,
+      FechaEmisionCertificado: certificateArtifactUpdate.IssuedAt,
+      EmitidoPor: certificateArtifactUpdate.IssuedBy,
+      CertificateStatus: 'emitido',
+      IssuedAt: certificateArtifactUpdate.IssuedAt,
+      IssuedBy: certificateArtifactUpdate.IssuedBy,
+      CertificateVersion: expectedVersion,
+      TemplateVersion: resolvedTemplate,
+      CertificateType: certificado.CertificateType || inscripcion.CertificateType || 'aprobacion',
+      OriginalCertificateId: certificado.OriginalCertificateId || replacedCertificate.ID,
+      ReissuedCertificateId: certificado.ID,
+      ReissueReason: certificado.ReissueReason || '',
+      EstadoEntrega: 'pendiente',
+      FechaEntregaCertificado: '',
+      EntregadoPor: '',
+    });
+  }
+  updateRow(certificateSheet, certificado, certificateArtifactUpdate);
+  updateRow(enrollmentSheet, inscripcion, enrollmentArtifactUpdate);
+  if (isPendingReissue) {
+    updateRow(certificateSheet, replacedCertificate, {
+      CertificateStatus: 'reemitido',
+      ReissuedCertificateId: certificado.ID,
+      ReissueReason: certificado.ReissueReason || '',
+    });
+  }
   try {
     registrarAuditoriaCertificado({
       certificadoId: certificado.CodigoCertificado,
       inscripcionId: inscripcion.ID,
       usuario: user.Username,
       rol: user.Rol,
-      accion: historicalHashRebaseAuthorized
+      accion: isPendingReissue ? 'CERTIFICATE_REISSUE_COMPLETED' : historicalHashRebaseAuthorized
         ? 'CERTIFICATE_HISTORICAL_HASH_REBASED'
         : certificado.PdfHash ? 'CERTIFICATE_ARTIFACT_CONFIRMED' : 'CERTIFICATE_ARTIFACT_REGISTERED',
       estadoAnterior: estado,
-      estadoNuevo: estado,
+      estadoNuevo: isPendingReissue ? 'emitido' : estado,
       canal: 'panel',
       resultado: 'ok',
-      motivo: historicalHashRebaseAuthorized ? rebaseReason : '',
+      motivo: isPendingReissue ? String(certificado.ReissueReason || '') : historicalHashRebaseAuthorized ? rebaseReason : '',
       metadatos: {
         certificateId: certificado.ID,
+        replacedCertificateId: replacedCertificate ? replacedCertificate.ID : '',
         certificateVersion: expectedVersion,
         templateVersion: resolvedTemplate,
         requestedTemplateVersion: requestedTemplate,
@@ -3939,8 +4866,11 @@ function registrarArtefactoCertificadoBajoBloqueo(user, {
       },
     });
   } catch (error) {
-    updateRow(getSheet('Certificados'), certificado, previousCertificateArtifact);
-    updateRow(getSheet('Inscripciones'), inscripcion, previousEnrollmentArtifact);
+    updateRow(certificateSheet, certificado, previousCertificateArtifact);
+    updateRow(enrollmentSheet, inscripcion, previousEnrollmentArtifact);
+    if (replacedCertificate && previousReplacedState) {
+      updateRow(certificateSheet, replacedCertificate, previousReplacedState);
+    }
     throw error;
   }
   return {
@@ -3968,14 +4898,19 @@ function solicitudDescargaParaCliente(row) {
   };
 }
 
-function solicitarDescargaCertificado(user, { id, pdfHash, pdfStorageReference } = {}) {
+function solicitarDescargaCertificado(user, { id, certificateId, pdfHash, pdfStorageReference } = {}) {
   requireCertificateAdmin(user, 'CERTIFICATE_DOWNLOAD_REQUEST', { inscripcionId: id, canal: 'api' });
-  const resolved = resolverCertificadoAdministrativo(id, user);
+  const resolved = certificateId
+    ? resolverCertificadoVersionAdministrativo_(id, certificateId)
+    : resolverCertificadoAdministrativo(id, user);
   if (!resolved) return { success: false, error: 'Certificado no encontrado.' };
   const certificado = resolved.certificado;
   const inscripcion = resolved.inscripcion;
   const estado = estadoNormalizadoCertificado(certificado);
-  if (estado !== 'emitido' && estado !== 'enviado') {
+  const historicalRequest = Boolean(certificateId);
+  if (historicalRequest
+    ? ['emitido', 'enviado', 'reemitido', 'anulado'].indexOf(estado) === -1
+    : estado !== 'emitido' && estado !== 'enviado') {
     return { success: false, error: 'El certificado no est\u00e1 vigente para descarga.' };
   }
   const hash = String(pdfHash || '').trim().toLowerCase();
@@ -4028,6 +4963,7 @@ function solicitarDescargaCertificado(user, { id, pdfHash, pdfStorageReference }
     metadatos: {
       requestId: solicitud.ID,
       certificateId: certificado.ID,
+      historicalVersion: historicalRequest,
       pdfHash: hash,
       pdfStorageReference: reference,
     },
@@ -4092,11 +5028,14 @@ function confirmarDescargaCertificado(user, { solicitudId, resultado, motivo } =
     Motivo: motivoSeguro,
   });
   if (estadoFinal === 'AUDIT_CONFIRMED') {
-    updateRow(getSheet('Inscripciones'), inscripcion, {
-      EstadoEntrega: 'descargado',
-      FechaEntregaCertificado: ahora,
-      EntregadoPor: user.Username,
-    });
+    const current = resolverCertificadoAdministrativo(inscripcion.ID, user);
+    if (current && current.certificado.ID === certificado.ID) {
+      updateRow(getSheet('Inscripciones'), inscripcion, {
+        EstadoEntrega: 'descargado',
+        FechaEntregaCertificado: ahora,
+        EntregadoPor: user.Username,
+      });
+    }
   }
   const updated = sheetToObjects(sheet).find(function(item) { return item.ID === solicitud.ID; });
   return { success: true, auditStatus: estadoFinal, data: solicitudDescargaParaCliente(updated) };
@@ -4165,25 +5104,39 @@ function deleteIngresoSeguro(user, { id } = {}) {
   return deleteIfOwner(user, 'Ingresos', id, 'Estado');
 }
 
-function enviarCertificadoEmail(user, { id, pdfBase64, mimeType, filename, email } = {}) {
+function enviarCertificadoEmail(user, { id, email } = {}) {
   requireCertificateAdmin(user, 'CERTIFICATE_EMAIL_SEND', { inscripcionId: id, canal: 'email' });
   const sheet = getSheet('Inscripciones');
   const row = sheetToObjects(sheet).find(function(r) { return r.ID === id; });
   if (!row) return { success: false, error: 'Inscripción no encontrada.' };
-  if (['emitido', 'enviado', 'reemitido'].indexOf(estadoNormalizadoCertificado(row)) === -1) return { success: false, error: 'El certificado todavía no ha sido emitido o no está vigente.' };
+  if (['emitido', 'enviado'].indexOf(estadoNormalizadoCertificado(row)) === -1) return { success: false, error: 'El certificado todavía no ha sido emitido o no está vigente.' };
   const destinatario = String(email || row.ClienteEmail || '').trim();
   if (!emailValido(destinatario)) return { success: false, error: 'La inscripción no tiene un correo electrónico válido.' };
-  if (mimeType !== 'application/pdf') return { success: false, error: 'Solo se aceptan certificados en formato PDF.' };
-  if (!pdfBase64 || typeof pdfBase64 !== 'string') return { success: false, error: 'No se recibió el archivo PDF.' };
-  let bytes;
-  try { bytes = Utilities.base64Decode(pdfBase64); }
-  catch (err) { return { success: false, error: 'El archivo PDF recibido no es válido.' }; }
-  if (bytes.length > 3 * 1024 * 1024) return { success: false, error: 'El PDF supera el límite permitido de 3 MB.' };
-  if (bytes.length < 5 || bytes[0] !== 37 || bytes[1] !== 80 || bytes[2] !== 68 || bytes[3] !== 70 || bytes[4] !== 45) {
-    return { success: false, error: 'El archivo recibido no contiene un PDF válido.' };
+  const resolved = resolverCertificadoAdministrativo(id, user);
+  if (!resolved) return { success: false, error: 'No se pudo identificar la versión vigente del certificado.' };
+  const certificate = resolved.certificado;
+  const certificateStatus = estadoNormalizadoCertificado(certificate);
+  if (['emitido', 'enviado'].indexOf(certificateStatus) === -1) {
+    return { success: false, error: 'Solo se puede reenviar la versión vigente del certificado.' };
   }
-  const nombreArchivo = String(filename || ('certificado_' + row.ID + '.pdf')).replace(/[^a-zA-Z0-9._-]/g, '_');
-  const blob = Utilities.newBlob(bytes, 'application/pdf', nombreArchivo);
+  const expectedHash = String(certificate.PdfHash || '').trim().toLowerCase();
+  const storageReference = String(certificate.PdfStorageReference || '').trim();
+  if (!/^[a-f0-9]{64}$/.test(expectedHash) || storageReference.indexOf('certificate-drive:') !== 0) {
+    return { success: false, error: 'El PDF original no está archivado en Finance. No se regeneró ni se envió otra versión.' };
+  }
+  let blob;
+  try {
+    const fileId = storageReference.slice('certificate-drive:'.length);
+    const file = DriveApp.getFileById(fileId);
+    blob = file.getBlob();
+    const bytes = blob.getBytes();
+    if (bytes.length < 5 || String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3], bytes[4]) !== '%PDF-'
+        || sha256PdfCertificado_(bytes) !== expectedHash) {
+      return { success: false, error: 'El PDF archivado no superó la verificación de integridad. No se envió.' };
+    }
+  } catch (err) {
+    return { success: false, error: 'No se pudo leer el PDF original archivado en Finance. No se regeneró ni se envió otra versión.' };
+  }
   try {
     MailApp.sendEmail({
       to: destinatario,
@@ -4222,6 +5175,7 @@ function enviarCertificadoEmail(user, { id, pdfBase64, mimeType, filename, email
     estadoNuevo: 'enviado_email',
     canal: 'email',
     resultado: 'ok',
+    metadatos: { certificateId: certificate.ID, certificateVersion: Number(certificate.CertificateVersion) || 1, pdfHash: expectedHash },
   });
   return { success: true };
 }
@@ -4259,22 +5213,572 @@ function getAuditoriaCertificados(user, { filtros = {} } = {}) {
 // AVAL EXTERNO — superficie minima para el rol 'aval'
 // ─────────────────────────────────────────────
 
-function getInstitucionesAval(user) {
-  if (!isVendedor(user)) throw new Error('Acceso denegado.');
-  const instituciones = [];
-  sheetToObjects(getSheet('Usuarios')).forEach(function(u) {
-    if (u.Rol === 'aval' && esVerdadero(u.Activo) && String(u.InstitucionAval || '').trim()) {
-      instituciones.push(String(u.InstitucionAval).trim());
+// ─────────────────────────────────────────────
+// FICHA MAESTRA DE INSTITUCIONES — Bloque 3
+// Entidades externas y sus autoridades/recursos se mantienen aparte de Finance
+// (marca interna), de convenios y de strings históricos de aval.
+// ─────────────────────────────────────────────
+
+function normalizarClaveInstitucion_(value) {
+  return String(value || '').trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().replace(/\s+/g, ' ');
+}
+
+function institutionLock_(fn) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try { return fn(); } finally { lock.releaseLock(); }
+}
+
+function institucionPorId_(id) {
+  const target = String(id || '').trim();
+  if (!target) return null;
+  return sheetToObjects(getSheet('Instituciones')).find(function(row) { return row.ID === target; }) || null;
+}
+
+function autoridadPorId_(id) {
+  const target = String(id || '').trim();
+  if (!target) return null;
+  return sheetToObjects(getSheet('AutoridadesInstitucion')).find(function(row) { return row.ID === target; }) || null;
+}
+
+function validarDatosInstitucion_(source, existingId) {
+  const value = source || {};
+  const name = String(value.nombre || '').trim().replace(/\s+/g, ' ');
+  if (name.length < 2 || name.length > 180) throw new Error('Ingrese el nombre institucional (2 a 180 caracteres).');
+  const identification = String(value.identificacion || '').trim();
+  const identificationType = normalizarTipoIdentificacion_(value.tipoIdentificacion || '');
+  if (identification) {
+    if (!identificationType) throw new Error('Seleccione el tipo de identificación o RUC institucional.');
+    const identityError = validarIdentificacion_(identificationType, identification, { allowUnspecified: true });
+    if (identityError) throw new Error(identityError);
+  }
+  const email = String(value.email || '').trim();
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Ingrese un correo institucional válido.');
+  const website = String(value.sitioWeb || '').trim();
+  if (website && !/^https?:\/\//i.test(website)) throw new Error('El sitio web debe iniciar con http:// o https://.');
+
+  const institutions = sheetToObjects(getSheet('Instituciones'));
+  if (identification) {
+    const duplicate = institutions.find(function(row) {
+      return row.ID !== existingId && String(row.Identificacion || '').trim().toUpperCase() === identification.toUpperCase();
+    });
+    if (duplicate) throw new Error('Ya existe una institución con esa identificación: ' + duplicate.Nombre + '. Abra su ficha para actualizarla.');
+  }
+  const sameName = institutions.find(function(row) {
+    return row.ID !== existingId && normalizarClaveInstitucion_(row.Nombre) === normalizarClaveInstitucion_(name);
+  });
+  if (sameName) {
+    const oldId = String(sameName.Identificacion || '').trim();
+    const newId = identification;
+    const differentKnownIds = oldId && newId && oldId.toUpperCase() !== newId.toUpperCase();
+    if (!differentKnownIds && value.confirmarDuplicadoNombre !== true) {
+      throw new Error('Ya hay una ficha con ese nombre (' + sameName.ID + '). Revísela; si son entidades distintas, confirme explícitamente el nombre duplicado.');
+    }
+  }
+  return {
+    Nombre: name,
+    NombreLegal: String(value.nombreLegal || '').trim().slice(0, 180),
+    NombreComercial: String(value.nombreComercial || '').trim().slice(0, 180),
+    Siglas: String(value.siglas || '').trim().slice(0, 40),
+    Identificacion: identification,
+    TipoIdentificacion: identification ? identificationType : '',
+    Tipo: String(value.tipo || '').trim().slice(0, 80),
+    Telefono: String(value.telefono || '').trim().slice(0, 40),
+    Email: email,
+    Direccion: String(value.direccion || '').trim().slice(0, 240),
+    Ciudad: String(value.ciudad || '').trim().slice(0, 100),
+    Provincia: String(value.provincia || '').trim().slice(0, 100),
+    SitioWeb: website,
+    Estado: value.estado === 'inactivo' ? 'inactivo' : 'activo',
+    Notas: String(value.notas || '').trim().slice(0, 1500),
+  };
+}
+
+function registrarAuditoriaInstitucion_(user, entityType, entityId, action, before, after) {
+  const safeJson = function(value) {
+    let json = JSON.stringify(value || {});
+    if (json.length > 3500) json = json.slice(0, 3500);
+    return json;
+  };
+  getSheet('AuditoriaInstituciones').appendRow([
+    generateId('AUI'), entityType, entityId, action, user.Username || '', user.Rol || '', new Date().toISOString(),
+    safeJson(before), safeJson(after), '',
+  ]);
+}
+
+function appendRegistroInstitucionalAuditado_(sheet, headers, values, user, entityType, entityId, action, before, after) {
+  const rowNumber = appendRowPreservandoTexto_(sheet, headers, values);
+  try {
+    registrarAuditoriaInstitucion_(user, entityType, entityId, action, before, after);
+  } catch (auditError) {
+    try { sheet.deleteRow(rowNumber); } catch (rollbackError) { /* la llamada devuelve error claro para revisión manual */ }
+    throw new Error('No se pudo completar la auditoría institucional; el registro se revirtió. Inténtelo de nuevo.');
+  }
+  return rowNumber;
+}
+
+function actualizarRegistroInstitucionalAuditado_(sheet, current, fields, user, entityType, entityId, action, before, after) {
+  const rollback = {};
+  Object.keys(fields).forEach(function(field) {
+    rollback[field] = current[field] === undefined || current[field] === null ? '' : current[field];
+  });
+  updateRow(sheet, current, fields);
+  try {
+    registrarAuditoriaInstitucion_(user, entityType, entityId, action, before, after);
+  } catch (auditError) {
+    try { updateRow(sheet, current, rollback); } catch (rollbackError) { /* reportar para reconciliación manual */ }
+    throw new Error('No se pudo completar la auditoría institucional; el cambio se revirtió. Inténtelo de nuevo.');
+  }
+}
+
+function readinessInstitucion_(institution, authorities, assets) {
+  const activeSigners = authorities.filter(function(item) {
+    return autoridadInstitucionVigente_(item) && esVerdadero(item.FirmaCertificados);
+  });
+  const signerWithSignature = activeSigners.some(function(item) {
+    return assets.some(function(asset) {
+      return asset.Estado === 'activo' && asset.Tipo === 'firma' && asset.AutoridadID === item.ID;
+    });
+  });
+  const missing = [];
+  if (institution.Estado !== 'activo') missing.push('La institución está inactiva.');
+  if (!activeSigners.length) missing.push('Falta una autoridad activa habilitada para firmar certificados.');
+  else if (!signerWithSignature) missing.push('Falta la firma de una autoridad habilitada para certificados.');
+  return { listoParaCertificacionFutura: missing.length === 0, faltantes: missing };
+}
+
+function autoridadInstitucionVigente_(authority, date) {
+  const today = date || hoyLocal();
+  const start = fechaSolo(authority && authority.FechaInicio);
+  const end = fechaSolo(authority && authority.FechaFin);
+  return Boolean(authority && authority.Estado === 'activo'
+    && (!start || start <= today) && (!end || end >= today));
+}
+
+function getInstitucionesMaestras(user, { filtros = {} } = {}) {
+  requireAdmin(user);
+  const authorities = sheetToObjects(getSheet('AutoridadesInstitucion'));
+  const assets = sheetToObjects(getSheet('ActivosInstitucionales'));
+  const agreements = sheetToObjects(getSheet('Convenios'));
+  let data = sheetToObjects(getSheet('Instituciones'));
+  if (filtros.estado) data = data.filter(function(item) { return item.Estado === filtros.estado; });
+  if (filtros.tipo) data = data.filter(function(item) { return item.Tipo === filtros.tipo; });
+  const query = normalizarClaveInstitucion_(filtros.q || '');
+  if (query) data = data.filter(function(item) {
+    return [item.Nombre, item.NombreLegal, item.NombreComercial, item.Siglas, item.Identificacion]
+      .some(function(value) { return normalizarClaveInstitucion_(value).indexOf(query) !== -1; });
+  });
+  data = data.map(function(item) {
+    const itemAuthorities = authorities.filter(function(authority) { return authority.InstitucionID === item.ID; });
+    const activeAuthorities = itemAuthorities.filter(function(authority) { return authority.Estado === 'activo'; });
+    const itemAssets = assets.filter(function(asset) { return asset.InstitucionID === item.ID; });
+    const linkedAgreements = agreements.filter(function(agreement) { return agreement.InstitucionID === item.ID; });
+    const readiness = readinessInstitucion_(item, itemAuthorities, itemAssets);
+    return Object.assign({}, item, {
+      AutoridadesActivas: activeAuthorities.length,
+      ConveniosActivos: linkedAgreements.filter(function(agreement) { return agreement.Estado === 'activo'; }).length,
+      TotalConvenios: linkedAgreements.length,
+      CompletitudCertificacionFutura: readiness,
+    });
+  });
+  data.sort(function(a, b) { return String(a.Nombre || '').localeCompare(String(b.Nombre || ''), 'es'); });
+  return { success: true, data: data };
+}
+
+function getInstitucionMaestra(user, { id } = {}) {
+  requireAdmin(user);
+  const institution = institucionPorId_(id);
+  if (!institution) return { success: false, error: 'Institución no encontrada.' };
+  const authorities = sheetToObjects(getSheet('AutoridadesInstitucion'))
+    .filter(function(item) { return item.InstitucionID === institution.ID; })
+    .map(function(item) { return Object.assign({}, item, { VigenteAhora: autoridadInstitucionVigente_(item) }); });
+  const assets = sheetToObjects(getSheet('ActivosInstitucionales'))
+    .filter(function(item) { return item.InstitucionID === institution.ID; })
+    .map(function(item) { return {
+      ID: item.ID, InstitucionID: item.InstitucionID, AutoridadID: item.AutoridadID || '', Tipo: item.Tipo,
+      NombreArchivo: item.NombreArchivo, MimeType: item.MimeType, Sha256: item.Sha256,
+      TamanoBytes: Number(item.TamanoBytes) || 0, Version: Number(item.Version) || 1,
+      Estado: item.Estado, CreadoEn: item.CreadoEn,
+    }; });
+  const documents = sheetToObjects(getSheet('DocumentosInstitucionales'))
+    .filter(function(item) { return item.InstitucionID === institution.ID; })
+    .map(function(item) { return {
+      ID: item.ID, InstitucionID: item.InstitucionID, ConvenioID: item.ConvenioID || '', Tipo: item.Tipo,
+      NombreArchivo: item.NombreArchivo, MimeType: item.MimeType, Sha256: item.Sha256,
+      TamanoBytes: Number(item.TamanoBytes) || 0, FechaDocumento: item.FechaDocumento || '',
+      Notas: item.Notas || '', Estado: item.Estado, CreadoEn: item.CreadoEn,
+    }; });
+  const agreements = sheetToObjects(getSheet('Convenios')).filter(function(item) { return item.InstitucionID === institution.ID; });
+  return { success: true, data: {
+    institucion: institution, autoridades: authorities, activos: assets, documentos: documents,
+    convenios: agreements, completitudCertificacionFutura: readinessInstitucion_(institution, authorities, assets),
+  } };
+}
+
+function getOpcionesInstitucionesMaestras(user) {
+  if (!isAdmin(user) && !isAval(user) && !isVendedor(user)) throw new Error('Acceso denegado.');
+  let institutions = sheetToObjects(getSheet('Instituciones')).filter(function(item) { return item.Estado === 'activo'; });
+  if (isAval(user) && !isAdmin(user)) {
+    const assignedId = institucionAvalIdDelUsuario_(user);
+    const assignedName = institucionAvalDelUsuario(user);
+    if (assignedId) institutions = institutions.filter(function(item) { return String(item.ID) === assignedId; });
+    else if (assignedName) institutions = institutions.filter(function(item) {
+      return normalizarClaveInstitucion_(item.Nombre) === normalizarClaveInstitucion_(assignedName)
+        || normalizarClaveInstitucion_(item.Siglas) === normalizarClaveInstitucion_(assignedName);
+    });
+    else return { success: true, data: [] };
+  }
+  return { success: true, data: institutions.map(function(item) {
+    return { ID: item.ID, Nombre: item.Nombre, Siglas: item.Siglas || '', Identificacion: item.Identificacion || '', Estado: item.Estado };
+  }) };
+}
+
+function resolverInstitucionMaestra_(id, options) {
+  options = options || {};
+  const institutionId = String(id || '').trim();
+  if (!institutionId) return { success: false, error: 'Seleccione una institución de la ficha maestra.' };
+  const institution = sheetToObjects(getSheet('Instituciones')).find(function(item) { return item.ID === institutionId; });
+  if (!institution) return { success: false, error: 'La institución seleccionada no existe en la ficha maestra.' };
+  if (!options.permitirInactiva && institution.Estado !== 'activo') {
+    return { success: false, error: 'La institución seleccionada está inactiva. Elija una institución activa.' };
+  }
+  return { success: true, data: institution };
+}
+
+function addInstitucionMaestra(user, { institucion, confirmarDuplicadoNombre } = {}) {
+  requireAdmin(user);
+  return institutionLock_(function() {
+    const input = Object.assign({}, institucion || {}, { confirmarDuplicadoNombre: confirmarDuplicadoNombre === true });
+    const fields = validarDatosInstitucion_(input, '');
+    const id = generateId('INS');
+    const now = new Date().toISOString();
+    const sheet = getSheet('Instituciones');
+    const row = Object.assign({ ID: id }, fields, { CreadoPor: user.Username, CreadoEn: now,
+      ActualizadoPor: user.Username, ActualizadoEn: now, ArchivadoPor: '', ArchivadoEn: '' });
+    appendRegistroInstitucionalAuditado_(sheet, SHEET_HEADERS.Instituciones,
+      SHEET_HEADERS.Instituciones.map(function(header) { return row[header] || ''; }),
+      user, 'institucion', id, 'creada', {}, { nombre: row.Nombre, estado: row.Estado });
+    bustSheet('convenios', 'institutionOptions', 'getInstitucionesAval');
+    return { success: true, id: id };
+  });
+}
+
+function updateInstitucionMaestra(user, { id, institucion, confirmarDuplicadoNombre } = {}) {
+  requireAdmin(user);
+  return institutionLock_(function() {
+    const sheet = getSheet('Instituciones');
+    const current = sheetToObjects(sheet).find(function(item) { return item.ID === id; });
+    if (!current) return { success: false, error: 'Institución no encontrada.' };
+    const input = Object.assign({}, institucion || {}, { confirmarDuplicadoNombre: confirmarDuplicadoNombre === true });
+    const fields = validarDatosInstitucion_(input, id);
+    const now = new Date().toISOString();
+    const before = { Nombre: current.Nombre, Identificacion: current.Identificacion, Estado: current.Estado };
+    const updates = Object.assign({}, fields, { ActualizadoPor: user.Username, ActualizadoEn: now,
+      ...(fields.Estado === 'activo' ? { ArchivadoPor: '', ArchivadoEn: '' } : {}) });
+    actualizarRegistroInstitucionalAuditado_(sheet, current, updates, user, 'institucion', id, 'actualizada', before,
+      { Nombre: fields.Nombre, Identificacion: fields.Identificacion, Estado: fields.Estado });
+    bustSheet('convenios', 'institutionOptions', 'getInstitucionesAval');
+    return { success: true };
+  });
+}
+
+function archivarInstitucionMaestra(user, { id, confirmacion } = {}) {
+  requireAdmin(user);
+  if (confirmacion !== 'ARCHIVAR_INSTITUCION') return { success: false, error: 'Confirme el archivado de la institución.' };
+  return institutionLock_(function() {
+    const sheet = getSheet('Instituciones');
+    const current = sheetToObjects(sheet).find(function(item) { return item.ID === id; });
+    if (!current) return { success: false, error: 'Institución no encontrada.' };
+    if (current.Estado === 'inactivo') return { success: true, alreadyArchived: true };
+    const now = new Date().toISOString();
+    actualizarRegistroInstitucionalAuditado_(sheet, current, { Estado: 'inactivo', ArchivadoPor: user.Username, ArchivadoEn: now,
+      ActualizadoPor: user.Username, ActualizadoEn: now }, user, 'institucion', id, 'archivada',
+      { Estado: current.Estado }, { Estado: 'inactivo' });
+    bustSheet('convenios', 'institutionOptions', 'getInstitucionesAval');
+    return { success: true };
+  });
+}
+
+function validarAutoridadInstitucion_(authority) {
+  const data = authority || {};
+  const name = String(data.nombre || '').trim().replace(/\s+/g, ' ');
+  const title = String(data.cargo || '').trim();
+  if (name.length < 3 || name.length > 160) throw new Error('Ingrese el nombre de la autoridad (3 a 160 caracteres).');
+  if (title.length < 2 || title.length > 100) throw new Error('Ingrese el cargo de la autoridad (2 a 100 caracteres).');
+  const identification = String(data.identificacion || '').trim();
+  const identificationType = normalizarTipoIdentificacion_(data.tipoIdentificacion || '');
+  if (identification && (!identificationType || validarIdentificacion_(identificationType, identification, { allowUnspecified: true }))) {
+    throw new Error('Revise el tipo y formato de identificación de la autoridad.');
+  }
+  const rawStart = String(data.fechaInicio || '').trim();
+  const rawEnd = String(data.fechaFin || '').trim();
+  const start = rawStart ? fechaSolo(rawStart) : '';
+  const end = rawEnd ? fechaSolo(rawEnd) : '';
+  if (rawStart && !start) throw new Error('La fecha de inicio no es válida.');
+  if (rawEnd && !end) throw new Error('La fecha de fin no es válida.');
+  if (start && end && end < start) throw new Error('La fecha de fin no puede ser anterior a la fecha de inicio.');
+  return {
+    Nombre: name, Identificacion: identification, TipoIdentificacion: identification ? identificationType : '',
+    Cargo: title, Funcion: String(data.funcion || '').trim().slice(0, 100),
+    EsRepresentanteLegal: data.esRepresentanteLegal === true,
+    FirmaConvenios: data.firmaConvenios === true, FirmaCertificados: data.firmaCertificados === true,
+    FechaInicio: start, FechaFin: end, Estado: data.estado === 'inactivo' ? 'inactivo' : 'activo',
+    Notas: String(data.notas || '').trim().slice(0, 1000),
+  };
+}
+
+function addAutoridadInstitucion(user, { institucionId, autoridad } = {}) {
+  requireAdmin(user);
+  return institutionLock_(function() {
+    const institution = institucionPorId_(institucionId);
+    if (!institution) return { success: false, error: 'Institución no encontrada.' };
+    const fields = validarAutoridadInstitucion_(autoridad);
+    const id = generateId('AUT'); const now = new Date().toISOString();
+    const record = Object.assign({ ID: id, InstitucionID: institution.ID }, fields, {
+      CreadoPor: user.Username, CreadoEn: now, ActualizadoPor: user.Username, ActualizadoEn: now, ArchivadoPor: '', ArchivadoEn: '',
+    });
+    const sheet = getSheet('AutoridadesInstitucion');
+    appendRegistroInstitucionalAuditado_(sheet, SHEET_HEADERS.AutoridadesInstitucion,
+      SHEET_HEADERS.AutoridadesInstitucion.map(function(header) { return record[header] || ''; }),
+      user, 'autoridad', id, 'creada', {}, { institucionId: institution.ID, cargo: record.Cargo, nombre: record.Nombre });
+    return { success: true, id: id };
+  });
+}
+
+function updateAutoridadInstitucion(user, { id, autoridad } = {}) {
+  requireAdmin(user);
+  return institutionLock_(function() {
+    const sheet = getSheet('AutoridadesInstitucion');
+    const current = sheetToObjects(sheet).find(function(item) { return item.ID === id; });
+    if (!current) return { success: false, error: 'Autoridad no encontrada.' };
+    const fields = validarAutoridadInstitucion_(autoridad);
+    const before = { Nombre: current.Nombre, Cargo: current.Cargo, Estado: current.Estado,
+      FirmaConvenios: current.FirmaConvenios, FirmaCertificados: current.FirmaCertificados };
+    const now = new Date().toISOString();
+    const updates = Object.assign({}, fields, { ActualizadoPor: user.Username, ActualizadoEn: now,
+      ...(fields.Estado === 'activo' ? { ArchivadoPor: '', ArchivadoEn: '' } : {}) });
+    actualizarRegistroInstitucionalAuditado_(sheet, current, updates, user, 'autoridad', id, 'actualizada', before,
+      { Nombre: fields.Nombre, Cargo: fields.Cargo, Estado: fields.Estado,
+        FirmaConvenios: fields.FirmaConvenios, FirmaCertificados: fields.FirmaCertificados });
+    return { success: true };
+  });
+}
+
+function archivarAutoridadInstitucion(user, { id, confirmacion } = {}) {
+  requireAdmin(user);
+  if (confirmacion !== 'ARCHIVAR_AUTORIDAD') return { success: false, error: 'Confirme el archivado de la autoridad.' };
+  return institutionLock_(function() {
+    const sheet = getSheet('AutoridadesInstitucion');
+    const current = sheetToObjects(sheet).find(function(item) { return item.ID === id; });
+    if (!current) return { success: false, error: 'Autoridad no encontrada.' };
+    const now = new Date().toISOString();
+    actualizarRegistroInstitucionalAuditado_(sheet, current, { Estado: 'inactivo', ArchivadoPor: user.Username, ArchivadoEn: now,
+      ActualizadoPor: user.Username, ActualizadoEn: now }, user, 'autoridad', id, 'archivada',
+      { Estado: current.Estado }, { Estado: 'inactivo' });
+    return { success: true };
+  });
+}
+
+function carpetaArchivosInstitucionales_() {
+  const properties = PropertiesService.getScriptProperties();
+  const configuredId = String(properties.getProperty('INSTITUTIONAL_FILES_FOLDER_ID') || '').trim();
+  if (configuredId) return DriveApp.getFolderById(configuredId);
+  const folder = DriveApp.createFolder('R.A. Training Finance - Archivos institucionales privados');
+  properties.setProperty('INSTITUTIONAL_FILES_FOLDER_ID', folder.getId());
+  return folder;
+}
+
+function byteInstitucion_(bytes, index) { return (bytes[index] || 0) & 255; }
+
+function dimensionesImagenInstitucion_(bytes, mime) {
+  if (mime === 'image/png' && bytes.length >= 24
+      && [137,80,78,71,13,10,26,10].every(function(value, index) { return byteInstitucion_(bytes, index) === value; })) {
+    const read = function(start) { return byteInstitucion_(bytes, start) * 16777216 + byteInstitucion_(bytes, start + 1) * 65536 + byteInstitucion_(bytes, start + 2) * 256 + byteInstitucion_(bytes, start + 3); };
+    if (String.fromCharCode(byteInstitucion_(bytes, 12), byteInstitucion_(bytes, 13), byteInstitucion_(bytes, 14), byteInstitucion_(bytes, 15)) !== 'IHDR') return null;
+    return { width: read(16), height: read(20) };
+  }
+  if (mime !== 'image/jpeg' || byteInstitucion_(bytes, 0) !== 255 || byteInstitucion_(bytes, 1) !== 216) return null;
+  const sof = { 192: true, 193: true, 194: true, 195: true, 197: true, 198: true, 199: true, 201: true, 202: true, 203: true, 205: true, 206: true, 207: true };
+  let offset = 2;
+  while (offset + 8 < bytes.length) {
+    if (byteInstitucion_(bytes, offset) !== 255) { offset += 1; continue; }
+    while (offset < bytes.length && byteInstitucion_(bytes, offset) === 255) offset += 1;
+    const marker = byteInstitucion_(bytes, offset++);
+    if (marker === 217 || marker === 218) break;
+    const length = byteInstitucion_(bytes, offset) * 256 + byteInstitucion_(bytes, offset + 1);
+    if (length < 2 || offset + length > bytes.length) return null;
+    if (sof[marker]) return { height: byteInstitucion_(bytes, offset + 3) * 256 + byteInstitucion_(bytes, offset + 4),
+      width: byteInstitucion_(bytes, offset + 5) * 256 + byteInstitucion_(bytes, offset + 6) };
+    offset += length;
+  }
+  return null;
+}
+
+function decodificarArchivoInstitucional_(file, purpose) {
+  const source = file || {};
+  const mime = String(source.mimeType || '').trim().toLowerCase();
+  let base64 = String(source.base64 || '').trim();
+  const dataUrl = base64.match(/^data:([^;,]+);base64,([A-Za-z0-9+/]+=*)$/i);
+  if (dataUrl) { base64 = dataUrl[2]; if (!mime) source.mimeType = dataUrl[1].toLowerCase(); }
+  const resolvedMime = String(source.mimeType || mime).toLowerCase();
+  if (!base64 || !/^[A-Za-z0-9+/]+={0,2}$/.test(base64)) throw new Error('El archivo no tiene contenido Base64 válido.');
+  const image = purpose === 'asset' || purpose === 'signature';
+  const allowed = image ? ['image/png', 'image/jpeg'] : ['application/pdf'];
+  if (allowed.indexOf(resolvedMime) === -1) throw new Error(image ? 'Use una imagen PNG o JPG. No se admiten SVG ni archivos ejecutables.' : 'El documento debe ser PDF.');
+  const maxBytes = image ? 8 * 1024 * 1024 : 15 * 1024 * 1024;
+  if (base64.length > Math.ceil(maxBytes * 4 / 3) + 8) throw new Error(image ? 'La imagen supera el límite de 8 MB.' : 'El PDF supera el límite de 15 MB.');
+  const bytes = Utilities.base64Decode(base64);
+  if (!bytes.length || bytes.length > maxBytes) throw new Error(image ? 'La imagen supera el límite de 8 MB.' : 'El PDF supera el límite de 15 MB.');
+  if (image) {
+    const dimensions = dimensionesImagenInstitucion_(bytes, resolvedMime);
+    if (!dimensions || dimensions.width < 1 || dimensions.height < 1 || dimensions.width > 12000 || dimensions.height > 12000
+        || dimensions.width * dimensions.height > 60000000) throw new Error('La imagen está dañada o sus dimensiones exceden el límite permitido (12 000 px por lado, 60 MP).');
+    if (purpose === 'signature' && (dimensions.width < 100 || dimensions.height < 25)) {
+      throw new Error('La imagen de firma debe tener al menos 100 × 25 píxeles.');
+    }
+  } else if (String.fromCharCode(byteInstitucion_(bytes, 0), byteInstitucion_(bytes, 1), byteInstitucion_(bytes, 2), byteInstitucion_(bytes, 3), byteInstitucion_(bytes, 4)) !== '%PDF-') {
+    throw new Error('El contenido no corresponde a un PDF válido.');
+  }
+  const safeName = String(source.nombreArchivo || (image ? 'recurso-institucional' : 'documento-institucional'))
+    .replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').slice(0, 140);
+  return { bytes: bytes, base64: base64, mime: resolvedMime, name: safeName, size: bytes.length };
+}
+
+function cargarArchivoInstitucional_(file, purpose, institutionId, authorityId, linkId) {
+  const decoded = decodificarArchivoInstitucional_(file, purpose);
+  const hash = sha256BytesCertificado_(decoded.bytes);
+  const blob = Utilities.newBlob(decoded.bytes, decoded.mime, decoded.name);
+  const driveFile = carpetaArchivosInstitucionales_().createFile(blob);
+  try { driveFile.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE); } catch (err) { /* privado por defecto */ }
+  return { decoded: decoded, sha256: hash, driveFile: driveFile, linkId: linkId || '' };
+}
+
+function addActivoInstitucion(user, { institucionId, autoridadId, tipo, archivo } = {}) {
+  requireAdmin(user);
+  return institutionLock_(function() {
+    const institution = institucionPorId_(institucionId);
+    if (!institution) return { success: false, error: 'Institución no encontrada.' };
+    const assetType = String(tipo || '').trim().toLowerCase();
+    if (['firma', 'logo', 'sello'].indexOf(assetType) === -1) throw new Error('Seleccione firma, logotipo o sello.');
+    let authority = null;
+    if (assetType === 'firma') {
+      authority = autoridadPorId_(autoridadId);
+      if (!authority || authority.InstitucionID !== institution.ID || authority.Estado !== 'activo') {
+        throw new Error('Seleccione una autoridad activa de esta institución para asociar la firma.');
+      }
+    } else if (autoridadId) throw new Error('El logotipo y el sello pertenecen a la institución, no a una autoridad.');
+    const stored = cargarArchivoInstitucional_(archivo, assetType === 'firma' ? 'signature' : 'asset', institution.ID, autoridadId, '');
+    try {
+      const sheet = getSheet('ActivosInstitucionales');
+      const rows = sheetToObjects(sheet);
+      const same = rows.filter(function(item) {
+        return item.InstitucionID === institution.ID && item.Tipo === assetType
+          && String(item.AutoridadID || '') === String(autoridadId || '');
+      });
+      const version = same.reduce(function(max, item) { return Math.max(max, Number(item.Version) || 0); }, 0) + 1;
+      same.filter(function(item) { return item.Estado === 'activo'; }).forEach(function(item) {
+        updateRow(sheet, item, { Estado: 'reemplazado' });
+      });
+      const id = generateId('AST'); const now = new Date().toISOString();
+      const record = { ID: id, InstitucionID: institution.ID, AutoridadID: autoridadId || '', Tipo: assetType,
+        NombreArchivo: stored.decoded.name, MimeType: stored.decoded.mime, DriveFileID: stored.driveFile.getId(),
+        Sha256: stored.sha256, TamanoBytes: stored.decoded.size, Version: version, Estado: 'activo',
+        CreadoPor: user.Username, CreadoEn: now };
+      appendRowPreservandoTexto_(sheet, SHEET_HEADERS.ActivosInstitucionales,
+        SHEET_HEADERS.ActivosInstitucionales.map(function(header) { return record[header] || ''; }));
+      try {
+        registrarAuditoriaInstitucion_(user, 'activo', id, 'cargado', {}, { institucionId: institution.ID, tipo: assetType, autoridadId: autoridadId || '', sha256: stored.sha256, version: version });
+      } catch (auditError) {
+        const current = sheetToObjects(sheet).find(function(item) { return item.ID === id; });
+        if (current) sheet.deleteRow(current._row);
+        same.filter(function(item) { return item.Estado === 'activo'; }).forEach(function(item) { updateRow(sheet, item, { Estado: 'activo' }); });
+        stored.driveFile.setTrashed(true);
+        throw auditError;
+      }
+      return { success: true, id: id, version: version, sha256: stored.sha256 };
+    } catch (err) {
+      try { stored.driveFile.setTrashed(true); } catch (cleanupError) { /* preserve original error */ }
+      throw err;
     }
   });
-  sheetToObjects(getSheet('Inscripciones')).forEach(function(i) {
-    if (esVerdadero(i.RequiereAvalExterno) && String(i.InstitucionAval || '').trim()) {
-      instituciones.push(String(i.InstitucionAval).trim());
+}
+
+function addDocumentoInstitucion(user, { institucionId, convenioId, tipo, fechaDocumento, notas, archivo } = {}) {
+  requireAdmin(user);
+  return institutionLock_(function() {
+    const institution = institucionPorId_(institucionId);
+    if (!institution) return { success: false, error: 'Institución no encontrada.' };
+    const documentType = String(tipo || '').trim().toLowerCase();
+    if (['convenio', 'resolucion', 'aval', 'anexo', 'otro'].indexOf(documentType) === -1) throw new Error('Seleccione el tipo de documento.');
+    const linkedAgreementId = String(convenioId || '').trim();
+    if (linkedAgreementId) {
+      const agreement = sheetToObjects(getSheet('Convenios')).find(function(item) { return item.ID === linkedAgreementId; });
+      if (!agreement || agreement.InstitucionID !== institution.ID) throw new Error('El convenio no pertenece a la institución seleccionada.');
     }
+    const documentDate = String(fechaDocumento || '').trim();
+    if (documentDate && !/^\d{4}-\d{2}-\d{2}$/.test(documentDate)) throw new Error('La fecha del documento no es válida.');
+    const stored = cargarArchivoInstitucional_(archivo, 'document', institution.ID, '', linkedAgreementId);
+    try {
+      const id = generateId('DOC'); const now = new Date().toISOString();
+      const record = { ID: id, InstitucionID: institution.ID, ConvenioID: linkedAgreementId, Tipo: documentType,
+        NombreArchivo: stored.decoded.name, MimeType: stored.decoded.mime, DriveFileID: stored.driveFile.getId(),
+        Sha256: stored.sha256, TamanoBytes: stored.decoded.size, FechaDocumento: documentDate,
+        Notas: String(notas || '').trim().slice(0, 1000), Estado: 'activo', CreadoPor: user.Username, CreadoEn: now };
+      const sheet = getSheet('DocumentosInstitucionales');
+      appendRowPreservandoTexto_(sheet, SHEET_HEADERS.DocumentosInstitucionales,
+        SHEET_HEADERS.DocumentosInstitucionales.map(function(header) { return record[header] || ''; }));
+      try {
+        registrarAuditoriaInstitucion_(user, 'documento', id, 'cargado', {}, { institucionId: institution.ID, convenioId: linkedAgreementId, tipo: documentType, sha256: stored.sha256 });
+      } catch (auditError) {
+        const current = sheetToObjects(sheet).find(function(item) { return item.ID === id; });
+        if (current) sheet.deleteRow(current._row);
+        stored.driveFile.setTrashed(true);
+        throw auditError;
+      }
+      return { success: true, id: id, sha256: stored.sha256 };
+    } catch (err) {
+      try { stored.driveFile.setTrashed(true); } catch (cleanupError) { /* preserve original error */ }
+      throw err;
+    }
+  });
+}
+
+function getArchivoInstitucionPrivado(user, { id } = {}) {
+  requireAdmin(user);
+  const target = String(id || '').trim();
+  const asset = sheetToObjects(getSheet('ActivosInstitucionales')).find(function(item) { return item.ID === target; });
+  const document = asset ? null : sheetToObjects(getSheet('DocumentosInstitucionales')).find(function(item) { return item.ID === target; });
+  const record = asset || document;
+  if (!record || !record.DriveFileID) return { success: false, error: 'Archivo institucional no encontrado.' };
+  try {
+    const blob = DriveApp.getFileById(record.DriveFileID).getBlob();
+    const bytes = blob.getBytes();
+    if (sha256BytesCertificado_(bytes) !== record.Sha256) throw new Error('La huella del archivo no coincide.');
+    return { success: true, data: { base64: Utilities.base64Encode(bytes), mimeType: record.MimeType,
+      nombreArchivo: record.NombreArchivo, sha256: record.Sha256 } };
+  } catch (err) { return { success: false, error: 'No se pudo leer el archivo privado o validar su integridad.' }; }
+}
+
+function getInstitucionesAval(user) {
+  if (!isVendedor(user)) throw new Error('Acceso denegado.');
+  if (isAval(user) && !isAdmin(user)) {
+    const ownOptions = getOpcionesInstitucionesMaestras(user);
+    return { success: true, data: (ownOptions.data || []).map(function(item) { return item.Nombre; }) };
+  }
+  const instituciones = [];
+  sheetToObjects(getSheet('Instituciones')).forEach(function(row) {
+    if (row.Estado === 'activo' && String(row.Nombre || '').trim()) instituciones.push(String(row.Nombre).trim());
+  });
+  sheetToObjects(getSheet('Usuarios')).forEach(function(u) {
+    if (u.Rol === 'aval' && esVerdadero(u.Activo) && String(u.InstitucionAval || '').trim()) instituciones.push(String(u.InstitucionAval).trim());
+  });
+  sheetToObjects(getSheet('Inscripciones')).forEach(function(i) {
+    if (esVerdadero(i.RequiereAvalExterno) && String(i.InstitucionAval || '').trim()) instituciones.push(String(i.InstitucionAval).trim());
   });
   const unicas = [];
   instituciones.sort().forEach(function(nombre) {
-    if (!unicas.some(function(actual) { return mismaInstitucionAval(actual, nombre); })) unicas.push(nombre);
+    if (!unicas.some(function(actual) { return normalizarClaveInstitucion_(actual) === normalizarClaveInstitucion_(nombre); })) unicas.push(nombre);
   });
   return { success: true, data: unicas };
 }
@@ -4288,17 +5792,92 @@ function entregableAvalActual_(inscripcionId, rows) {
     })[0] || null;
 }
 
+/**
+ * Valida el pago adicional AVAL_UPGRADE contra la compra institucional padre y
+ * la misma raíz académica. No confía en flags enviados desde el navegador.
+ */
+function validarUpgradeAvalVerificadoParaInscripcion_(inscripcion) {
+  const purchases = sheetToObjects(getSheet('CRMCompras'));
+  const inscriptionId = String(inscripcion && inscripcion.ID || '');
+  const upgrades = purchases.filter(function(item) {
+    return String(item.FinanceInscripcionID || '') === inscriptionId && item.OfferType === 'AVAL_UPGRADE';
+  });
+  if (!upgrades.length) return { exists: false, success: false, error: 'No existe una compra AVAL_UPGRADE vinculada a esta inscripción.' };
+
+  const compatible = upgrades.filter(function(upgrade) {
+    if (upgrade.PaymentStatus !== 'verificado' || !upgrade.ParentCRMOrderID) return false;
+    const parent = purchases.find(function(item) { return String(item.CRMOrderID || '') === String(upgrade.ParentCRMOrderID); });
+    if (!parent || parent.OfferType !== 'INSTITUTIONAL' || parent.PaymentStatus !== 'verificado'
+        || String(parent.FinanceInscripcionID || '') !== inscriptionId
+        || String(upgrade.FinanceInscripcionID || '') !== String(parent.FinanceInscripcionID || '')
+        || String(upgrade.CRMEnrollmentID || '') !== String(parent.CRMEnrollmentID || '')
+        || String(upgrade.CRMContactID || '') !== String(parent.CRMContactID || '')
+        || String(upgrade.CRMCourseID || '') !== String(parent.CRMCourseID || '')) return false;
+    return ['CRMEnrollmentID', 'CRMContactID', 'CRMCourseID'].every(function(field) {
+      return !String(inscripcion[field] || '').trim()
+        || String(inscripcion[field]) === String(upgrade[field] || '');
+    });
+  }).sort(function(a, b) { return String(b.FechaVerificacionPago || '').localeCompare(String(a.FechaVerificacionPago || '')); });
+
+  if (!compatible.length) {
+    return { exists: true, success: false, error: 'El pago del upgrade de aval debe estar verificado y vinculado a la compra institucional y a la misma inscripción.' };
+  }
+  const upgrade = compatible[0];
+  const parent = purchases.find(function(item) { return String(item.CRMOrderID || '') === String(upgrade.ParentCRMOrderID); });
+  return { exists: true, success: true, data: { upgrade: upgrade, parent: parent } };
+}
+
+function resumenCertificadoNormalParaAval_(inscripcion, user) {
+  if (!inscripcion || !inscripcion.ID) return null;
+  const resolved = resolverCertificadoAdministrativo(inscripcion.ID, user);
+  if (!resolved) return null;
+  const status = estadoNormalizadoCertificado(resolved.certificado);
+  if (['emitido', 'enviado'].indexOf(status) === -1) return null;
+  let versions = sheetToObjects(getSheet('Certificados')).filter(function(item) {
+    return String(item.InscripcionID || '') === String(inscripcion.ID);
+  });
+  if (!versions.length && certificadoProtegidoContraEliminacion(inscripcion)) {
+    versions = [certificadoHistoricoDesdeInscripcion(inscripcion)];
+  }
+  versions.sort(function(a, b) { return (Number(b.CertificateVersion) || 1) - (Number(a.CertificateVersion) || 1); });
+  return {
+    ID: resolved.certificado.ID || inscripcion.ID,
+    CodigoCertificado: resolved.certificado.CodigoCertificado || inscripcion.CodigoCertificado || '',
+    CertificateStatus: status,
+    CertificateVersion: Number(resolved.certificado.CertificateVersion) || 1,
+    IssuedAt: resolved.certificado.IssuedAt || inscripcion.FechaEmisionCertificado || '',
+    PdfArchived: Boolean(resolved.certificado.PdfHash && resolved.certificado.PdfStorageReference),
+    VersionHistory: versions.map(function(item) {
+      return {
+        id: item.ID || inscripcion.ID,
+        codigo: item.CodigoCertificado || '',
+        version: Number(item.CertificateVersion) || 1,
+        estado: estadoNormalizadoCertificado(item),
+        issuedAt: item.IssuedAt || item.CertificatePreparedAt || '',
+        issuedBy: item.IssuedBy || '',
+        reason: item.ReissueReason || item.VoidReason || '',
+        pdfArchived: Boolean(item.PdfHash && item.PdfStorageReference),
+      };
+    }),
+  };
+}
+
 function getCertificadosAval(user, { filtros = {} } = {}) {
   if (!isAval(user) && !isAdmin(user)) throw new Error('Acceso denegado.');
   const entregables = isAdmin(user) ? sheetToObjects(getSheet('EntregablesAval')) : [];
   let data = sheetToObjects(getSheet('Inscripciones'))
     .filter(function(i) { return esVerdadero(i.RequiereAvalExterno); });
-  if (isAval(user)) {
-    const institucionUsuario = institucionAvalDelUsuario(user);
-    if (!institucionUsuario) {
+  if (isAval(user) && !isAdmin(user)) {
+    const assignedId = institucionAvalIdDelUsuario_(user);
+    const assignedName = institucionAvalDelUsuario(user);
+    if (!assignedId && !assignedName) {
       return { success: false, error: 'Su usuario de aval no tiene una institución asignada. Solicite la configuración al administrador.' };
     }
-    data = data.filter(function(i) { return mismaInstitucionAval(i.InstitucionAval, institucionUsuario); });
+    data = data.filter(function(i) {
+      if (assignedId) return String(i.InstitucionID || '') === assignedId;
+      // Legacy fallback is deliberately limited to records without canonical IDs.
+      return !String(i.InstitucionID || '').trim() && mismaInstitucionAval(i.InstitucionAval, assignedName);
+    });
   }
   if (filtros.estadoAval) {
     data = data.filter(function(i) { return (i.EstadoAval || 'pendiente') === filtros.estadoAval; });
@@ -4310,10 +5889,27 @@ function getCertificadosAval(user, { filtros = {} } = {}) {
   // fecha del curso — un curso futuro no deberia "esconder" lo recien creado).
   data.sort(function(a, b) { return new Date(b.FechaCreacion || 0) - new Date(a.FechaCreacion || 0); });
   const duracionDe = mapaDuracionServicios();
+  // Esta función se ejecuta de forma independiente de getInscripciones: cargar
+  // sus propios mapas evita depender de variables locales de otros endpoints.
+  const agreements = sheetToObjects(getSheet('Convenios'));
+  const agreementById = {};
+  agreements.forEach(function(item) { agreementById[String(item.ID || '')] = item; });
+  const services = sheetToObjects(getSheet('Servicios'));
   // Whitelist explicito — a pedido, incluye cédula y correo del participante;
   // sigue sin exponer monto, RUC, teléfono ni datos de facturación a este rol.
   const out = data.map(function(i) {
     const entrega = isAdmin(user) ? entregableAvalActual_(i.ID, entregables) : null;
+    const normalCertificate = isAdmin(user) ? resumenCertificadoNormalParaAval_(i, user) : null;
+    const upgradeValidation = isAdmin(user) ? validarUpgradeAvalVerificadoParaInscripcion_(i) : null;
+    const agreement = agreementById[String(i.ConvenioID || '')];
+    let estimate = null;
+    if (i.EstadoAval !== 'avalado' && agreement) {
+      const economicRule = resolverConvenioEconomicoAval_(i.ConvenioID, i.InstitucionID);
+      if (economicRule.success) {
+        try { estimate = calcularSnapshotEconomicoAval_(i, agreement, economicRule.data.regla, services); }
+        catch (e) { estimate = null; }
+      }
+    }
     return {
       ID: i.ID,
       ClienteNombre: i.ClienteNombre,
@@ -4325,99 +5921,310 @@ function getCertificadosAval(user, { filtros = {} } = {}) {
       FechaFin: i.FechaFin || '',
       Duracion: duracionDe(i),
       InstitucionAval: i.InstitucionAval || '',
+      InstitucionID: i.InstitucionID || '',
+      ConvenioID: i.ConvenioID || '',
+      ConvenioObjeto: agreement ? agreement.Objeto || '' : '',
+      AvalConvenioID: i.AvalConvenioID || '',
+      AvalEstimacion: estimate,
       EstadoAval: i.EstadoAval || 'pendiente',
       AvalReferencia: i.AvalReferencia || '',
       AvalEnlaceExterno: i.AvalEnlaceExterno || '',
       AvalCodigoExterno: i.AvalCodigoExterno || '',
       FechaAval: i.FechaAval || '',
-      ValorAval: Number(i.ValorAval) || 0,
+      AvalBaseTipoAplicado: i.AvalBaseTipoAplicado || '',
+      AvalMontoBase: i.AvalMontoBase === '' || i.AvalMontoBase === undefined ? '' : Number(i.AvalMontoBase),
+      AvalPorcentajeAplicado: i.AvalPorcentajeAplicado === '' || i.AvalPorcentajeAplicado === undefined ? '' : Number(i.AvalPorcentajeAplicado),
+      AvalMontoCalculado: i.AvalMontoCalculado === '' || i.AvalMontoCalculado === undefined ? '' : Number(i.AvalMontoCalculado),
+      AvalConfirmadoPor: i.AvalConfirmadoPor || '',
+      // Do not reconstruct economics for old confirmations; keep the old recorded amount and label it.
+      AvalLegacy: i.EstadoAval === 'avalado' && (!i.AvalBaseTipoAplicado || i.AvalMontoBase === ''
+        || i.AvalMontoBase === undefined || i.AvalPorcentajeAplicado === '' || i.AvalPorcentajeAplicado === undefined
+        || i.AvalMontoCalculado === '' || i.AvalMontoCalculado === undefined),
+      ValorAval: i.EstadoAval === 'avalado'
+        ? (i.AvalMontoCalculado !== '' && i.AvalMontoCalculado !== undefined
+          ? Number(i.AvalMontoCalculado) || 0 : Number(i.ValorAval) || 0)
+        : 0,
       // Contexto comercial CRM -- no sensible, ayuda al revisor de aval. Vacio para
       // registros sin oferta comercial (legacy o CRM sin compra asociada).
       CRMOfferType: i.CRMOfferType || '',
       CRMCompletionStatus: i.CRMCompletionStatus || '',
+      CertificadoNormal: normalCertificate,
+      AvalUpgradeVerificado: Boolean(upgradeValidation && upgradeValidation.success),
+      AvalUpgradeCRMOrderID: upgradeValidation && upgradeValidation.success
+        ? String(upgradeValidation.data.upgrade.CRMOrderID || '') : '',
+      PuedeConfigurarAvalPosterior: Boolean(isAdmin(user) && normalCertificate
+        && upgradeValidation && upgradeValidation.success && esVerdadero(i.RequiereAvalExterno)
+        && i.EstadoAval !== 'avalado' && !i.InstitucionID && !i.ConvenioID
+        && !i.AvalInstitucionID && !i.AvalConvenioID && !entrega),
       EntregableAval: entrega ? {
         ID: entrega.ID || '', CodigoCertificado: entrega.CodigoCertificado || '',
         CertificateStatus: entrega.CertificateStatus || '', EstadoEntregaFinal: entrega.EstadoEntregaFinal || '',
         PdfHash: entrega.PdfHash || '', IssuedAt: entrega.IssuedAt || '',
         CertificateVersion: Number(entrega.CertificateVersion) || 1,
+        TemplateVersion: entrega.TemplateVersion || '',
+        VersionHistory: isAdmin(user) ? entregables.filter(function(item) { return item.InscripcionID === i.ID; })
+          .sort(function(a, b) { return (Number(b.CertificateVersion) || 0) - (Number(a.CertificateVersion) || 0); })
+          .map(function(item) { return { id: item.ID, version: Number(item.CertificateVersion) || 1,
+            codigo: item.CodigoCertificado || '', estado: estadoNormalizadoCertificado(item),
+            templateVersion: item.TemplateVersion || '', issuedAt: item.IssuedAt || item.CertificatePreparedAt || '',
+            issuedBy: item.IssuedBy || '', reason: item.ReissueReason || '',
+            pdfArchived: Boolean(item.PdfHash && String(item.PdfStorageReference || '').indexOf('certificate-drive:') === 0) }; }) : [],
       } : null,
     };
   });
   return { success: true, data: out };
 }
 
+/**
+ * Vincula, una sola vez, un upgrade CRM pagado con la institución/convenio que
+ * gestionará el aval posterior a un certificado normal ya emitido. La edición
+ * genérica del certificado emitido sigue bloqueada; este flujo no toca el PDF,
+ * código, firma, estado ni snapshot del documento normal.
+ */
+function configurarAvalPosteriorCertificado(user, { id, institucionId, convenioId, confirmacion } = {}) {
+  requireCertificateAdmin(user, 'POST_ISSUE_AVAL_CONFIGURED', { inscripcionId: id, canal: 'panel_aval' });
+  if (confirmacion !== 'CONFIGURAR_AVAL_POSTERIOR') {
+    return { success: false, error: 'Confirme explícitamente la configuración del aval posterior.' };
+  }
+  return conBloqueoCertificados(function() {
+    const idInscripcion = String(id || '').trim();
+    const sheet = getSheet('Inscripciones');
+    const row = sheetToObjects(sheet).find(function(item) { return String(item.ID || '') === idInscripcion; });
+    if (!row) return { success: false, error: 'No se encontró la inscripción vinculada.' };
+    if (!esVerdadero(row.RequiereAvalExterno) || row.EstadoAval === 'avalado') {
+      return { success: false, error: 'Esta inscripción no tiene un aval posterior pendiente de configuración.' };
+    }
+    const upgrade = validarUpgradeAvalVerificadoParaInscripcion_(row);
+    if (!upgrade.success) return { success: false, error: upgrade.error };
+    const normalCertificate = resumenCertificadoNormalParaAval_(row, user);
+    if (!normalCertificate) return { success: false, error: 'Primero debe existir un certificado normal emitido y vigente.' };
+    if (String(row.AvalInstitucionID || '').trim() || String(row.AvalConvenioID || '').trim()) {
+      return { success: false, error: 'Ya existe un aval confirmado vinculado; su institución no puede cambiarse desde esta acción.' };
+    }
+    if (String(row.AvalReferencia || '').trim() || String(row.AvalEnlaceExterno || '').trim()
+        || String(row.AvalCodigoExterno || '').trim() || Number(row.ValorAval || 0) !== 0) {
+      return { success: false, error: 'El registro conserva datos previos de aval pendientes de revisión. No se sobrescribieron.' };
+    }
+    const existingDeliverable = sheetToObjects(getSheet('EntregablesAval')).filter(function(item) {
+      return String(item.InscripcionID || '') === idInscripcion;
+    });
+    if (existingDeliverable.length) {
+      return { success: false, error: 'Ya existe un documento de aval asociado. Revise su historial; no se creó ni reemplazó otro.' };
+    }
+
+    const institutionResult = resolverInstitucionMaestra_(institucionId);
+    if (!institutionResult.success) return institutionResult;
+    const agreementResult = resolverConvenioEconomicoAval_(convenioId, institutionResult.data.ID);
+    if (!agreementResult.success) return agreementResult;
+    try {
+      calcularSnapshotEconomicoAval_(row, agreementResult.data.convenio, agreementResult.data.regla, sheetToObjects(getSheet('Servicios')));
+    } catch (error) {
+      return { success: false, error: error.message || 'No se pudo validar la regla económica del convenio.' };
+    }
+
+    const institution = institutionResult.data;
+    const fields = {
+      RequiereAvalExterno: true,
+      EstadoAval: 'pendiente',
+      InstitucionID: institution.ID,
+      ConvenioID: agreementResult.data.convenio.ID,
+      InstitucionAval: String(institution.Nombre || '').trim(),
+    };
+    const sameConfiguration = String(row.InstitucionID || '') === String(fields.InstitucionID)
+      && String(row.ConvenioID || '') === String(fields.ConvenioID)
+      && String(row.InstitucionAval || '') === String(fields.InstitucionAval)
+      && esVerdadero(row.RequiereAvalExterno) && row.EstadoAval === 'pendiente';
+    if (sameConfiguration) return { success: true, alreadyConfigured: true, data: { institutionName: fields.InstitucionAval } };
+    if (String(row.InstitucionID || '').trim() || String(row.ConvenioID || '').trim()) {
+      return { success: false, error: 'El aval ya tiene una institución/convenio asignado. No se cambió su configuración.' };
+    }
+
+    const before = {};
+    Object.keys(fields).forEach(function(field) {
+      before[field] = row._raw && tienePropiedad(row._raw, field) ? row._raw[field] : row[field];
+    });
+    updateRow(sheet, row, fields);
+    const updated = sheetToObjects(sheet).find(function(item) { return String(item.ID || '') === idInscripcion; });
+    if (!updated || !camposPersistidosCoinciden(updated, fields)) {
+      updateRow(sheet, updated || row, before);
+      return { success: false, error: 'No se pudo verificar el vínculo de institución y convenio. Se restauraron los datos anteriores.' };
+    }
+    try {
+      registrarAuditoriaCertificado({
+        certificadoId: normalCertificate.CodigoCertificado,
+        inscripcionId: idInscripcion,
+        usuario: user.Username,
+        rol: user.Rol,
+        accion: 'POST_ISSUE_AVAL_CONFIGURED',
+        estadoAnterior: 'certificado_normal_emitido / aval_sin_configurar',
+        estadoNuevo: 'certificado_normal_conservado / aval_pendiente',
+        canal: 'panel_aval',
+        resultado: 'ok',
+        metadatos: {
+          normalDocumentId: normalCertificate.ID,
+          normalCertificateCode: normalCertificate.CodigoCertificado,
+          normalVersion: normalCertificate.CertificateVersion,
+          upgradeCrmOrderId: upgrade.data.upgrade.CRMOrderID,
+          parentCrmOrderId: upgrade.data.parent.CRMOrderID,
+          institutionId: institution.ID,
+          agreementId: agreementResult.data.convenio.ID,
+        },
+      });
+    } catch (error) {
+      updateRow(sheet, updated, before);
+      throw error;
+    }
+    return { success: true, alreadyConfigured: false, data: { institutionName: fields.InstitucionAval } };
+  });
+}
+
 function marcarAval(user, { id, avalReferencia, valorAval, avalEnlaceExterno, avalCodigoExterno } = {}) {
   if (!isAval(user) && !isAdmin(user)) throw new Error('Acceso denegado.');
   return conBloqueoCertificados(function() {
-  const sheet = getSheet('Inscripciones');
-  const row   = sheetToObjects(sheet).find(function(r) { return r.ID === id; });
-  if (!row) return { success: false, error: 'Registro no encontrado.' };
-  if (!esVerdadero(row.RequiereAvalExterno)) {
-    return { success: false, error: 'Este registro no requiere aval externo.' };
-  }
-  if (isAval(user)) {
-    const institucionUsuario = institucionAvalDelUsuario(user);
-    if (!institucionUsuario || !mismaInstitucionAval(row.InstitucionAval, institucionUsuario)) {
+    if (valorAval !== undefined) return { success: false, error: 'El valor del aval se calcula en el servidor; no envíe un monto manual.' };
+    const sheet = getSheet('Inscripciones');
+    const row = sheetToObjects(sheet).find(function(r) { return r.ID === id; });
+    if (!row) return { success: false, error: 'Registro no encontrado.' };
+    if (!esVerdadero(row.RequiereAvalExterno)) return { success: false, error: 'Este registro no requiere aval externo.' };
+    if (!usuarioPuedeGestionarAvalDeInscripcion_(user, row)) {
       return { success: false, error: 'No está autorizado para gestionar certificados de otra institución.' };
     }
-  }
-  if (valorAval !== undefined && (!isFinite(Number(valorAval)) || Number(valorAval) < 0)) {
-    return { success: false, error: 'Ingrese un valor de aval válido.' };
-  }
-  const referencia = avalReferencia !== undefined ? String(avalReferencia || '').trim() : String(row.AvalReferencia || '').trim();
-  const enlace = avalEnlaceExterno !== undefined ? String(avalEnlaceExterno || '').trim() : String(row.AvalEnlaceExterno || '').trim();
-  const codigo = avalCodigoExterno !== undefined ? String(avalCodigoExterno || '').trim() : String(row.AvalCodigoExterno || '').trim();
-  if (codigo.length > 64 || /[\x00-\x1f\x7f]/.test(codigo)) {
-    return { success: false, error: 'El código externo debe tener hasta 64 caracteres y no contener saltos de línea.' };
-  }
-  if (!referencia && !enlace && !codigo) {
-    return { success: false, error: 'Ingrese al menos una referencia, un código externo o un enlace de validación.' };
-  }
-  if (enlace && !/^https?:\/\//i.test(enlace)) {
-    return { success: false, error: 'El enlace externo debe comenzar con http:// o https://.' };
-  }
-  const valor = valorAval !== undefined ? (Number(valorAval) || 0) : (Number(row.ValorAval) || 0);
-  const confirmado = row.EstadoAval === 'avalado';
-  const mismosDatos = confirmado
-    && String(row.AvalReferencia || '').trim() === referencia
-    && String(row.AvalEnlaceExterno || '').trim() === enlace
-    && String(row.AvalCodigoExterno || '').trim() === codigo
-    && (Number(row.ValorAval) || 0) === valor;
-  const entregable = entregableAvalActual_(id);
-  const entregableInmutable = entregable && (entregable.CertificateStatus === 'emitido' || entregable.EstadoEntregaFinal === 'enviado'
-    || String(entregable.PdfHash || '').trim() || String(entregable.PdfStorageReference || '').trim());
-  if (entregableInmutable && !mismosDatos) {
-    return { success: false, error: 'El aval ya tiene un entregable emitido o enviado. No se pueden modificar sus datos históricos.' };
-  }
-  if (mismosDatos && entregable) {
-    return { success: true, alreadyConfirmed: true };
-  }
-  updateRow(sheet, row, {
-    EstadoAval: 'avalado',
-    AvalReferencia: referencia,
-    FechaAval: row.FechaAval || new Date().toISOString(),
-    ValorAval: valor,
-    AvalEnlaceExterno: enlace,
-    AvalCodigoExterno: codigo,
+    const referencia = avalReferencia !== undefined ? String(avalReferencia || '').trim() : String(row.AvalReferencia || '').trim();
+    const enlace = avalEnlaceExterno !== undefined ? String(avalEnlaceExterno || '').trim() : String(row.AvalEnlaceExterno || '').trim();
+    const codigo = avalCodigoExterno !== undefined ? String(avalCodigoExterno || '').trim() : String(row.AvalCodigoExterno || '').trim();
+    if (codigo.length > 64 || /[\x00-\x1f\x7f]/.test(codigo)) {
+      return { success: false, error: 'El código externo debe tener hasta 64 caracteres y no contener saltos de línea.' };
+    }
+    if (!referencia && !enlace && !codigo) {
+      return { success: false, error: 'Ingrese al menos una referencia, un código externo o un enlace de validación.' };
+    }
+    if (enlace && !/^https?:\/\//i.test(enlace)) {
+      return { success: false, error: 'El enlace externo debe comenzar con http:// o https://.' };
+    }
+    if (row.EstadoAval === 'avalado') {
+      const same = String(row.AvalReferencia || '').trim() === referencia
+        && String(row.AvalEnlaceExterno || '').trim() === enlace
+        && String(row.AvalCodigoExterno || '').trim() === codigo;
+      if (same) {
+        const legacy = !row.AvalBaseTipoAplicado || row.AvalMontoBase === '' || row.AvalMontoBase === undefined
+          || row.AvalPorcentajeAplicado === '' || row.AvalPorcentajeAplicado === undefined
+          || row.AvalMontoCalculado === '' || row.AvalMontoCalculado === undefined;
+        return { success: true, alreadyConfirmed: true, legacy: legacy, data: {
+          valorAval: !legacy ? Number(row.AvalMontoCalculado) || 0 : Number(row.ValorAval) || 0,
+          baseMonto: legacy ? null : Number(row.AvalMontoBase),
+          porcentajeAplicado: legacy ? null : Number(row.AvalPorcentajeAplicado),
+          baseTipo: legacy ? '' : row.AvalBaseTipoAplicado,
+        } };
+      }
+      return { success: false, error: 'El aval ya está confirmado y sus datos están bloqueados. Solicite a administración una corrección auditada.' };
+    }
+    if (row.EstadoAval && row.EstadoAval !== 'pendiente') {
+      return { success: false, error: 'El estado actual del aval no permite confirmarlo. Solicite revisión administrativa.' };
+    }
+    const institutionId = String(row.InstitucionID || '').trim();
+    const agreementId = String(row.ConvenioID || '').trim();
+    if (!institutionId || !agreementId) {
+      return { success: false, error: 'La inscripción antigua no tiene institución y convenio maestros vinculados. Administración debe revisarla; no se inferirán relaciones históricas.' };
+    }
+    const agreementResult = resolverConvenioEconomicoAval_(agreementId, institutionId);
+    if (!agreementResult.success) return agreementResult;
+    const snapshot = calcularSnapshotEconomicoAval_(row, agreementResult.data.convenio, agreementResult.data.regla);
+    const now = new Date().toISOString();
+    const fields = {
+      EstadoAval: 'avalado', AvalReferencia: referencia, FechaAval: now,
+      ValorAval: snapshot.monto, AvalEnlaceExterno: enlace, AvalCodigoExterno: codigo,
+      AvalInstitucionID: institutionId, AvalConvenioID: agreementId,
+      AvalBaseTipoAplicado: snapshot.baseTipo, AvalMontoBase: snapshot.baseMonto,
+      AvalPorcentajeAplicado: snapshot.porcentaje, AvalMontoCalculado: snapshot.monto,
+      AvalConfirmadoPor: user.Username,
+    };
+    const before = {};
+    Object.keys(fields).forEach(function(field) { before[field] = row._raw && tienePropiedad(row._raw, field) ? row._raw[field] : row[field]; });
+    updateRow(sheet, row, fields);
+    const updated = sheetToObjects(sheet).find(function(item) { return item.ID === id; });
+    if (!updated || !camposPersistidosCoinciden(updated, fields)) {
+      updateRow(sheet, updated || row, before);
+      return { success: false, error: 'No se verificó el registro económico del aval. No se confirmó la operación.' };
+    }
+    try {
+      registrarAuditoriaCertificado({
+        certificadoId: row.CodigoCertificado, inscripcionId: id, usuario: user.Username, rol: user.Rol,
+        accion: 'AVAL_CONFIRMED', estadoAnterior: row.EstadoAval || 'pendiente', estadoNuevo: 'avalado',
+        canal: 'panel_aval', resultado: 'ok', metadatos: {
+          institucionId: institutionId, convenioId: agreementId, baseTipo: snapshot.baseTipo,
+          baseMonto: snapshot.baseMonto, porcentajeAplicado: snapshot.porcentaje,
+          montoCalculado: snapshot.monto, codigoExterno: codigo, confirmadoPor: user.Username, confirmadoEn: now,
+        },
+      });
+    } catch (error) {
+      updateRow(sheet, updated, before);
+      throw error;
+    }
+    // Preparar el registro documental es idempotente y no altera el certificado estándar.
+    let preparationWarning = '';
+    try { prepararEntregableAvalTrasConfirmacion_(updated, user); }
+    catch (error) { preparationWarning = 'El aval y su snapshot quedaron confirmados, pero no se pudo preparar el documento relacionado. Administración debe reintentar la preparación.'; }
+    return { success: true, data: { valorAval: snapshot.monto, baseMonto: snapshot.baseMonto,
+      porcentajeAplicado: snapshot.porcentaje, baseTipo: snapshot.baseTipo }, warning: preparationWarning };
   });
-  registrarAuditoriaCertificado({
-    certificadoId: row.CodigoCertificado,
-    inscripcionId: id,
-    usuario: user.Username,
-    rol: user.Rol,
-    accion: 'AVAL_CONFIRMED',
-    estadoAnterior: row.EstadoAval || 'pendiente',
-    estadoNuevo: 'avalado',
-    canal: 'panel_aval',
-    resultado: 'ok',
-  });
-  // El segundo documento queda preparado también para inscripciones manuales con aval;
-  // nunca duplica ni modifica el certificado ordinario del participante.
-  const filaActualizada = sheetToObjects(sheet).find(function (r) { return r.ID === id; });
-  if (filaActualizada) {
-    prepararEntregableAvalTrasConfirmacion_(filaActualizada, user);
-  }
-  return { success: true };
+}
+
+function corregirAvalConfirmado(user, { id, avalReferencia, avalEnlaceExterno, avalCodigoExterno, motivo, confirmacion } = {}) {
+  requireAdmin(user);
+  if (confirmacion !== 'CORREGIR_AVAL_CONFIRMADO') return { success: false, error: 'Confirme explícitamente la corrección del aval.' };
+  const reason = String(motivo || '').trim();
+  if (reason.length < 10) return { success: false, error: 'Explique el motivo de la corrección (mínimo 10 caracteres).' };
+  return conBloqueoCertificados(function() {
+    const sheet = getSheet('Inscripciones');
+    const row = sheetToObjects(sheet).find(function(item) { return item.ID === id; });
+    if (!row) return { success: false, error: 'Registro no encontrado.' };
+    if (row.EstadoAval !== 'avalado') return { success: false, error: 'Solo se puede corregir un aval ya confirmado.' };
+    const reference = avalReferencia !== undefined ? String(avalReferencia || '').trim() : String(row.AvalReferencia || '').trim();
+    const link = avalEnlaceExterno !== undefined ? String(avalEnlaceExterno || '').trim() : String(row.AvalEnlaceExterno || '').trim();
+    const code = avalCodigoExterno !== undefined ? String(avalCodigoExterno || '').trim() : String(row.AvalCodigoExterno || '').trim();
+    if (code.length > 64 || /[\x00-\x1f\x7f]/.test(code)) return { success: false, error: 'El código externo debe tener hasta 64 caracteres y no contener saltos de línea.' };
+    if (link && !/^https?:\/\//i.test(link)) return { success: false, error: 'El enlace externo debe comenzar con http:// o https://.' };
+    if (!reference && !link && !code) return { success: false, error: 'Conserve al menos una referencia, código o enlace de validación.' };
+    if (reference === String(row.AvalReferencia || '').trim() && link === String(row.AvalEnlaceExterno || '').trim()
+        && code === String(row.AvalCodigoExterno || '').trim()) return { success: false, error: 'No hay cambios que registrar.' };
+    const deliverableSheet = getSheet('EntregablesAval');
+    const deliverable = entregableAvalActual_(id);
+    if (deliverable && (deliverable.CertificateStatus === 'emitido' || deliverable.EstadoEntregaFinal === 'enviado'
+        || deliverable.EstadoEntregaFinal === 'enviando' || String(deliverable.PdfHash || '').trim()
+        || String(deliverable.PdfStorageReference || '').trim())) {
+      return { success: false, error: 'El PDF oficial del aval ya fue emitido o archivado. No se puede alterar su información histórica.' };
+    }
+    const oldEnrollment = { AvalReferencia: row.AvalReferencia || '', AvalEnlaceExterno: row.AvalEnlaceExterno || '', AvalCodigoExterno: row.AvalCodigoExterno || '' };
+    const newEnrollment = { AvalReferencia: reference, AvalEnlaceExterno: link, AvalCodigoExterno: code };
+    updateRow(sheet, row, newEnrollment);
+    let oldDeliverable = null;
+    let newDeliverable = null;
+    if (deliverable) {
+      oldDeliverable = { ReferenciaExterna: deliverable.ReferenciaExterna || '', EnlaceExterno: deliverable.EnlaceExterno || '',
+        CodigoExterno: deliverable.CodigoExterno || '', UpdatedAt: deliverable.UpdatedAt || '' };
+      newDeliverable = { ReferenciaExterna: reference, EnlaceExterno: link, CodigoExterno: code, UpdatedAt: new Date().toISOString() };
+      updateRow(deliverableSheet, deliverable, newDeliverable);
+    }
+    const updated = sheetToObjects(sheet).find(function(item) { return item.ID === id; });
+    const updatedDeliverable = deliverable ? entregableAvalActual_(id) : null;
+    if (!updated || !camposPersistidosCoinciden(updated, newEnrollment)
+        || (deliverable && (!updatedDeliverable || !camposPersistidosCoinciden(updatedDeliverable, newDeliverable)))) {
+      updateRow(sheet, updated || row, oldEnrollment);
+      if (deliverable && oldDeliverable) updateRow(deliverableSheet, updatedDeliverable || deliverable, oldDeliverable);
+      return { success: false, error: 'No se pudo verificar la corrección. Se restauró la información anterior y no se registró el cambio.' };
+    }
+    try {
+      registrarAuditoriaCertificado({
+        certificadoId: row.CodigoCertificado, inscripcionId: id, usuario: user.Username, rol: user.Rol,
+        accion: 'AVAL_CONFIRMED_DATA_CORRECTED', estadoAnterior: 'avalado', estadoNuevo: 'avalado',
+        canal: 'admin_correction', resultado: 'ok', metadatos: { motivo: reason, anterior: oldEnrollment, nuevo: newEnrollment },
+      });
+    } catch (error) {
+      updateRow(sheet, updated || row, oldEnrollment);
+      if (deliverable && oldDeliverable) updateRow(deliverableSheet, updatedDeliverable || deliverable, oldDeliverable);
+      throw error;
+    }
+    return { success: true };
   });
 }
 
@@ -4939,9 +6746,147 @@ function datosEntregableAval_(entregable, inscripcion) {
     CertificateType: servicio ? tipoCertificadoServicio_(servicio.TipoCertificado) : 'aprobacion',
     CertificateSubject: 'institutional_aval', CertificateStatus: entregable.CertificateStatus,
     CodigoCertificado: entregable.CodigoCertificado, CertificateVersion: Number(entregable.CertificateVersion) || 1,
-    TemplateVersion: entregable.TemplateVersion, FechaEmisionCertificado: entregable.IssuedAt,
+    TemplateVersion: entregable.TemplateVersion, FechaEmisionCertificado: entregable.IssuedAt || entregable.CertificatePreparedAt || '',
     PdfHash: entregable.PdfHash || '', PdfStorageReference: entregable.PdfStorageReference || '',
+    InstitutionData: datosInstitucionalesCertificadoAval_(entregable),
   };
+}
+
+function datosInstitucionalesCertificadoAval_(entregable) {
+  if (!entregable || !entregable.CertificateInstitutionId) return null;
+  return {
+    institutionId: entregable.CertificateInstitutionId,
+    agreementId: entregable.CertificateAgreementId || '',
+    name: entregable.CertificateInstitutionName || '',
+    legalName: entregable.CertificateInstitutionLegalName || '',
+    siglas: entregable.CertificateInstitutionSiglas || '',
+    identification: entregable.CertificateInstitutionIdentification || '',
+    identificationType: entregable.CertificateInstitutionIdentificationType || '',
+    city: entregable.CertificateInstitutionCity || '',
+    province: entregable.CertificateInstitutionProvince || '',
+    address: entregable.CertificateInstitutionAddress || '',
+    website: entregable.CertificateInstitutionWebsite || '',
+    authorityId: entregable.CertificateAuthorityId || '',
+    authorityName: entregable.CertificateAuthorityName || '',
+    authorityIdentification: entregable.CertificateAuthorityIdentification || '',
+    authorityIdentificationType: entregable.CertificateAuthorityIdentificationType || '',
+    authorityRole: entregable.CertificateAuthorityRole || '',
+    authorityFunction: entregable.CertificateAuthorityFunction || '',
+    authoritySignatureAssetId: entregable.CertificateAuthoritySignatureAssetId || '',
+    authoritySignatureSha256: entregable.CertificateAuthoritySignatureSha256 || '',
+    logoAssetId: entregable.CertificateInstitutionLogoAssetId || '',
+    logoSha256: entregable.CertificateInstitutionLogoSha256 || '',
+    sealAssetId: entregable.CertificateInstitutionSealAssetId || '',
+    sealSha256: entregable.CertificateInstitutionSealSha256 || '',
+    agreementObject: entregable.CertificateAgreementObject || '',
+    agreementSignedAt: entregable.CertificateAgreementSignedAt || '',
+    resolutionDocumentId: entregable.CertificateResolutionDocumentId || '',
+    resolutionName: entregable.CertificateResolutionName || '',
+    resolutionDate: entregable.CertificateResolutionDate || '',
+    resolutionNotes: entregable.CertificateResolutionNotes || '',
+    managerName: entregable.CertificateManagerName || '',
+    managerTitle: entregable.CertificateManagerTitle || '',
+    managerSignatureSha256: entregable.CertificateManagerSignatureSha256 || '',
+  };
+}
+
+function activoInstitucionalVerificableParaCertificado_(asset) {
+  if (!asset || !asset.DriveFileID || !/^[a-f0-9]{64}$/i.test(String(asset.Sha256 || ''))
+    || ['image/png', 'image/jpeg'].indexOf(String(asset.MimeType || '').toLowerCase()) === -1) return false;
+  try {
+    const blob = DriveApp.getFileById(asset.DriveFileID).getBlob();
+    const bytes = blob.getBytes();
+    return sha256BytesCertificado_(bytes) === String(asset.Sha256 || '').toLowerCase()
+      && String(blob.getContentType() || asset.MimeType).toLowerCase() === String(asset.MimeType).toLowerCase();
+  } catch (error) { return false; }
+}
+
+function resolverSnapshotInstitucionalCertificadoAval_(inscripcion) {
+  const institutionId = String(inscripcion.AvalInstitucionID || '').trim();
+  const agreementId = String(inscripcion.AvalConvenioID || '').trim();
+  if (!institutionId || !agreementId) return { success: false, error: 'El aval confirmado no conserva la institución y el convenio maestros. Administración debe revisar la inscripción; no se inferirán relaciones.' };
+  const institutions = sheetToObjects(getSheet('Instituciones'));
+  const institution = institutions.find(function(item) { return String(item.ID || '') === institutionId; });
+  if (!institution || institution.Estado !== 'activo') return { success: false, error: 'La institución del aval no existe o está inactiva en la ficha maestra.' };
+  const agreement = sheetToObjects(getSheet('Convenios')).find(function(item) {
+    return String(item.ID || '') === agreementId && String(item.InstitucionID || '') === institutionId;
+  });
+  if (!agreement) return { success: false, error: 'El convenio confirmado ya no está disponible o no pertenece a la institución registrada.' };
+
+  const authorities = sheetToObjects(getSheet('AutoridadesInstitucion')).filter(function(item) {
+    return String(item.InstitucionID || '') === institutionId && autoridadInstitucionVigente_(item) && esVerdadero(item.FirmaCertificados);
+  });
+  if (!authorities.length) return { success: false, error: 'No se puede emitir: registre una autoridad institucional vigente y habilítela para firmar certificados.' };
+  if (authorities.length > 1) return { success: false, error: 'Hay más de una autoridad habilitada para firmar. Deje marcada únicamente la autoridad que debe firmar este certificado.' };
+  const authority = authorities[0];
+  if (!String(authority.Nombre || '').trim() || !String(authority.Cargo || '').trim()) {
+    return { success: false, error: 'Complete el nombre y cargo de la autoridad seleccionada en la ficha institucional.' };
+  }
+  const assets = sheetToObjects(getSheet('ActivosInstitucionales')).filter(function(item) {
+    return String(item.InstitucionID || '') === institutionId && item.Estado === 'activo';
+  });
+  const signatureMatches = assets.filter(function(item) {
+    return item.Tipo === 'firma' && String(item.AutoridadID || '') === String(authority.ID || '');
+  });
+  if (signatureMatches.length !== 1 || !signatureMatches[0].DriveFileID || !/^[a-f0-9]{64}$/i.test(String(signatureMatches[0].Sha256 || ''))) {
+    return { success: false, error: 'La autoridad elegida necesita exactamente una firma privada activa y verificable.' };
+  }
+  if (!activoInstitucionalVerificableParaCertificado_(signatureMatches[0])) {
+    return { success: false, error: 'No se pudo comprobar la firma privada de la autoridad. Vuelva a cargarla desde la ficha institucional antes de emitir.' };
+  }
+  const uniqueAsset = function(type) {
+    const matches = assets.filter(function(item) { return item.Tipo === type && !String(item.AutoridadID || '').trim(); });
+    return matches.length === 1 ? matches[0] : null;
+  };
+  const logos = assets.filter(function(item) { return item.Tipo === 'logo' && !String(item.AutoridadID || '').trim(); });
+  const seals = assets.filter(function(item) { return item.Tipo === 'sello' && !String(item.AutoridadID || '').trim(); });
+  if (logos.length > 1 || seals.length > 1) return { success: false, error: 'La ficha tiene más de un logotipo o sello activo del mismo tipo. Deje solo uno vigente para evitar una selección ambigua.' };
+  const logo = uniqueAsset('logo');
+  const seal = uniqueAsset('sello');
+  if (logo && !activoInstitucionalVerificableParaCertificado_(logo)) return { success: false, error: 'El logotipo institucional configurado no está disponible o no superó la verificación de integridad.' };
+  if (seal && !activoInstitucionalVerificableParaCertificado_(seal)) return { success: false, error: 'El sello institucional configurado no está disponible o no superó la verificación de integridad.' };
+  const resolutionDocuments = sheetToObjects(getSheet('DocumentosInstitucionales')).filter(function(item) {
+    return String(item.InstitucionID || '') === institutionId && item.Estado === 'activo'
+      && ['resolucion', 'aval'].indexOf(String(item.Tipo || '').toLowerCase()) !== -1
+      && (!String(item.ConvenioID || '').trim() || String(item.ConvenioID) === agreementId);
+  }).sort(function(a, b) {
+    const linkedA = String(a.ConvenioID || '') === agreementId ? 1 : 0;
+    const linkedB = String(b.ConvenioID || '') === agreementId ? 1 : 0;
+    if (linkedA !== linkedB) return linkedB - linkedA;
+    return String(b.FechaDocumento || b.CreadoEn || '').localeCompare(String(a.FechaDocumento || a.CreadoEn || ''));
+  });
+  const resolution = resolutionDocuments[0] || null;
+  return { success: true, data: {
+    CertificateInstitutionId: institution.ID,
+    CertificateAgreementId: agreement.ID,
+    CertificateInstitutionName: String(institution.Nombre || '').trim(),
+    CertificateInstitutionLegalName: String(institution.NombreLegal || '').trim(),
+    CertificateInstitutionSiglas: String(institution.Siglas || '').trim(),
+    CertificateInstitutionIdentification: String(institution.Identificacion || '').trim(),
+    CertificateInstitutionIdentificationType: String(institution.TipoIdentificacion || '').trim(),
+    CertificateInstitutionCity: String(institution.Ciudad || '').trim(),
+    CertificateInstitutionProvince: String(institution.Provincia || '').trim(),
+    CertificateInstitutionAddress: String(institution.Direccion || '').trim(),
+    CertificateInstitutionWebsite: String(institution.SitioWeb || '').trim(),
+    CertificateAuthorityId: authority.ID,
+    CertificateAuthorityName: String(authority.Nombre || '').trim(),
+    CertificateAuthorityIdentification: String(authority.Identificacion || '').trim(),
+    CertificateAuthorityIdentificationType: String(authority.TipoIdentificacion || '').trim(),
+    CertificateAuthorityRole: String(authority.Cargo || '').trim(),
+    CertificateAuthorityFunction: String(authority.Funcion || '').trim(),
+    CertificateAuthoritySignatureAssetId: signatureMatches[0].ID,
+    CertificateAuthoritySignatureSha256: String(signatureMatches[0].Sha256 || '').toLowerCase(),
+    CertificateInstitutionLogoAssetId: logo ? logo.ID : '',
+    CertificateInstitutionLogoSha256: logo ? String(logo.Sha256 || '').toLowerCase() : '',
+    CertificateInstitutionSealAssetId: seal ? seal.ID : '',
+    CertificateInstitutionSealSha256: seal ? String(seal.Sha256 || '').toLowerCase() : '',
+    CertificateAgreementObject: String(agreement.Objeto || '').trim(),
+    CertificateAgreementSignedAt: String(agreement.FechaFirma || '').trim(),
+    CertificateResolutionDocumentId: resolution ? String(resolution.ID || '') : '',
+    CertificateResolutionName: resolution ? String(resolution.NombreArchivo || '') : '',
+    CertificateResolutionDate: resolution ? String(resolution.FechaDocumento || '') : '',
+    CertificateResolutionNotes: resolution ? String(resolution.Notas || '') : '',
+  } };
 }
 
 function emitirEntregableAval(user, { id } = {}) {
@@ -4952,37 +6897,71 @@ function emitirEntregableAval(user, { id } = {}) {
     const inscripcion = sheetToObjects(getSheet('Inscripciones')).find(function(item) { return item.ID === id; });
     if (!entregable || !inscripcion) return { success: false, error: 'No existe un aval confirmado para esta inscripción.' };
     if (entregable.CertificateStatus === 'emitido') return { success: true, alreadyIssued: true, data: datosEntregableAval_(entregable, inscripcion) };
+    if (entregable.CertificateStatus === 'pendiente_pdf') return { success: true, alreadyPrepared: true, data: datosEntregableAval_(entregable, inscripcion) };
     if (entregable.CertificateStatus) return { success: false, error: 'El entregable ya tiene un estado oficial que requiere revisión administrativa.' };
-    if (plantillaActivaCertificado_() !== CERTIFICATE_SECURITY_TEMPLATE_VERSION) {
+    if ([CERTIFICATE_SECURITY_TEMPLATE_VERSION, CERTIFICATE_SECURITY_TEMPLATE_V3_VERSION].indexOf(plantillaActivaCertificado_()) === -1) {
       return { success: false, error: 'Faltan las firmas auténticas y la activación de la plantilla de seguridad.' };
     }
     if (inscripcion.EstadoAval !== 'avalado' || entregable.EstadoValidacionExterna !== 'avalado') {
       return { success: false, error: 'La institución aún no confirmó el aval.' };
     }
-    if (!/itsal|san\s+luis/i.test(String(inscripcion.InstitucionAval || ''))) {
-      return { success: false, error: 'La plantilla ITSAL no corresponde a la institución asignada.' };
-    }
     if (!String(entregable.CodigoExterno || '').trim() || String(entregable.CodigoExterno).length > 64) {
-      return { success: false, error: 'ITSAL debe registrar el código externo del certificado antes de emitirlo.' };
+      return { success: false, error: 'La institución debe registrar el código externo del aval antes de emitir el certificado.' };
     }
+    const signerProperties = PropertiesService.getScriptProperties();
+    const managerName = String(signerProperties.getProperty(CERTIFICATE_MANAGER_NAME_PROPERTY) || '').trim();
+    const managerTitle = String(signerProperties.getProperty(CERTIFICATE_MANAGER_TITLE_PROPERTY) || '').trim();
+    if (!managerName || !managerTitle) return { success: false, error: 'Configure el nombre completo y cargo oficial del gerente firmante en Ajustes de certificados.' };
     if (inscripcion.EstadoPago !== 'verificado') return { success: false, error: 'El pago debe estar verificado.' };
+    const avalUpgrade = validarUpgradeAvalVerificadoParaInscripcion_(inscripcion);
+    if (avalUpgrade.exists && !avalUpgrade.success) return { success: false, error: avalUpgrade.error };
     if (inscripcion.CRMOfferType && inscripcion.CRMCompletionStatus !== CRM_COMPLETION_STATUS_COMPLETADO) {
       return { success: false, error: 'El curso debe estar completado antes de emitir el aval.' };
     }
     const faltantes = datosFaltantesCertificado(inscripcion);
     if (faltantes.length) return { success: false, error: 'Faltan datos del certificado: ' + faltantes.join(', ') + '.' };
     if (!servicioParaCertificado_(inscripcion)) return { success: false, error: 'No se encontró el servicio vinculado de forma inequívoca.' };
-    const codigo = 'RA-ITSAL-' + String(entregable.ID).replace(/[^A-Za-z0-9]/g, '').slice(-12).toUpperCase();
-    if (sheetToObjects(sheet).some(function(item) { return item.ID !== entregable.ID && item.CodigoCertificado === codigo; })) {
-      return { success: false, error: 'El código del aval entró en conflicto con otro certificado.' };
-    }
+    const institutionalSnapshot = resolverSnapshotInstitucionalCertificadoAval_(inscripcion);
+    if (!institutionalSnapshot.success) return institutionalSnapshot;
+    institutionalSnapshot.data.CertificateManagerName = managerName;
+    institutionalSnapshot.data.CertificateManagerTitle = managerTitle;
+    // El aval institucional conserva el hash de la edición activa al prepararse.
+    // No usar siempre v2: tras activar v3, el frontend debe recuperar exactamente
+    // la firma que quedó congelada en este snapshot.
+    institutionalSnapshot.data.CertificateManagerSignatureSha256 = huellasFirmasOficialesCertificado_().managerSignatureSha256;
+    const codigo = generarCodigoCertificadoUnico({ ID: entregable.ID, FechaEmisionCertificado: new Date().toISOString() }, entregable.ID, id);
     const now = new Date().toISOString();
-    registrarAuditoriaCertificado({ certificadoId: codigo, inscripcionId: id, usuario: user.Username, rol: user.Rol,
-      accion: 'AVAL_CERTIFICATE_ISSUED', estadoAnterior: 'pendiente', estadoNuevo: 'emitido', canal: 'panel', resultado: 'ok',
-      metadatos: { externalCode: entregable.CodigoExterno, institution: inscripcion.InstitucionAval } });
-    updateRow(sheet, entregable, { CodigoCertificado: codigo, CertificateVersion: 1,
-      TemplateVersion: CERTIFICATE_ITSAL_TEMPLATE_VERSION, CertificateStatus: 'emitido',
-      IssuedAt: now, IssuedBy: user.Username, UpdatedAt: now });
+    const preparedFields = Object.assign({}, institutionalSnapshot.data, { CodigoCertificado: codigo, CertificateVersion: 1,
+      TemplateVersion: CERTIFICATE_INSTITUTIONAL_AVAL_TEMPLATE, CertificateStatus: 'pendiente_pdf', CertificatePreparedAt: now,
+      IssuedAt: '', IssuedBy: user.Username, UpdatedAt: now });
+    const avalSnapshot = snapshotDocumentalCertificado_('aval_institucional', {
+      participante: datosSnapshotCertificadoParticipante_(inscripcion, {
+        CodigoCertificado: codigo, CertificateVersion: 1, TemplateVersion: CERTIFICATE_INSTITUTIONAL_AVAL_TEMPLATE,
+        CertificatePreparedAt: now, IssuedBy: user.Username,
+        CertificateType: tipoCertificadoServicio_((servicioParaCertificado_(inscripcion) || {}).TipoCertificado),
+      }),
+      institutionData: datosInstitucionalesCertificadoAval_(Object.assign({}, entregable, preparedFields)),
+      codigoExterno: entregable.CodigoExterno || '', certificateVersion: 1,
+      templateVersion: CERTIFICATE_INSTITUTIONAL_AVAL_TEMPLATE, preparedAt: now,
+      managerName: managerName, managerTitle: managerTitle,
+      managerSignatureSha256: preparedFields.CertificateManagerSignatureSha256 || '',
+    });
+    Object.assign(preparedFields, avalSnapshot);
+    const previousFields = {};
+    Object.keys(preparedFields).forEach(function(key) {
+      previousFields[key] = entregable[key] === undefined ? '' : entregable[key];
+    });
+    updateRow(sheet, entregable, preparedFields);
+    try {
+      registrarAuditoriaCertificado({ certificadoId: codigo, inscripcionId: id, usuario: user.Username, rol: user.Rol,
+        accion: 'AVAL_CERTIFICATE_PREPARED', estadoAnterior: 'pendiente', estadoNuevo: 'pendiente_pdf', canal: 'panel', resultado: 'ok',
+        metadatos: { externalCode: entregable.CodigoExterno, institutionId: institutionalSnapshot.data.CertificateInstitutionId,
+          authorityId: institutionalSnapshot.data.CertificateAuthorityId } });
+    } catch (error) {
+      const current = sheetToObjects(sheet).find(function(item) { return item.ID === entregable.ID; });
+      if (current) updateRow(sheet, current, previousFields);
+      throw error;
+    }
     const actualizado = sheetToObjects(sheet).find(function(item) { return item.ID === entregable.ID; });
     return { success: true, data: datosEntregableAval_(actualizado, inscripcion) };
   });
@@ -5018,42 +6997,65 @@ function reemitirEntregableAval(user, { id, motivo, confirmacion } = {}) {
     const actual = entregableAvalActual_(id, sheetToObjects(sheet));
     const inscripcion = sheetToObjects(getSheet('Inscripciones')).find(function(item) { return item.ID === id; });
     if (!actual || !inscripcion) return { success: false, error: 'No existe el certificado avalado.' };
-    if (Number(actual.CertificateVersion) > 1 && !actual.PdfHash && actual.ReissueReason) {
-      return { success: true, alreadyIssued: true, data: datosEntregableAval_(actual, inscripcion) };
+    if (actual.CertificateStatus === 'pendiente_pdf' && actual.ReplacesCertificateId) {
+      if (String(actual.ReissueReason || '') !== String(motivo).trim()) {
+        return { success: false, error: 'Ya existe una reemisión pendiente. Reintente con el mismo motivo para completar esa versión.' };
+      }
+      return { success: true, alreadyPrepared: true, data: datosEntregableAval_(actual, inscripcion) };
     }
-    if (actual.CertificateStatus !== 'emitido' || !actual.PdfHash || !actual.PdfStorageReference) {
-      return { success: false, error: 'Solo se puede reemitir un certificado vigente con PDF oficial archivado.' };
+    if (['ra-institutional-aval-2026', CERTIFICATE_ITSAL_TEMPLATE_VERSION].indexOf(String(actual.TemplateVersion || '')) === -1) {
+      return { success: false, error: 'Esta versión avalada no tiene una plantilla compatible para conservar sus datos en una reemisión.' };
     }
-    if (plantillaActivaCertificado_() !== CERTIFICATE_SECURITY_TEMPLATE_VERSION) {
-      return { success: false, error: 'Faltan firmas auténticas o la plantilla de seguridad está inactiva.' };
+    if (!['emitido', 'anulado'].includes(estadoNormalizadoCertificado(actual))
+      || !/^[a-f0-9]{64}$/i.test(String(actual.PdfHash || ''))
+      || !String(actual.PdfStorageReference || '').startsWith('certificate-drive:')) {
+      return { success: false, error: 'Solo se puede reemitir una versión avalada con PDF oficial archivado e íntegro.' };
     }
+    const versions = sheetToObjects(sheet).filter(function(item) { return item.InscripcionID === id; });
     const newId = generateId('AVAL');
     const now = new Date().toISOString();
-    const newVersion = (Number(actual.CertificateVersion) || 1) + 1;
-    const next = {
-      ID: newId, InscripcionID: id, EstadoValidacionExterna: actual.EstadoValidacionExterna,
-      ReferenciaExterna: actual.ReferenciaExterna, EnlaceExterno: actual.EnlaceExterno,
-      CodigoExterno: actual.CodigoExterno, PdfHash: '', PdfStorageReference: '',
+    const newVersion = versions.reduce(function(max, item) { return Math.max(max, Number(item.CertificateVersion) || 1); }, 0) + 1;
+    const codigo = generarCodigoCertificadoUnico({ ID: newId, FechaEmisionCertificado: now }, newId, id);
+    const next = Object.assign({}, actual, {
+      ID: newId, InscripcionID: id, PdfHash: '', PdfStorageReference: '',
       EstadoEntregaFinal: 'pendiente_envio', FechaEntregaFinal: '', CreatedAt: now, UpdatedAt: now,
-      CodigoCertificado: 'RA-ITSAL-' + String(newId).replace(/[^A-Za-z0-9]/g, '').slice(-12).toUpperCase(),
-      CertificateVersion: newVersion, TemplateVersion: CERTIFICATE_ITSAL_TEMPLATE_VERSION,
-      CertificateStatus: 'emitido', IssuedAt: now, IssuedBy: user.Username,
+      CodigoCertificado: codigo,
       OriginalCertificateId: actual.OriginalCertificateId || actual.ID,
       ReplacesCertificateId: actual.ID,
       ReissuedCertificateId: '', VoidedAt: '', VoidedBy: '', VoidReason: '',
+      CertificateVersion: newVersion, TemplateVersion: actual.TemplateVersion,
+      CertificateStatus: 'pendiente_pdf', CertificatePreparedAt: now, IssuedAt: '', IssuedBy: user.Username,
       ReissueReason: String(motivo).trim(),
-    };
-    if (sheetToObjects(sheet).some(function(item) { return item.CodigoCertificado === next.CodigoCertificado; })) {
+    });
+    if (versions.some(function(item) { return item.CodigoCertificado === next.CodigoCertificado; })
+      || codigoCertificadoEnUso(next.CodigoCertificado, next.ID, id)) {
       return { success: false, error: 'El código nuevo entró en conflicto con otro certificado.' };
     }
+    const rendered = datosEntregableAval_(next, inscripcion);
+    Object.assign(next, snapshotDocumentalCertificado_('aval_institucional', {
+      participante: datosSnapshotCertificadoParticipante_(inscripcion, {
+        CodigoCertificado: next.CodigoCertificado, CertificateVersion: newVersion,
+        TemplateVersion: next.TemplateVersion, CertificatePreparedAt: now, IssuedBy: user.Username,
+        CertificateType: rendered.CertificateType,
+      }),
+      certificateType: rendered.CertificateType,
+      codigoExterno: next.CodigoExterno || '',
+      institutionData: datosInstitucionalesCertificadoAval_(next),
+      originalCertificateId: next.OriginalCertificateId,
+      replacesCertificateId: actual.ID,
+      version: newVersion,
+      templateVersion: next.TemplateVersion,
+      preparedAt: now,
+    }));
+    const newRow = sheet.getLastRow() + 1;
     sheet.appendRow(SHEET_HEADERS.EntregablesAval.map(function(header) { return next[header] !== undefined ? next[header] : ''; }));
     try {
       registrarAuditoriaCertificado({ certificadoId: next.CodigoCertificado, inscripcionId: id,
         usuario: user.Username, rol: user.Rol, accion: 'AVAL_CERTIFICATE_REISSUE_STARTED',
-        estadoAnterior: 'emitido', estadoNuevo: 'pendiente_pdf', canal: 'panel', resultado: 'ok',
-        motivo: String(motivo).trim(), metadatos: { replaces: actual.ID, version: newVersion } });
+        estadoAnterior: estadoNormalizadoCertificado(actual), estadoNuevo: 'pendiente_pdf', canal: 'panel', resultado: 'pendiente',
+        motivo: String(motivo).trim(), metadatos: { replaces: actual.ID, version: newVersion, templateVersion: next.TemplateVersion } });
     } catch (error) {
-      sheet.deleteRow(sheet.getLastRow());
+      sheet.deleteRow(newRow);
       throw error;
     }
     return { success: true, data: datosEntregableAval_(next, inscripcion) };
@@ -5069,13 +7071,13 @@ function guardarPdfEntregableAvalPrivado(user, { id, pdfBase64, pdfHash, templat
   return conBloqueoCertificados(function() {
     const sheet = getSheet('EntregablesAval');
     const entregable = entregableAvalActual_(id, sheetToObjects(sheet));
-    if (!entregable || entregable.CertificateStatus !== 'emitido' || entregable.TemplateVersion !== templateVersion) {
-      return { success: false, error: 'No existe un certificado ITSAL emitido con esta plantilla.' };
+    if (!entregable || ['emitido', 'pendiente_pdf'].indexOf(entregable.CertificateStatus) === -1 || entregable.TemplateVersion !== templateVersion) {
+      return { success: false, error: 'No existe una versión de certificado institucional archivada con esta plantilla.' };
     }
     if (entregable.PdfHash || entregable.PdfStorageReference) {
       if (entregable.PdfHash === hash && String(entregable.PdfStorageReference).indexOf('certificate-drive:') === 0) {
-        const file = DriveApp.getFileById(entregable.PdfStorageReference.slice('certificate-drive:'.length));
-        if (sha256PdfCertificado_(file.getBlob().getBytes()) === hash) {
+        const archived = DriveApp.getFileById(entregable.PdfStorageReference.slice('certificate-drive:'.length));
+        if (sha256PdfCertificado_(archived.getBlob().getBytes()) === hash) {
           return { success: true, reference: entregable.PdfStorageReference, hash: hash, idempotent: true };
         }
       }
@@ -5087,26 +7089,48 @@ function guardarPdfEntregableAvalPrivado(user, { id, pdfBase64, pdfHash, templat
     if (bytes.length < 5 || String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3], bytes[4]) !== '%PDF-'
       || sha256PdfCertificado_(bytes) !== hash) return { success: false, error: 'El PDF no coincide con su huella SHA-256.' };
     const file = carpetaCertificadosPrivados_().createFile(Utilities.newBlob(bytes, 'application/pdf',
-      'CERT_AVAL_' + String(entregable.CodigoCertificado).replace(/[^A-Za-z0-9._-]/g, '_') + '.pdf'));
+      'CERT_AVAL_' + String(entregable.CodigoCertificado).replace(/[^A-Za-z0-9._-]/g, '_') + '_v' + (Number(entregable.CertificateVersion) || 1) + '.pdf'));
     try { file.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE); } catch (error) { /* Privado por defecto. */ }
     const reference = 'certificate-drive:' + file.getId();
+    const now = new Date().toISOString();
+    const wasPending = entregable.CertificateStatus === 'pendiente_pdf';
+    const isPendingReissue = wasPending && String(entregable.ReplacesCertificateId || '').trim();
+    const previous = { PdfHash: entregable.PdfHash || '', PdfStorageReference: entregable.PdfStorageReference || '',
+      CertificateStatus: entregable.CertificateStatus || '', IssuedAt: entregable.IssuedAt || '',
+      EstadoEntregaFinal: entregable.EstadoEntregaFinal || '', UpdatedAt: entregable.UpdatedAt || '' };
+    let parent = null;
+    let previousParent = null;
     try {
-      registrarAuditoriaCertificado({ certificadoId: entregable.CodigoCertificado, inscripcionId: id,
-        usuario: user.Username, rol: user.Rol, accion: 'AVAL_CERTIFICATE_PDF_ARCHIVED', canal: 'api', resultado: 'ok',
-        metadatos: { sha256: hash, externalCode: entregable.CodigoExterno } });
-      updateRow(sheet, entregable, { PdfHash: hash, PdfStorageReference: reference, EstadoEntregaFinal: 'pendiente_envio', UpdatedAt: new Date().toISOString() });
-      if (entregable.OriginalCertificateId) {
-        const anterior = sheetToObjects(sheet).find(function(item) { return item.ID === entregable.ReplacesCertificateId; });
-        if (anterior && anterior.ID !== entregable.ID && anterior.CertificateStatus === 'emitido') {
-          registrarAuditoriaCertificado({ certificadoId: anterior.CodigoCertificado, inscripcionId: id,
-            usuario: user.Username, rol: user.Rol, accion: 'AVAL_CERTIFICATE_REISSUED',
-            estadoAnterior: 'emitido', estadoNuevo: 'reemitido', canal: 'api', resultado: 'ok',
-            metadatos: { replacementId: entregable.ID, replacementCode: entregable.CodigoCertificado } });
-          updateRow(sheet, anterior, { CertificateStatus: 'reemitido', ReissuedCertificateId: entregable.ID, UpdatedAt: new Date().toISOString() });
-        }
+      const update = { PdfHash: hash, PdfStorageReference: reference, EstadoEntregaFinal: 'pendiente_envio', UpdatedAt: now };
+      if (wasPending) {
+        update.CertificateStatus = 'emitido';
+        update.IssuedAt = String(entregable.CertificatePreparedAt || now);
       }
+      if (isPendingReissue) {
+        parent = sheetToObjects(sheet).find(function(item) { return item.ID === entregable.ReplacesCertificateId; }) || null;
+        if (!parent || ['emitido', 'anulado'].indexOf(estadoNormalizadoCertificado(parent)) === -1
+          || !String(parent.PdfStorageReference || '').startsWith('certificate-drive:')
+          || !/^[a-f0-9]{64}$/i.test(String(parent.PdfHash || ''))) {
+          file.setTrashed(true);
+          return { success: false, error: 'La versión avalada que se intenta corregir ya no está vigente o no tiene PDF íntegro.' };
+        }
+        previousParent = { CertificateStatus: parent.CertificateStatus || '', ReissuedCertificateId: parent.ReissuedCertificateId || '', UpdatedAt: parent.UpdatedAt || '' };
+      }
+      updateRow(sheet, entregable, update);
+      if (isPendingReissue) {
+        updateRow(sheet, parent, { CertificateStatus: 'reemitido', ReissuedCertificateId: entregable.ID, UpdatedAt: now });
+      }
+      registrarAuditoriaCertificado({ certificadoId: entregable.CodigoCertificado, inscripcionId: id,
+        usuario: user.Username, rol: user.Rol,
+        accion: isPendingReissue ? 'AVAL_CERTIFICATE_REISSUE_COMPLETED' : 'AVAL_CERTIFICATE_PDF_ARCHIVED',
+        estadoAnterior: wasPending ? 'pendiente_pdf' : 'emitido', estadoNuevo: 'emitido', canal: 'api', resultado: 'ok',
+        motivo: isPendingReissue ? String(entregable.ReissueReason || '') : '',
+        metadatos: { sha256: hash, externalCode: entregable.CodigoExterno, institutionId: entregable.CertificateInstitutionId,
+          replacesCertificateId: parent ? parent.ID : '', version: Number(entregable.CertificateVersion) || 1,
+          templateVersion: entregable.TemplateVersion } });
     } catch (error) {
-      updateRow(sheet, entregable, { PdfHash: '', PdfStorageReference: '', EstadoEntregaFinal: 'pendiente_envio' });
+      updateRow(sheet, entregable, previous);
+      if (parent && previousParent) updateRow(sheet, parent, previousParent);
       file.setTrashed(true);
       throw error;
     }
@@ -5114,12 +7138,16 @@ function guardarPdfEntregableAvalPrivado(user, { id, pdfBase64, pdfHash, templat
   });
 }
 
-function leerPdfEntregableAvalPrivado(user, { id } = {}) {
+function leerPdfEntregableAvalPrivado(user, { id, versionId } = {}) {
   requireCertificateAdmin(user, 'AVAL_CERTIFICATE_PDF_READ', { inscripcionId: id, canal: 'api' });
-  const entregable = entregableAvalActual_(id);
-  if (!entregable || entregable.CertificateStatus !== 'emitido' || !/^[a-f0-9]{64}$/.test(String(entregable.PdfHash || ''))
+  const versions = sheetToObjects(getSheet('EntregablesAval')).filter(function(item) { return item.InscripcionID === id; });
+  const entregable = String(versionId || '').trim()
+    ? versions.find(function(item) { return item.ID === String(versionId); }) || null
+    : entregableAvalActual_(id, versions);
+  if (entregable && entregable.InscripcionID !== id) return { success: false, error: 'La versión solicitada no pertenece a esta inscripción.' };
+  if (!entregable || ['emitido', 'reemitido', 'anulado'].indexOf(estadoNormalizadoCertificado(entregable)) === -1 || !/^[a-f0-9]{64}$/.test(String(entregable.PdfHash || ''))
     || String(entregable.PdfStorageReference || '').indexOf('certificate-drive:') !== 0) {
-    return { success: false, error: 'El certificado avalado aún no tiene PDF oficial archivado.' };
+    return { success: false, error: 'Esta versión avalada no tiene un PDF oficial archivado; no se regeneró con la plantilla actual.' };
   }
   const file = DriveApp.getFileById(entregable.PdfStorageReference.slice('certificate-drive:'.length));
   const bytes = file.getBlob().getBytes();
@@ -5152,6 +7180,7 @@ function enviarEntregableAvalEmail(user, { id, email } = {}) {
   const official = leerPdfEntregableAvalPrivado(user, { id: id });
   if (!official.success) return official;
   const blob = Utilities.newBlob(Utilities.base64Decode(official.contentBase64), 'application/pdf', official.filename);
+  const institutionName = String(entregable.CertificateInstitutionName || row.InstitucionAval || '').trim() || 'la institución avaladora';
   registrarAuditoriaCrm_({ inscripcionId: id, usuario: user.Username, rol: user.Rol,
     accion: 'FINAL_DELIVERY_STARTED', resultado: 'ok', metadatos: { certificateCode: entregable.CodigoCertificado } });
   updateRow(entregablesSheet, entregable, { EstadoEntregaFinal: 'enviando', UpdatedAt: new Date().toISOString() });
@@ -5159,7 +7188,7 @@ function enviarEntregableAvalEmail(user, { id, email } = {}) {
     MailApp.sendEmail({
       to: destinatario,
       subject: 'Certificado avalado - R.A. Training',
-      body: 'Estimado/a ' + row.ClienteNombre + ',\n\n¡Felicitaciones por este logro! Adjuntamos su certificado del curso ' + row.ServicioNombre + ', emitido por R.A. Training con aval institucional de ITSAL.\n\nCódigo R.A.: ' + entregable.CodigoCertificado + '\nCódigo ITSAL: ' + entregable.CodigoExterno + '\n\nPuede verificar su autenticidad mediante el QR del documento.\n\nAtentamente,\nR.A. Training',
+      body: 'Estimado/a ' + row.ClienteNombre + ',\n\n¡Felicitaciones por este logro! Adjuntamos su certificado del curso ' + row.ServicioNombre + ', emitido por R.A. Training con aval institucional de ' + institutionName + '.\n\nCódigo de certificado R.A.: ' + entregable.CodigoCertificado + '\nCódigo externo del aval: ' + entregable.CodigoExterno + '\n\nPuede verificar su autenticidad mediante el QR del documento.\n\nAtentamente,\nR.A. Training',
       name: 'R.A. Training',
       attachments: [blob],
     });
@@ -5301,6 +7330,135 @@ function updateConfigPago(user, { id, configPago }) {
 // CONVENIOS
 // ─────────────────────────────────────────────
 
+const AVAL_BASE_CALCULO_TIPOS_ = ['precio_servicio', 'monto_inscripcion'];
+
+function dineroCentavosAval_(value) {
+  const text = String(value === undefined || value === null ? '' : value).trim().replace(',', '.');
+  const match = text.match(/^(\d+)(?:\.(\d+))?$/);
+  if (!match) return NaN;
+  const fraction = match[2] || '';
+  const whole = Number(match[1]);
+  if (!Number.isSafeInteger(whole)) return NaN;
+  const firstTwo = Number((fraction + '00').slice(0, 2));
+  const third = Number(fraction.charAt(2) || '0');
+  let cents = whole * 100 + firstTwo + (third >= 5 ? 1 : 0);
+  if (!Number.isSafeInteger(cents)) return NaN;
+  return cents;
+}
+
+function reglaEconomicaAvalConvenio_(porcentajeInput, baseInput) {
+  const rawPercentage = String(porcentajeInput === undefined || porcentajeInput === null ? '' : porcentajeInput).trim();
+  const base = String(baseInput || '').trim();
+  if (!rawPercentage && !base) return { configurada: false, porcentaje: '', base: '' };
+  if (!rawPercentage || !base) throw new Error('Configure juntos el porcentaje y la base económica del aval.');
+  const normalized = rawPercentage.replace(',', '.');
+  if (!/^\d{1,3}(?:\.\d{1,2})?$/.test(normalized)) {
+    throw new Error('El porcentaje del aval debe ser un número entre 0 y 100, con hasta dos decimales.');
+  }
+  const percentage = Number(normalized);
+  if (!isFinite(percentage) || percentage < 0 || percentage > 100) {
+    throw new Error('El porcentaje del aval debe estar entre 0 y 100.');
+  }
+  if (AVAL_BASE_CALCULO_TIPOS_.indexOf(base) === -1) {
+    throw new Error('Seleccione una base económica válida para el aval.');
+  }
+  return { configurada: true, porcentaje: Math.round(percentage * 100) / 100, base: base };
+}
+
+function convenioVigenteParaAval_(agreement, date) {
+  if (!agreement || agreement.Estado !== 'activo') return false;
+  const today = date || hoyLocal();
+  const start = ds(agreement.FechaInicio);
+  const end = ds(agreement.FechaFin);
+  return (!start || start <= today) && (!end || end >= today);
+}
+
+function resolverConvenioEconomicoAval_(convenioId, institucionId, options) {
+  options = options || {};
+  const id = String(convenioId || '').trim();
+  if (!id) return { success: false, error: 'La inscripción no tiene un convenio vinculado. Seleccione un convenio vigente antes de confirmar el aval.' };
+  const agreement = sheetToObjects(getSheet('Convenios')).find(function(item) { return String(item.ID) === id; });
+  if (!agreement) return { success: false, error: 'El convenio vinculado al aval ya no existe.' };
+  if (!institucionId || String(agreement.InstitucionID || '') !== String(institucionId)) {
+    return { success: false, error: 'El convenio seleccionado no pertenece a la institución asignada a esta inscripción.' };
+  }
+  if (options.requireVigente !== false && !convenioVigenteParaAval_(agreement)) {
+    return { success: false, error: 'El convenio debe estar activo y dentro de su vigencia para confirmar avales nuevos.' };
+  }
+  let rule;
+  try { rule = reglaEconomicaAvalConvenio_(agreement.PorcentajeAval, agreement.BaseCalculoAval); }
+  catch (error) { return { success: false, error: error.message }; }
+  if (!rule.configurada) {
+    return { success: false, error: 'El convenio todavía no tiene una regla económica configurada. Administración debe registrar porcentaje y base de cálculo.' };
+  }
+  return { success: true, data: { convenio: agreement, regla: rule } };
+}
+
+function calcularSnapshotEconomicoAval_(inscripcion, agreement, rule, servicesCache) {
+  rule = rule || reglaEconomicaAvalConvenio_(agreement.PorcentajeAval, agreement.BaseCalculoAval);
+  if (!rule.configurada) throw new Error('El convenio no tiene una regla económica configurada.');
+  let rawBase;
+  if (rule.base === 'precio_servicio') {
+    const services = servicesCache || sheetToObjects(getSheet('Servicios'));
+    const service = services.find(function(item) {
+      return String(item.ID || '') === String(inscripcion.ServicioID || '')
+        || (!inscripcion.ServicioID && String(item.Nombre || '') === String(inscripcion.ServicioNombre || ''));
+    });
+    if (!service) throw new Error('No se pudo resolver el precio del servicio para calcular el aval.');
+    rawBase = service.Precio;
+  } else if (rule.base === 'monto_inscripcion') {
+    rawBase = inscripcion.Monto;
+  } else {
+    throw new Error('La base económica del convenio no es compatible con este aval.');
+  }
+  const baseCents = dineroCentavosAval_(rawBase);
+  if (!Number.isSafeInteger(baseCents) || baseCents < 0) throw new Error('El valor base del aval no es válido. Revise el servicio o la inscripción.');
+  const percentageBasisPoints = Math.round(Number(rule.porcentaje) * 100);
+  const product = baseCents * percentageBasisPoints;
+  if (!Number.isSafeInteger(product)) {
+    throw new Error('El valor excede el rango seguro para calcular el aval con precisión monetaria.');
+  }
+  const amountCents = Math.round(product / 10000);
+  return {
+    baseTipo: rule.base,
+    baseCents: baseCents,
+    baseMonto: baseCents / 100,
+    porcentaje: Number(rule.porcentaje),
+    porcentajeBasisPoints: percentageBasisPoints,
+    montoCents: amountCents,
+    monto: amountCents / 100,
+  };
+}
+
+function getConveniosParaAval(user, { institucionId, convenioActualId } = {}) {
+  if (!isAdmin(user) && !isVendedor(user)) throw new Error('Acceso denegado.');
+  const institutionId = String(institucionId || '').trim();
+  if (!institutionId) return { success: true, data: [] };
+  if (isAval(user) && !isAdmin(user)) {
+    const assignedId = institucionAvalIdDelUsuario_(user);
+    if (!assignedId || assignedId !== institutionId) return { success: false, error: 'No está autorizado para consultar convenios de otra institución.' };
+  }
+  const institution = institucionPorId_(institutionId);
+  if (!institution || institution.Estado !== 'activo') return { success: true, data: [] };
+  const data = sheetToObjects(getSheet('Convenios')).filter(function(item) {
+    if (String(item.InstitucionID || '') !== institutionId) return false;
+    const current = String(item.ID || '') === String(convenioActualId || '');
+    let ruleReady = false;
+    try { ruleReady = reglaEconomicaAvalConvenio_(item.PorcentajeAval, item.BaseCalculoAval).configurada; } catch (e) {}
+    return (convenioVigenteParaAval_(item) && ruleReady) || current;
+  }).map(function(item) {
+    let ruleReady = false;
+    try { ruleReady = reglaEconomicaAvalConvenio_(item.PorcentajeAval, item.BaseCalculoAval).configurada; } catch (e) {}
+    return {
+      ID: item.ID, InstitucionID: item.InstitucionID, InstitucionNombre: institution.Nombre,
+      Objeto: item.Objeto || '', Estado: item.Estado || '', FechaInicio: item.FechaInicio || '', FechaFin: item.FechaFin || '',
+      PorcentajeAval: item.PorcentajeAval === '' || item.PorcentajeAval === undefined ? '' : Number(item.PorcentajeAval),
+      BaseCalculoAval: item.BaseCalculoAval || '', DisponibleParaAval: convenioVigenteParaAval_(item) && ruleReady,
+    };
+  });
+  return { success: true, data: data };
+}
+
 function getConvenios(user, { filtros = {} } = {}) {
   requireAdmin(user);
   let data = sheetCache('convenios', 120, function() {
@@ -5309,40 +7467,101 @@ function getConvenios(user, { filtros = {} } = {}) {
   if (filtros.estado) data = data.filter(c => c.Estado === filtros.estado);
   if (filtros.desde)  data = data.filter(c => new Date(c.FechaInicio) >= new Date(filtros.desde));
   if (filtros.hasta)  data = data.filter(c => new Date(c.FechaInicio) <= new Date(filtros.hasta));
-  return { success: true, data };
+  if (filtros.institucionId) data = data.filter(c => c.InstitucionID === filtros.institucionId);
+  const institutionNames = {};
+  sheetToObjects(getSheet('Instituciones')).forEach(function(item) { institutionNames[item.ID] = item.Nombre; });
+  return { success: true, data: data.map(function(item) {
+    return Object.assign({}, item, { InstitucionNombre: institutionNames[item.InstitucionID] || '' });
+  }) };
 }
 
 function addConvenio(user, { convenio }) {
   requireAdmin(user);
-  const sheet = getSheet('Convenios');
-  const id    = generateId('CVN');
-  const now   = new Date().toISOString();
-  sheet.appendRow([
-    id,
-    convenio.organizacion, convenio.representante || '', convenio.cargo || '',
-    convenio.objeto, convenio.obligacionesRA || '', convenio.obligacionesAliado || '',
-    convenio.vigencia || '', convenio.fechaInicio || '', convenio.fechaFin || '',
-    convenio.estado || 'activo', convenio.notas || '',
-    user.Username, now,
-  ]);
-  bustSheet('convenios');
-  return { success: true, id };
+  return institutionLock_(function() {
+    const input = convenio || {};
+    const institution = institucionPorId_(input.institucionId);
+    if (!institution) throw new Error('Seleccione una institución registrada para el nuevo convenio.');
+    if (institution.Estado !== 'activo') throw new Error('No se puede asociar un convenio nuevo a una institución inactiva.');
+    const object = String(input.objeto || '').trim();
+    if (object.length < 3 || object.length > 3000) throw new Error('Describa el objeto del convenio (3 a 3000 caracteres).');
+    const start = String(input.fechaInicio || '').trim(); const end = String(input.fechaFin || '').trim();
+    const signed = String(input.fechaFirma || '').trim();
+    if (start && !/^\d{4}-\d{2}-\d{2}$/.test(start)) throw new Error('La fecha de inicio no es válida.');
+    if (end && !/^\d{4}-\d{2}-\d{2}$/.test(end)) throw new Error('La fecha de fin no es válida.');
+    if (signed && !/^\d{4}-\d{2}-\d{2}$/.test(signed)) throw new Error('La fecha de firma no es válida.');
+    if (start && end && end < start) throw new Error('La fecha de fin del convenio no puede ser anterior a su inicio.');
+    const state = ['activo', 'pendiente', 'vencido', 'suspendido'].indexOf(input.estado) !== -1 ? input.estado : 'pendiente';
+    const economicRule = reglaEconomicaAvalConvenio_(input.porcentajeAval, input.baseCalculoAval);
+    const sheet = getSheet('Convenios'); const id = generateId('CVN'); const now = new Date().toISOString();
+    const record = { ID: id, Organizacion: institution.Nombre, Representante: String(input.representante || '').trim(),
+      Cargo: String(input.cargo || '').trim(), Objeto: object, ObligacionesRA: String(input.obligacionesRA || '').trim(),
+      ObligacionesAliado: String(input.obligacionesAliado || '').trim(), Vigencia: String(input.vigencia || '').trim(),
+      FechaInicio: start, FechaFin: end, Estado: state, Notas: String(input.notas || '').trim(),
+      CreadoPor: user.Username, FechaCreacion: now, InstitucionID: institution.ID, FechaFirma: signed,
+      ArchivadoPor: '', ArchivadoEn: '', PorcentajeAval: economicRule.configurada ? economicRule.porcentaje : '',
+      BaseCalculoAval: economicRule.configurada ? economicRule.base : '' };
+    appendRegistroInstitucionalAuditado_(sheet, SHEET_HEADERS.Convenios,
+      SHEET_HEADERS.Convenios.map(function(header) { return record[header] || ''; }),
+      user, 'convenio', id, 'creado', {},
+      { institucionId: institution.ID, objeto: record.Objeto, estado: record.Estado,
+        porcentajeAval: record.PorcentajeAval, baseCalculoAval: record.BaseCalculoAval });
+    bustSheet('convenios');
+    return { success: true, id: id };
+  });
 }
 
 function updateConvenio(user, { id, convenio }) {
   requireAdmin(user);
-  const sheet = getSheet('Convenios');
-  const row   = sheetToObjects(sheet).find(r => r.ID === id);
-  if (!row) return { success: false, error: 'Convenio no encontrado.' };
-  updateRow(sheet, row, {
-    Organizacion: convenio.organizacion, Representante: convenio.representante,
-    Cargo: convenio.cargo, Objeto: convenio.objeto,
-    ObligacionesRA: convenio.obligacionesRA, ObligacionesAliado: convenio.obligacionesAliado,
-    Vigencia: convenio.vigencia, FechaInicio: convenio.fechaInicio,
-    FechaFin: convenio.fechaFin, Estado: convenio.estado, Notas: convenio.notas,
+  return institutionLock_(function() {
+    const sheet = getSheet('Convenios'); const row = sheetToObjects(sheet).find(function(item) { return item.ID === id; });
+    if (!row) return { success: false, error: 'Convenio no encontrado.' };
+    if (row.Estado === 'archivado') return { success: false, error: 'Un convenio archivado se conserva como histórico y no se puede editar.' };
+    const input = convenio || {}; const institutionId = input.institucionId || row.InstitucionID || '';
+    const institution = institutionId ? institucionPorId_(institutionId) : null;
+    if (institutionId && !institution) throw new Error('La institución del convenio no existe.');
+    if (institutionId && institution.Estado !== 'activo' && institutionId !== row.InstitucionID) {
+      throw new Error('No se puede mover el convenio a una institución inactiva.');
+    }
+    const object = String(input.objeto || '').trim();
+    if (object.length < 3 || object.length > 3000) throw new Error('Describa el objeto del convenio (3 a 3000 caracteres).');
+    const start = String(input.fechaInicio || '').trim(); const end = String(input.fechaFin || '').trim();
+    const signed = String(input.fechaFirma || '').trim();
+    if (start && !/^\d{4}-\d{2}-\d{2}$/.test(start)) throw new Error('La fecha de inicio no es válida.');
+    if (end && !/^\d{4}-\d{2}-\d{2}$/.test(end)) throw new Error('La fecha de fin no es válida.');
+    if (signed && !/^\d{4}-\d{2}-\d{2}$/.test(signed)) throw new Error('La fecha de firma no es válida.');
+    if (start && end && end < start) throw new Error('La fecha de fin del convenio no puede ser anterior a su inicio.');
+    const state = ['activo', 'pendiente', 'vencido', 'suspendido'].indexOf(input.estado) !== -1 ? input.estado : row.Estado;
+    const economicRule = reglaEconomicaAvalConvenio_(input.porcentajeAval, input.baseCalculoAval);
+    const fields = { Organizacion: institution ? institution.Nombre : row.Organizacion,
+      Representante: String(input.representante || '').trim(), Cargo: String(input.cargo || '').trim(), Objeto: object,
+      ObligacionesRA: String(input.obligacionesRA || '').trim(), ObligacionesAliado: String(input.obligacionesAliado || '').trim(),
+      Vigencia: String(input.vigencia || '').trim(), FechaInicio: start, FechaFin: end, FechaFirma: signed,
+      Estado: state, Notas: String(input.notas || '').trim(), InstitucionID: institutionId,
+      PorcentajeAval: economicRule.configurada ? economicRule.porcentaje : '',
+      BaseCalculoAval: economicRule.configurada ? economicRule.base : '' };
+    const before = { InstitucionID: row.InstitucionID || '', Estado: row.Estado, FechaInicio: row.FechaInicio, FechaFin: row.FechaFin,
+      PorcentajeAval: row.PorcentajeAval === undefined ? '' : row.PorcentajeAval, BaseCalculoAval: row.BaseCalculoAval || '' };
+    actualizarRegistroInstitucionalAuditado_(sheet, row, fields, user, 'convenio', id, 'actualizado', before,
+      { InstitucionID: fields.InstitucionID, Estado: fields.Estado, FechaInicio: fields.FechaInicio, FechaFin: fields.FechaFin,
+        PorcentajeAval: fields.PorcentajeAval, BaseCalculoAval: fields.BaseCalculoAval });
+    bustSheet('convenios');
+    return { success: true };
   });
-  bustSheet('convenios');
-  return { success: true };
+}
+
+function archivarConvenio(user, { id, confirmacion } = {}) {
+  requireAdmin(user);
+  if (confirmacion !== 'ARCHIVAR_CONVENIO') return { success: false, error: 'Confirme el archivado del convenio.' };
+  return institutionLock_(function() {
+    const sheet = getSheet('Convenios'); const row = sheetToObjects(sheet).find(function(item) { return item.ID === id; });
+    if (!row) return { success: false, error: 'Convenio no encontrado.' };
+    if (row.Estado === 'archivado') return { success: true, alreadyArchived: true };
+    const now = new Date().toISOString();
+    actualizarRegistroInstitucionalAuditado_(sheet, row, { Estado: 'archivado', ArchivadoPor: user.Username, ArchivadoEn: now },
+      user, 'convenio', id, 'archivado', { Estado: row.Estado }, { Estado: 'archivado' });
+    bustSheet('convenios');
+    return { success: true };
+  });
 }
 
 // ─────────────────────────────────────────────

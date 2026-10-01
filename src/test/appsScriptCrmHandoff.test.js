@@ -141,7 +141,7 @@ describe('handoff idempotente CRM a Finance', () => {
     const result = harness.context.processRequest({
       action: 'addInscripcion', token: 'integration-token',
       inscripcion: {
-        clienteNombre: 'Registro Manual', clienteID: '0102030405', clienteEmail: 'manual@example.test',
+        clienteNombre: 'Registro Manual', clienteID: '0102030400', clienteTipoIdentificacion: 'CEDULA_EC', clienteEmail: 'manual@example.test',
         clienteTelefono: '0980000000', servicioId: 'SRV-CRM-1', servicioNombre: 'Curso de Liderazgo Ágil',
         modalidad: 'Virtual', fechaInicio: '2026-09-05', fechaFin: '2026-09-06', monto: 50,
         metodoPago: 'Efectivo', estadoPago: 'verificado', requiereAvalExterno: false,
@@ -150,7 +150,7 @@ describe('handoff idempotente CRM a Finance', () => {
 
     expect(result).toMatchObject({ success: true, id: expect.any(String), ingresoId: expect.any(String) })
     expect(harness.objects('Inscripciones')[0]).toMatchObject({
-      ClienteID: '0102030405', EstadoPago: 'verificado', Origen: '', CRMEnrollmentID: '', MetodoPago: 'Efectivo',
+      ClienteID: '0102030400', ClienteTipoIdentificacion: 'CEDULA_EC', EstadoPago: 'verificado', Origen: '', CRMEnrollmentID: '', MetodoPago: 'Efectivo',
     })
     const headers = harness.sheets.Inscripciones.rows[0]
     const clienteIdIndex = headers.indexOf('ClienteID')
@@ -163,7 +163,7 @@ describe('handoff idempotente CRM a Finance', () => {
     const created = harness.context.processRequest({
       action: 'addInscripcion', token: 'integration-token',
       inscripcion: {
-        clienteNombre: 'Registro Manual', clienteID: '1804417424', clienteEmail: 'manual@example.test',
+        clienteNombre: 'Registro Manual', clienteID: '0601234560', clienteTipoIdentificacion: 'CEDULA_EC', clienteEmail: 'manual@example.test',
         clienteTelefono: '0980000000', servicioId: 'SRV-CRM-1', servicioNombre: 'Curso de Liderazgo Ágil',
         modalidad: 'Virtual', fechaInicio: '2026-09-05', fechaFin: '2026-09-06', monto: 50,
         metodoPago: 'Efectivo', estadoPago: 'pendiente', requiereAvalExterno: false,
@@ -174,14 +174,46 @@ describe('handoff idempotente CRM a Finance', () => {
       action: 'updateInscripcion',
       token: 'integration-token',
       id: created.id,
-      inscripcion: { clienteID: '0102030405' },
+      inscripcion: { clienteID: '0102030400', clienteTipoIdentificacion: 'CEDULA_EC' },
     })
 
     const headers = harness.sheets.Inscripciones.rows[0]
     const clienteIdIndex = headers.indexOf('ClienteID')
     expect(result).toMatchObject({ success: true, persistenceVerified: true })
-    expect(harness.objects('Inscripciones')[0].ClienteID).toBe('0102030405')
+    expect(harness.objects('Inscripciones')[0].ClienteID).toBe('0102030400')
     expect(harness.sheets.Inscripciones.formats[1][clienteIdIndex]).toBe('@')
+  })
+
+  it('guarda como texto la identificación fiscal distinta del participante y exige su tipo', () => {
+    const harness = createHarness()
+    const invalid = harness.context.processRequest({
+      action: 'addInscripcion', token: 'integration-token',
+      inscripcion: {
+        clienteNombre: 'Registro con Factura Empresa', clienteID: '0601234560', clienteTipoIdentificacion: 'CEDULA_EC',
+        clienteEmail: 'empresa@example.test', clienteTelefono: '0980000000', servicioId: 'SRV-CRM-1',
+        servicioNombre: 'Curso de Liderazgo Ágil', modalidad: 'Virtual', fechaInicio: '2026-09-05',
+        fechaFin: '2026-09-06', monto: 50, metodoPago: 'Efectivo', ruc: '0691787373001',
+      },
+    })
+    expect(invalid.success).toBe(false)
+    expect(invalid.error).toMatch(/tipo de identificación fiscal/)
+    expect(harness.objects('Inscripciones')).toHaveLength(0)
+
+    const saved = harness.context.processRequest({
+      action: 'addInscripcion', token: 'integration-token',
+      inscripcion: {
+        clienteNombre: 'Registro con Factura Empresa', clienteID: '0601234560', clienteTipoIdentificacion: 'CEDULA_EC',
+        clienteEmail: 'empresa@example.test', clienteTelefono: '0980000000', servicioId: 'SRV-CRM-1',
+        servicioNombre: 'Curso de Liderazgo Ágil', modalidad: 'Virtual', fechaInicio: '2026-09-05',
+        fechaFin: '2026-09-06', monto: 50, metodoPago: 'Efectivo', razonSocial: 'Empresa de Prueba S.A.',
+        ruc: '0691787373001', tipoIdentificacionFactura: 'RUC_EC',
+      },
+    })
+    const row = harness.objects('Inscripciones')[0]
+    const headers = harness.sheets.Inscripciones.rows[0]
+    expect(saved.success).toBe(true)
+    expect(row).toMatchObject({ ClienteID: '0601234560', RUC: '0691787373001', TipoIdentificacionFactura: 'RUC_EC' })
+    expect(harness.sheets.Inscripciones.formats[1][headers.indexOf('RUC')]).toBe('@')
   })
 
   it('permite actualizar aval institucional en una inscripción CRM sin cédula y conserva la trazabilidad', () => {

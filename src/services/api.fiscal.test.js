@@ -14,29 +14,43 @@ describe('api fiscal', () => {
     global.fetch = vi.fn()
   })
 
-  it('al verificar un pago crea factura fiscal una sola vez con la inscripción', async () => {
+  it('verificar un pago solo actualiza el flujo financiero y no inicia facturación fiscal', async () => {
+    fetch.mockResolvedValueOnce(jsonResponse({ success: true, data: { ID: 'INS-1', EstadoPago: 'verificado' } }))
+    const result = await api.verificarPagoInscripcion('INS-1')
+
+    expect(result.data.EstadoPago).toBe('verificado')
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(fetch.mock.calls[0][0]).not.toBe('/api/fiscal/from-inscripcion')
+  })
+
+  it('la emisión fiscal sigue disponible como petición explícita e independiente', async () => {
     fetch
       .mockResolvedValueOnce(jsonResponse({ success: true, data: { ID: 'INS-1' } }))
       .mockResolvedValueOnce(jsonResponse({ success: true, data: { factura: { id: 'FACT-1' } } }))
 
     const result = await api.verificarPagoInscripcion('INS-1')
-
-    expect(result.fiscal.data.factura.id).toBe('FACT-1')
-    expect(fetch).toHaveBeenCalledTimes(2)
-    const fiscalBody = JSON.parse(fetch.mock.calls[1][1].body)
-    expect(fetch.mock.calls[1][0]).toBe('/api/fiscal/from-inscripcion')
-    expect(fiscalBody).toMatchObject({ inscripcionId: 'INS-1' })
-  })
-
-  it('si la factura falla después del pago no rompe la confirmación de pago', async () => {
-    fetch
-      .mockResolvedValueOnce(jsonResponse({ success: true, data: { ID: 'INS-1' } }))
-      .mockResolvedValueOnce(jsonResponse({ success: false, error: 'Falta cédula/RUC válido del cliente para facturar.' }, { status: 422 }))
-
-    const result = await api.verificarPagoInscripcion('INS-1')
+    const fiscal = await api.crearFacturaFiscalDesdeInscripcion('INS-1')
 
     expect(result.success).toBe(true)
-    expect(result.fiscalWarning).toContain('Falta cédula')
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(fetch.mock.calls[0][0]).not.toBe('/api/fiscal/from-inscripcion')
+    expect(fetch.mock.calls[1][0]).toBe('/api/fiscal/from-inscripcion')
+    expect(JSON.parse(fetch.mock.calls[1][1].body)).toMatchObject({ inscripcionId: 'INS-1' })
+    expect(fiscal.data.factura.id).toBe('FACT-1')
+  })
+
+  it('un fallo de facturación explícita no modifica ni invalida el pago ya verificado', async () => {
+    fetch
+      .mockResolvedValueOnce(jsonResponse({ success: true, data: { ID: 'INS-1', EstadoPago: 'verificado' } }))
+      .mockResolvedValueOnce(jsonResponse({ success: false, error: 'SRI no disponible.' }, { status: 503 }))
+
+    const payment = await api.verificarPagoInscripcion('INS-1')
+    await expect(api.crearFacturaFiscalDesdeInscripcion('INS-1')).rejects.toThrow('SRI no disponible.')
+
+    expect(payment.data.EstadoPago).toBe('verificado')
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(fetch.mock.calls[0][0]).not.toBe('/api/fiscal/from-inscripcion')
+    expect(fetch.mock.calls[1][0]).toBe('/api/fiscal/from-inscripcion')
   })
 
   it('descarga XML/RIDE como blob sin exponer el token en el cuerpo', async () => {

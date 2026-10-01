@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../../services/api'
 import { fmt, ESTADOS_INGRESO, TIPOS_INGRESO } from '../../utils/formatters'
-import { exportIngresosPDF } from '../../utils/exporters'
+import { exportIngresosPDF, summarizeIngresos } from '../../utils/exporters'
 import Modal from '../UI/Modal'
 import ConfirmDialog from '../UI/ConfirmDialog'
 import TableSkeleton from '../UI/TableSkeleton'
@@ -42,6 +42,7 @@ export default function IngresosList({ soloMios = false }) {
   const [data, setData]         = useState([])
   const [loading, setLoading]   = useState(true)
   const [error, setError]       = useState('')
+  const [notice, setNotice]     = useState(null)
   const [modal, setModal]       = useState(null)
   const [selected, setSelected] = useState(null)
   const [confirm, setConfirm]   = useState(null)
@@ -98,11 +99,14 @@ export default function IngresosList({ soloMios = false }) {
 
   async function handleQuickConfirm(ing) {
     setConfirming(true)
+    setError('')
+    setNotice(null)
     try {
+      let result
       if (ing.InscripcionID) {
-        await api.verificarPagoInscripcion(ing.InscripcionID)
+        result = await api.verificarPagoInscripcion(ing.InscripcionID)
       } else {
-        await api.updateIngreso(ing.ID, {
+        result = await api.updateIngreso(ing.ID, {
           fecha:      ing.Fecha,
           tipo:       ing.Tipo,
           modalidad:  ing.Modalidad  || 'N/A',
@@ -116,6 +120,13 @@ export default function IngresosList({ soloMios = false }) {
           notas:      ing.Notas      || '',
         })
       }
+      setNotice(result?.warning
+        ? { tone: 'amber', message: 'El pago se verificó con una observación.', detail: result.warning }
+        : {
+          tone: 'green',
+          message: ing.InscripcionID ? 'Pago verificado e ingreso vinculado actualizado.' : 'Ingreso confirmado correctamente.',
+          detail: ing.InscripcionID ? 'No se emitió una factura en este paso; la facturación se gestiona por separado.' : '',
+        })
       setDetail(null)
       load()
     } catch (e) { setError(e.message) }
@@ -153,7 +164,7 @@ export default function IngresosList({ soloMios = false }) {
     return lineas.join('\n')
   }
 
-  const total       = data.reduce((s, i) => s + (Number(i.Monto) || 0), 0)
+  const { confirmado: montoConfirmado, pendiente: montoPendiente } = summarizeIngresos(data)
   const confirmados = data.filter(i => i.Estado === 'confirmado').length
   const pendientes  = data.filter(i => i.Estado === 'pendiente' || i.Estado === 'pendiente_verificacion').length
 
@@ -201,7 +212,7 @@ export default function IngresosList({ soloMios = false }) {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
           { label: 'Total Registros', val: data.length,        css: 'text-gray-900' },
-          { label: 'Total Ingresos',  val: fmt.usd(total),     css: 'text-emerald-600 font-bold' },
+          { label: 'Monto confirmado', val: fmt.usd(montoConfirmado), css: 'text-emerald-600 font-bold' },
           { label: 'Confirmados',     val: confirmados,         css: 'text-emerald-600' },
           { label: 'Por verificar',   val: pendientes,          css: 'text-amber-600' },
         ].map(s => (
@@ -213,6 +224,12 @@ export default function IngresosList({ soloMios = false }) {
       </div>
 
       {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg p-3">{error}</p>}
+      {notice && (
+        <div className={`rounded-lg border p-3 text-sm ${notice.tone === 'green' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-900'}`} role="status">
+          <p className="font-semibold">{notice.message}</p>
+          {notice.detail && <p className="mt-1">{notice.detail}</p>}
+        </div>
+      )}
 
       {/* Table */}
       {loading ? <TableSkeleton cols={isAdmin ? 11 : 10} rows={6} /> : (
@@ -297,8 +314,13 @@ export default function IngresosList({ soloMios = false }) {
               {data.length > 0 && (
                 <tfoot>
                   <tr className="bg-emerald-50">
-                    <td colSpan={isAdmin ? 9 : 8} className="px-4 py-2 text-sm font-semibold text-emerald-800">TOTAL</td>
-                    <td className="px-4 py-2 font-bold text-emerald-700">{fmt.usd(total)}</td>
+                    <td colSpan={isAdmin ? 9 : 8} className="px-4 py-2 text-sm font-semibold text-emerald-800">MONTO CONFIRMADO</td>
+                    <td className="px-4 py-2 font-bold text-emerald-700">{fmt.usd(montoConfirmado)}</td>
+                    <td />
+                  </tr>
+                  <tr className="bg-amber-50">
+                    <td colSpan={isAdmin ? 9 : 8} className="px-4 py-2 text-sm font-semibold text-amber-800">MONTO PENDIENTE DE CONFIRMACIÓN</td>
+                    <td className="px-4 py-2 font-bold text-amber-700">{fmt.usd(montoPendiente)}</td>
                     <td />
                   </tr>
                 </tfoot>
@@ -352,6 +374,12 @@ export default function IngresosList({ soloMios = false }) {
                 {detail.Referencia || detail.Notas || <span className="italic font-sans text-amber-600">Sin referencia registrada</span>}
               </p>
             </div>
+
+            {detail.InscripcionID && (
+              <p className="rounded-lg border border-blue-100 bg-blue-50 p-3 text-xs text-blue-800">
+                Al confirmar, se verifica el pago y se actualiza el ingreso vinculado. La factura electrónica no se emite automáticamente; se gestiona por separado desde la inscripción.
+              </p>
+            )}
 
             {/* Cuentas de la empresa para cotejar */}
             {detailCuentas.length > 0 && (

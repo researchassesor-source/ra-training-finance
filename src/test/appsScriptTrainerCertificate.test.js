@@ -13,7 +13,7 @@ function setup() {
   const harness = createAppsScriptHarness()
   harness.seed('Sesiones', [{ Token: 'admin-token', Username: 'admin.test', UserID: 'ADMIN', Rol: 'admin', Nombre: 'Admin', Expira: '2099-01-01T00:00:00.000Z' }])
   harness.seed('Usuarios', [{ ID: 'ADMIN', Username: 'admin.test', Rol: 'admin', Nombre: 'Admin', Activo: true }])
-  harness.seed('Capacitadores', [{ ID: 'CAP-1', Nombre: 'Docente de Ejemplo', Identificacion: '0100000001', Resumen: 'Experiencia académica', Activo: true }])
+  harness.seed('Capacitadores', [{ ID: 'CAP-1', Nombre: 'Docente de Ejemplo', Identificacion: '0601234560', TipoIdentificacion: 'CEDULA_EC', Resumen: 'Experiencia académica', Activo: true }])
   harness.seed('Servicios', [{ ID: 'SRV-1', Nombre: 'Seminario de derecho', Duracion: '40', Modalidad: 'Virtual',
     FechaEvento: '2026-08-20', FechaFinEvento: '2026-08-22', EstadoEvento: 'finalizado',
     CapacitadorID: 'CAP-1', Capacitador: 'Docente de Ejemplo', Activo: true }])
@@ -31,6 +31,27 @@ function setup() {
 }
 
 describe('certificado profesional de capacitador', () => {
+  it('guarda en texto una cédula iniciada en cero y la copia idéntica al nuevo certificado', () => {
+    const harness = setup()
+    const request = harness.context.processRequest
+    const saved = request({ action: 'updateCapacitador', token: 'admin-token', id: 'CAP-1', capacitador: {
+      nombre: 'Docente de Ejemplo', identificacion: '0600000012', tipoIdentificacion: 'CEDULA_EC',
+      resumen: 'Experiencia académica',
+    } })
+    expect(saved.success).toBe(true)
+
+    const profile = request({ action: 'getCapacitadores', token: 'admin-token' }).data.find(item => item.ID === 'CAP-1')
+    expect(profile).toMatchObject({ Identificacion: '0600000012', TipoIdentificacion: 'CEDULA_EC' })
+    const identityColumn = harness.sourceHeaders('Capacitadores').indexOf('Identificacion')
+    expect(harness.sheets.Capacitadores.formats[1][identityColumn]).toBe('@')
+
+    const preflight = request({ action: 'preflightCertificadoCapacitador', token: 'admin-token', servicioId: 'SRV-1' })
+    expect(preflight).toMatchObject({ success: true, data: { identificacion: '0600000012', emisionHabilitada: true } })
+    const issued = request({ action: 'emitirCertificadoCapacitador', token: 'admin-token', servicioId: 'SRV-1' })
+    expect(issued.success).toBe(true)
+    expect(harness.objects('CertificadosProfesionales')[0]).toMatchObject({ Identificacion: '0600000012', TipoIdentificacion: 'CEDULA_EC' })
+  })
+
   it('emite una sola vez en hoja independiente, verifica QR y archiva el PDF inmutable', () => {
     const harness = setup()
     const request = harness.context.processRequest
@@ -40,6 +61,7 @@ describe('certificado profesional de capacitador', () => {
     expect(issued).toMatchObject({ success: true, data: { CertificateSubject: 'professional', ProfessionalRole: 'capacitador', TemplateVersion: 'ra-security-2026-v2' } })
     expect(request({ action: 'emitirCertificadoCapacitador', token: 'admin-token', servicioId: 'SRV-1' }).alreadyIssued).toBe(true)
     expect(harness.objects('CertificadosProfesionales')).toHaveLength(1)
+    expect(harness.objects('CertificadosProfesionales')[0]).toMatchObject({ Identificacion: '0601234560', TipoIdentificacion: 'CEDULA_EC' })
     expect(harness.objects('Certificados')).toHaveLength(0)
     expect(request({ action: 'verificarCertificado', id: issued.data.ID })).toMatchObject({
       success: true, valido: true, data: { estado: 'vigente', tipoSujeto: 'profesional', rolProfesional: 'capacitador' },
@@ -57,10 +79,15 @@ describe('certificado profesional de capacitador', () => {
     expect(Buffer.from(recovered.contentBase64, 'base64').equals(pdf)).toBe(true)
   })
 
-  it('anula y reemite con código distinto sin borrar la versión histórica', () => {
+  it('mantiene la versión anterior hasta archivar la reemisión profesional', () => {
     const harness = setup()
     const request = harness.context.processRequest
     const first = request({ action: 'emitirCertificadoCapacitador', token: 'admin-token', servicioId: 'SRV-1' }).data
+    const oldPdf = Buffer.from('%PDF-1.4 trainer original\n%%EOF')
+    const oldHash = crypto.createHash('sha256').update(oldPdf).digest('hex')
+    expect(request({ action: 'guardarPdfCertificadoPrivado', token: 'admin-token', id: first.ID,
+      pdfBase64: oldPdf.toString('base64'), pdfHash: oldHash,
+      templateVersion: first.TemplateVersion, certificateVersion: first.CertificateVersion }).success).toBe(true)
     expect(request({ action: 'anularCertificadoCapacitador', token: 'admin-token', id: first.ID,
       motivo: 'Corrección de datos académicos', confirmacion: 'ANULAR' }).success).toBe(true)
     expect(request({ action: 'verificarCertificado', id: first.ID }).data.estado).toBe('anulado')
@@ -69,8 +96,34 @@ describe('certificado profesional de capacitador', () => {
       motivo: 'Corrección de datos académicos', confirmacion: 'REEMITIR' }).data
     expect(second.CertificateVersion).toBe(2)
     expect(second.CodigoCertificado).not.toBe(first.CodigoCertificado)
+    expect(second.CertificateStatus).toBe('pendiente_pdf')
     expect(harness.objects('CertificadosProfesionales')).toHaveLength(2)
+    expect(request({ action: 'verificarCertificado', id: first.ID }).data.estado).toBe('anulado')
+    expect(request({ action: 'verificarCertificado', id: second.ID }).valido).toBe(false)
+    const newPdf = Buffer.from('%PDF-1.4 trainer corrected\n%%EOF')
+    const newHash = crypto.createHash('sha256').update(newPdf).digest('hex')
+    const auditSheet = harness.ensureSheet('AuditoriaCertificados')
+    const appendRow = auditSheet.appendRow.bind(auditSheet)
+    auditSheet.appendRow = () => { throw new Error('audit unavailable') }
+    const failedArchive = request({ action: 'guardarPdfCertificadoPrivado', token: 'admin-token', id: second.ID,
+      pdfBase64: newPdf.toString('base64'), pdfHash: newHash,
+      templateVersion: second.TemplateVersion, certificateVersion: second.CertificateVersion })
+    expect(failedArchive.success).toBe(false)
+    expect(harness.objects('CertificadosProfesionales').find(item => item.ID === first.ID)).toMatchObject({
+      CertificateStatus: 'anulado', ReissuedCertificateId: '',
+    })
+    expect(harness.objects('CertificadosProfesionales').find(item => item.ID === second.ID)).toMatchObject({
+      CertificateStatus: 'pendiente_pdf', PdfHash: '', PdfStorageReference: '',
+    })
+    expect([...harness.driveFiles.values()].some(file => file.getName().includes('_v2.pdf'))).toBe(false)
+    expect([...harness.driveFiles.values()].some(file => file.getName().includes('_v1.pdf'))).toBe(true)
+    auditSheet.appendRow = appendRow
+    expect(request({ action: 'guardarPdfCertificadoPrivado', token: 'admin-token', id: second.ID,
+      pdfBase64: newPdf.toString('base64'), pdfHash: newHash,
+      templateVersion: second.TemplateVersion, certificateVersion: second.CertificateVersion }).success).toBe(true)
     expect(request({ action: 'verificarCertificado', id: first.ID }).data).toMatchObject({ estado: 'reemitido', certificadoVigenteId: second.ID })
     expect(request({ action: 'verificarCertificado', id: second.ID }).data.estado).toBe('vigente')
+    expect(request({ action: 'getCertificadoCapacitadorParaDescarga', token: 'admin-token', id: first.ID }))
+      .toMatchObject({ success: true, data: { ID: first.ID, CertificateVersion: 1 } })
   })
 })

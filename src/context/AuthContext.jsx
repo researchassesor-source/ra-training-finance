@@ -1,6 +1,7 @@
-import { createContext, useContext, useState, useCallback } from 'react'
+import { createContext, useContext, useState, useCallback, useEffect } from 'react'
 import { api } from '../services/api'
 import { hasRole } from '../utils/roles'
+import { SESSION_EXPIRED_EVENT } from '../utils/sessionEvents'
 
 const AuthContext = createContext(null)
 
@@ -11,6 +12,41 @@ export function AuthProvider({ children }) {
       return s ? JSON.parse(s) : null
     } catch { return null }
   })
+
+  useEffect(() => {
+    const clearLocalSession = () => {
+      localStorage.removeItem('rat_token')
+      localStorage.removeItem('rat_user')
+      setUser(null)
+    }
+    const onSessionExpired = event => {
+      const failedToken = event.detail?.token
+      if (failedToken && localStorage.getItem('rat_token') !== failedToken) return
+      clearLocalSession()
+    }
+    const onStorage = event => {
+      if (event.key !== 'rat_token' && event.key !== 'rat_user') return
+      if (!localStorage.getItem('rat_token')) {
+        clearLocalSession()
+        return
+      }
+      if (event.key === 'rat_user') {
+        try {
+          const stored = localStorage.getItem('rat_user')
+          setUser(stored ? JSON.parse(stored) : null)
+        } catch {
+          clearLocalSession()
+        }
+      }
+    }
+
+    window.addEventListener(SESSION_EXPIRED_EVENT, onSessionExpired)
+    window.addEventListener('storage', onStorage)
+    return () => {
+      window.removeEventListener(SESSION_EXPIRED_EVENT, onSessionExpired)
+      window.removeEventListener('storage', onStorage)
+    }
+  }, [])
 
   const login = useCallback(async (username, password) => {
     const res = await api.login(username, password)

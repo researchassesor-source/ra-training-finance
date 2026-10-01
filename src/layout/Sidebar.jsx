@@ -4,7 +4,7 @@ import {
   LayoutDashboard, TrendingUp, TrendingDown, CreditCard,
   FileText, BarChart2, BookOpen, Users, X,
   GraduationCap, Briefcase, Settings, HeartHandshake, CalendarDays,
-  Clock, ListChecks, ShieldCheck,
+  Clock, ListChecks, ShieldCheck, Building2,
 } from 'lucide-react'
 import logo from '../assets/brand/logo-ra-training.webp'
 import { BRAND } from '../config/brand'
@@ -21,6 +21,7 @@ const adminLinks = [
   { to: '/pagos',          icon: CreditCard,      label: 'Pagos' },
   { to: '/contratos',      icon: FileText,        label: 'Contratos' },
   { to: '/convenios',      icon: HeartHandshake,  label: 'Convenios' },
+  { to: '/instituciones',  icon: Building2,       label: 'Instituciones' },
   { to: '/proyecciones',   icon: BarChart2,       label: 'Proyecciones' },
   { to: '/asistencia',     icon: Clock,           label: 'Asistencia' },
   { to: '/flujos',         icon: ListChecks,      label: 'Flujos de Trabajo' },

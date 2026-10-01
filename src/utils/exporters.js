@@ -44,11 +44,20 @@ function addFooter(doc) {
   }
 }
 
+export function summarizeIngresos(data = []) {
+  return data.reduce((totals, item) => {
+    const status = String(item.Estado || '').toLowerCase()
+    const amount = Number(item.Monto) || 0
+    if (status === 'confirmado') totals.confirmado += amount
+    if (status === 'pendiente' || status === 'pendiente_verificacion') totals.pendiente += amount
+    return totals
+  }, { confirmado: 0, pendiente: 0 })
+}
+
 export function exportIngresosPDF(data, filtros = {}) {
   const doc = new jsPDF()
   const y = addHeader(doc, 'Reporte de Ingresos', `Período: ${filtros.label || 'General'}`)
-
-  const total = data.reduce((s, i) => s + (Number(i.Monto) || 0), 0)
+  const totals = summarizeIngresos(data)
 
   autoTable(doc, {
     startY: y,
@@ -58,7 +67,10 @@ export function exportIngresosPDF(data, filtros = {}) {
       i.Modalidad || '—', i.MetodoPago || '—', i.Estado, i.Referencia || i.Notas || '—',
       fmt.usd(i.Monto),
     ]),
-    foot: [['', '', '', '', '', '', '', 'TOTAL', fmt.usd(total)]],
+    foot: [
+      ['', '', '', '', '', '', '', 'CONFIRMADO', fmt.usd(totals.confirmado)],
+      ['', '', '', '', '', '', '', 'PENDIENTE', fmt.usd(totals.pendiente)],
+    ],
     headStyles: { fillColor: BRAND_COLOR, fontSize: 8 },
     footStyles: { fillColor: [240, 240, 255], fontStyle: 'bold', fontSize: 9 },
     bodyStyles: { fontSize: 8 },
@@ -923,12 +935,20 @@ export function exportVentasVendedorPDF({ vendedor, desde, hasta, data, summary 
 }
 
 export function exportCertificadosAvalExcel(data) {
-  const headers = ['Participante','Cédula','Correo','Curso','Institución Avaladora','Modalidad','Horas','Fecha Inicio','Fecha Fin','Estado de Aval','Referencia','Enlace Externo','Código Externo','Valor del Aval']
+  const headers = ['Participante','Cédula','Correo','Curso','Institución Avaladora','Convenio ID','Modalidad','Horas','Fecha Inicio','Fecha Fin','Estado de Aval','Referencia','Enlace Externo','Código Externo','Estado económico','Base de cálculo','Valor base aplicado','Porcentaje aplicado','Valor histórico del aval','Confirmado por','Fecha de confirmación',
+    'Código certificado normal','Estado certificado normal','Versión normal','Código certificado avalado','Estado certificado avalado','Versión avalada']
   const rows = data.map(i => [
-    i.ClienteNombre, i.ClienteID || '', i.ClienteEmail || '', i.ServicioNombre, i.InstitucionAval || '', i.Modalidad, i.Duracion || '',
+    i.ClienteNombre, i.ClienteID || '', i.ClienteEmail || '', i.ServicioNombre, i.InstitucionAval || '',
+    i.AvalConvenioID || i.ConvenioID || '', i.Modalidad, i.Duracion || '',
     fmt.date(i.FechaInicio), i.FechaFin ? fmt.date(i.FechaFin) : '',
     i.EstadoAval === 'avalado' ? 'Avalado' : 'Pendiente',
-    i.AvalReferencia || '', i.AvalEnlaceExterno || '', i.AvalCodigoExterno || '', Number(i.ValorAval || 0).toFixed(2),
+    i.AvalReferencia || '', i.AvalEnlaceExterno || '', i.AvalCodigoExterno || '',
+    i.EstadoAval !== 'avalado' ? 'Pendiente de confirmación' : i.AvalLegacy ? 'Histórico anterior (sin snapshot)' : 'Snapshot confirmado',
+    i.AvalBaseTipoAplicado || '', i.AvalMontoBase === '' || i.AvalMontoBase === undefined ? '' : Number(i.AvalMontoBase).toFixed(2),
+    i.AvalPorcentajeAplicado === '' || i.AvalPorcentajeAplicado === undefined ? '' : Number(i.AvalPorcentajeAplicado).toFixed(2),
+    i.EstadoAval === 'avalado' ? Number(i.ValorAval || 0).toFixed(2) : '', i.AvalConfirmadoPor || '', i.FechaAval || '',
+    i.CertificadoNormal?.CodigoCertificado || '', i.CertificadoNormal?.CertificateStatus || '', i.CertificadoNormal?.CertificateVersion || '',
+    i.EntregableAval?.CodigoCertificado || '', i.EntregableAval?.CertificateStatus || '', i.EntregableAval?.CertificateVersion || '',
   ])
   const csv = [headers, ...rows]
     .map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
@@ -943,25 +963,30 @@ export function exportCertificadosAvalExcel(data) {
 
 export function exportCertificadosAvalPDF(data, filtroLabel = '') {
   const doc = new jsPDF('landscape')
-  const y = addHeader(doc, 'Certificados con Aval Externo', filtroLabel || 'Para pago de factura de aval')
+  const subtitle = [filtroLabel, 'Montos calculados; este reporte no registra pagos a instituciones.'].filter(Boolean).join(' · ')
+  const y = addHeader(doc, 'Resumen económico de avales institucionales', subtitle)
 
-  const total = data.reduce((s, i) => s + (Number(i.ValorAval) || 0), 0)
+  const total = data.reduce((s, i) => s + (i.EstadoAval === 'avalado' ? Number(i.ValorAval) || 0 : 0), 0)
 
   autoTable(doc, {
     startY: y,
-    head: [['Participante','Cédula','Correo','Curso','Institución','Modalidad','Horas','Inicio','Fin','Estado','Referencia','Código','Valor']],
+    head: [['Participante','Cédula','Curso','Institución','Convenio','Inicio','Fin','Estado','Referencia','Código aval','Base aplicada','%','Valor histórico','Documentos (normal / avalado)']],
     body: data.map(i => [
-      i.ClienteNombre, i.ClienteID || '—', i.ClienteEmail || '—', i.ServicioNombre, i.InstitucionAval || '—', i.Modalidad, i.Duracion || '—',
+      i.ClienteNombre, i.ClienteID || '—', i.ServicioNombre, i.InstitucionAval || '—', i.AvalConvenioID || i.ConvenioID || '—',
       fmt.date(i.FechaInicio), i.FechaFin ? fmt.date(i.FechaFin) : '—',
-      i.EstadoAval === 'avalado' ? 'Avalado' : 'Pendiente',
-      i.AvalReferencia || i.AvalEnlaceExterno || '—', i.AvalCodigoExterno || '—', fmt.usd(i.ValorAval),
+      i.EstadoAval !== 'avalado' ? 'Pendiente' : i.AvalLegacy ? 'Avalado (histórico)' : 'Avalado',
+      i.AvalReferencia || i.AvalEnlaceExterno || '—', i.AvalCodigoExterno || '—',
+      i.EstadoAval === 'avalado' && !i.AvalLegacy ? fmt.usd(i.AvalMontoBase) : '—',
+      i.EstadoAval === 'avalado' && !i.AvalLegacy ? `${Number(i.AvalPorcentajeAplicado)}%` : '—',
+      i.EstadoAval === 'avalado' ? fmt.usd(i.ValorAval) : '—',
+      `Normal: ${i.CertificadoNormal?.CodigoCertificado || 'sin emitir'}${i.CertificadoNormal?.CertificateStatus ? ` (${i.CertificadoNormal.CertificateStatus}, V${i.CertificadoNormal.CertificateVersion || 1})` : ''} | Avalado: ${i.EntregableAval?.CodigoCertificado || 'sin emitir'}${i.EntregableAval?.CertificateStatus ? ` (${i.EntregableAval.CertificateStatus}, V${i.EntregableAval.CertificateVersion || 1})` : ''}`,
     ]),
-    foot: [['', '', '', '', '', '', '', '', '', '', '', 'TOTAL', fmt.usd(total)]],
-    headStyles: { fillColor: BRAND_COLOR, fontSize: 7 },
+    foot: [['', '', '', '', '', '', '', '', '', '', '', 'TOTAL AVALADO', fmt.usd(total), '']],
+    headStyles: { fillColor: BRAND_COLOR, fontSize: 6 },
     footStyles: { fillColor: [240, 240, 255], fontStyle: 'bold', fontSize: 8 },
-    bodyStyles: { fontSize: 7 },
+    bodyStyles: { fontSize: 6 },
     alternateRowStyles: { fillColor: [248, 249, 255] },
-    columnStyles: { 12: { halign: 'right' } },
+    columnStyles: { 12: { halign: 'right' }, 13: { cellWidth: 54 } },
   })
 
   addFooter(doc)

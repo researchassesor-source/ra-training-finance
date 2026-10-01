@@ -1,5 +1,5 @@
-import { callGasAction, GasClientError } from '../../lib/fiscal/orchestration/gasClient.js'
-import { verifyFiscalDocumentToken } from '../../lib/fiscal/shareToken.js'
+import { callGasAction, fiscalGasErrorResponse } from '../../lib/fiscal/orchestration/gasClient.js'
+import { FiscalDocumentTokenError, verifyFiscalDocumentToken } from '../../lib/fiscal/shareToken.js'
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -7,6 +7,7 @@ export default async function handler(req, res) {
     return
   }
 
+  res.setHeader('Cache-Control', 'private, no-store')
   try {
     const { facturaId, tipo } = verifyFiscalDocumentToken(req.query?.token)
     const doc = await callGasAction('getDocumentoFiscalParaDescarga', { facturaId, tipo }, { timeoutMs: 45_000 })
@@ -14,10 +15,13 @@ export default async function handler(req, res) {
     res.setHeader('Content-Type', doc.mimeType || 'application/octet-stream')
     res.setHeader('Content-Disposition', `attachment; filename="${String(doc.filename || 'documento-fiscal').replace(/"/g, '')}"`)
     res.setHeader('X-Document-Sha256', doc.sha256 || '')
-    res.setHeader('Cache-Control', 'private, no-store')
     res.status(200).send(bytes)
   } catch (err) {
-    const message = err instanceof GasClientError ? err.message : (err.message || 'El enlace de descarga no está disponible.')
-    res.status(403).json({ success: false, error: message })
+    if (err instanceof FiscalDocumentTokenError) {
+      res.status(403).json({ success: false, error: 'El enlace de descarga no es válido o expiró.' })
+      return
+    }
+    const failure = fiscalGasErrorResponse(err, 'No se pudo obtener el documento fiscal.')
+    res.status(failure.status).json({ success: false, error: failure.error })
   }
 }

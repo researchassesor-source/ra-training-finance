@@ -1,8 +1,9 @@
 import { continuarFlujoFactura } from '../../lib/fiscal/orchestration/facturaOrchestrator.js'
 import { getActiveEnvironment, getEmisorConfig } from '../../lib/fiscal/emisorConfig.js'
-import { callGasActionAsUser } from '../../lib/fiscal/orchestration/gasClient.js'
+import { callGasActionAsUser, fiscalGasErrorResponse } from '../../lib/fiscal/orchestration/gasClient.js'
 import { loadSigningKeysFromEnv, SigningKeysNotConfiguredError } from '../../lib/fiscal/orchestration/loadSigningKeys.js'
 import { getFiscalUserToken } from '../../lib/fiscal/httpAuth.js'
+import { IDENTIFICATION_TYPE, identificationError } from '../../src/utils/identification.js'
 
 const DEFAULT_ESTABLISHMENT = '001'
 const DEFAULT_EMISSION_POINT = '002'
@@ -18,6 +19,98 @@ function cents(value) {
 
 function idType(identification) {
   return text(identification).length === 13 ? 'ruc' : 'cedula'
+}
+
+function resolveInvoiceIdentity(inscripcion) {
+  const hasParticipantIdentity = inscripcion.ClienteID !== null
+    && inscripcion.ClienteID !== undefined
+    && String(inscripcion.ClienteID).trim() !== ''
+  const hasBillingIdentity = inscripcion.RUC !== null
+    && inscripcion.RUC !== undefined
+    && String(inscripcion.RUC).trim() !== ''
+  const billingDiffers = hasBillingIdentity
+    && String(inscripcion.RUC).trim() !== String(inscripcion.ClienteID ?? '').trim()
+  const rawBillingType = text(inscripcion.TipoIdentificacionFactura).toUpperCase()
+  const billingIsConsumerFinal = ['07', 'CONSUMIDOR_FINAL', 'CONSUMIDOR FINAL'].includes(rawBillingType)
+  const useBillingIdentity = hasBillingIdentity && (!hasParticipantIdentity || billingDiffers || billingIsConsumerFinal)
+  const rawIdentity = useBillingIdentity
+    ? inscripcion.RUC
+    : (hasParticipantIdentity ? inscripcion.ClienteID : inscripcion.RUC)
+  if (rawIdentity === null || rawIdentity === undefined || rawIdentity === '') {
+    throw validationError('Falta la identificación del cliente para facturar.')
+  }
+  if (typeof rawIdentity !== 'string') {
+    throw validationError('La identificación llegó como número. Revise el dato de origen y guárdelo como texto; Finance no reconstruye ceros automáticamente.')
+  }
+
+  const identification = text(rawIdentity)
+  // Las inscripciones nuevas guardan el tipo. Los registros anteriores de CRM
+  // pueden no tenerlo; en ese caso se conserva temporalmente la regla histórica
+  // por longitud para no romper su facturación existente.
+  const rawType = text(useBillingIdentity
+    ? inscripcion.TipoIdentificacionFactura
+    : (inscripcion.ClienteTipoIdentificacion || inscripcion.TipoIdentificacionFactura)).toUpperCase()
+  const aliases = {
+    CEDULA: IDENTIFICATION_TYPE.ECUADORIAN_ID,
+    CEDULA_EC: IDENTIFICATION_TYPE.ECUADORIAN_ID,
+    ECUADORIAN_ID: IDENTIFICATION_TYPE.ECUADORIAN_ID,
+    RUC: IDENTIFICATION_TYPE.ECUADORIAN_RUC,
+    RUC_EC: IDENTIFICATION_TYPE.ECUADORIAN_RUC,
+    ECUADORIAN_RUC: IDENTIFICATION_TYPE.ECUADORIAN_RUC,
+    PASAPORTE: IDENTIFICATION_TYPE.PASSPORT,
+    PASSPORT: IDENTIFICATION_TYPE.PASSPORT,
+    OTRO: IDENTIFICATION_TYPE.OTHER,
+    OTHER: IDENTIFICATION_TYPE.OTHER,
+    EXTERIOR: IDENTIFICATION_TYPE.OTHER,
+    '04': IDENTIFICATION_TYPE.ECUADORIAN_RUC,
+    '05': IDENTIFICATION_TYPE.ECUADORIAN_ID,
+    '06': IDENTIFICATION_TYPE.PASSPORT,
+    '07': IDENTIFICATION_TYPE.CONSUMER_FINAL,
+    '08': IDENTIFICATION_TYPE.OTHER,
+    CONSUMIDOR_FINAL: IDENTIFICATION_TYPE.CONSUMER_FINAL,
+    'CONSUMIDOR FINAL': IDENTIFICATION_TYPE.CONSUMER_FINAL,
+    NO_ESPECIFICADO: IDENTIFICATION_TYPE.UNSPECIFIED,
+  }
+  const declaredType = aliases[rawType] || ''
+  let buyerIdentificationType
+
+  if (useBillingIdentity && hasParticipantIdentity
+      && (!declaredType || declaredType === IDENTIFICATION_TYPE.UNSPECIFIED)) {
+    throw validationError('Los datos de facturación tienen una identificación distinta al participante. Seleccione y guarde su tipo antes de facturar.')
+  }
+  if (declaredType === IDENTIFICATION_TYPE.CONSUMER_FINAL) {
+    if (!useBillingIdentity) {
+      throw validationError('Consumidor final solo puede configurarse como identificación fiscal de facturación, no como documento del participante.')
+    }
+    const error = identificationError(identification, IDENTIFICATION_TYPE.CONSUMER_FINAL, { allowConsumerFinal: true })
+    if (error) throw validationError(error)
+    buyerIdentificationType = 'consumidorFinal'
+  } else if (declaredType === IDENTIFICATION_TYPE.OTHER) {
+    throw validationError('El tipo “Otro documento” no tiene una equivalencia fiscal configurada. Seleccione el tipo correcto antes de facturar.')
+  } else if (declaredType === IDENTIFICATION_TYPE.PASSPORT) {
+    const error = identificationError(identification, IDENTIFICATION_TYPE.PASSPORT)
+    if (error || identification.length > 20 || /[\r\n]/.test(identification)) {
+      throw validationError('El pasaporte debe tener hasta 20 caracteres, usar un formato de documento válido y no contener saltos de línea para facturación.')
+    }
+    buyerIdentificationType = 'pasaporte'
+  } else if (declaredType === IDENTIFICATION_TYPE.ECUADORIAN_ID) {
+    const error = identificationError(identification, IDENTIFICATION_TYPE.ECUADORIAN_ID)
+    if (error) throw validationError(error)
+    buyerIdentificationType = 'cedula'
+  } else if (declaredType === IDENTIFICATION_TYPE.ECUADORIAN_RUC) {
+    const error = identificationError(identification, IDENTIFICATION_TYPE.ECUADORIAN_RUC)
+    if (error) throw validationError(error)
+    buyerIdentificationType = 'ruc'
+  } else if (rawType && declaredType !== IDENTIFICATION_TYPE.UNSPECIFIED) {
+    throw validationError('El tipo de identificación no es compatible con la facturación SRI.')
+  } else {
+    if (!/^\d{10}$|^\d{13}$/.test(identification)) {
+      throw validationError('La identificación fiscal debe contener 10 dígitos para cédula o 13 para RUC; registre explícitamente el tipo si es pasaporte.')
+    }
+    buyerIdentificationType = idType(identification)
+  }
+
+  return { identification, buyerIdentificationType }
 }
 
 function publicFactura(row = {}) {
@@ -194,14 +287,13 @@ function resolverClasificacionFiscalCurso(inscripcion) {
 }
 
 function invoicePayloadFromInscripcion(inscripcion, environment) {
-  const id = text(inscripcion.ClienteID || inscripcion.RUC)
+  const buyer = resolveInvoiceIdentity(inscripcion)
   const name = text(inscripcion.RazonSocial || inscripcion.ClienteNombre)
   const amount = cents(inscripcion.Monto)
   if (text(inscripcion.EstadoPago).toLowerCase() !== 'verificado') {
     throw validationError('La inscripción debe tener el pago verificado antes de facturar.')
   }
   if (!name) throw validationError('Falta razón social o nombre del cliente para facturar.')
-  if (!/^\d{10}$|^\d{13}$/.test(id)) throw validationError('Falta cédula/RUC válido del cliente para facturar.')
   if (amount <= 0) throw validationError('El monto de la inscripción no es válido para facturar.')
 
   const clasificacion = resolverClasificacionFiscalCurso(inscripcion)
@@ -213,8 +305,8 @@ function invoicePayloadFromInscripcion(inscripcion, environment) {
     inscripcionId: text(inscripcion.ID),
     documentType: '01',
     issuerRuc: process.env.SRI_ISSUER_RUC || '0691787373001',
-    buyerIdentificationType: idType(id),
-    buyerIdentification: id,
+    buyerIdentificationType: buyer.buyerIdentificationType,
+    buyerIdentification: buyer.identification,
     buyerName: name,
     buyerEmail: text(inscripcion.ClienteEmail),
     buyerAddress: text(inscripcion.DireccionFactura),
@@ -253,8 +345,12 @@ export default async function handler(req, res) {
   }
   const { inscripcionId } = body || {}
   const token = getFiscalUserToken(req, body)
-  if (!token || !inscripcionId) {
-    res.status(400).json({ success: false, error: 'token e inscripcionId son obligatorios.' })
+  if (!token) {
+    res.status(401).json({ success: false, error: 'Sesión inválida o expirada. Por favor inicia sesión de nuevo.' })
+    return
+  }
+  if (!inscripcionId) {
+    res.status(400).json({ success: false, error: 'inscripcionId es obligatorio.' })
     return
   }
 
@@ -310,10 +406,16 @@ export default async function handler(req, res) {
     })
     res.status(200).json({ success: true, data: { factura: publicFactura(processed?.factura || createdFactura || draft), processed } })
   } catch (err) {
-    const status = err.statusCode || (createdFactura ? 200 : 502)
+    const failure = fiscalGasErrorResponse(err, 'No se pudo crear la factura fiscal.')
+    // Si una sesión/permisos falla a mitad del proceso, devuelve el código correcto
+    // aunque ya exista un borrador. La clave por inscripción hace seguro reintentar
+    // tras volver a iniciar sesión: el borrador existente se reutiliza, no se duplica.
+    const authFailure = failure.status === 401 || failure.status === 403
+    const status = err.statusCode || (createdFactura && !authFailure ? 200 : failure.status)
+    const partialSuccess = Boolean(createdFactura && !authFailure)
     res.status(status).json({
-      success: createdFactura ? true : false,
-      error: createdFactura ? undefined : (err.message || 'No se pudo crear la factura fiscal.'),
+      success: partialSuccess,
+      error: partialSuccess ? undefined : (err.statusCode ? err.message : failure.error),
       data: createdFactura ? {
         factura: publicFactura(createdFactura),
         attention: 'Pago verificado; la factura fiscal requiere atención administrativa.',

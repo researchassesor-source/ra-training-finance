@@ -23,7 +23,16 @@ vi.mock('../../services/api', () => ({ api: apiMock }))
 vi.mock('../../context/AuthContext', () => ({
   useAuth: () => ({ user: { rol: 'admin', username: 'admin.demo' }, isAdmin: true, isVendedor: false }),
 }))
-vi.mock('../../utils/exporters', () => ({ exportIngresosPDF: vi.fn() }))
+vi.mock('../../utils/exporters', () => ({
+  exportIngresosPDF: vi.fn(),
+  summarizeIngresos: data => data.reduce((totals, item) => {
+    const state = String(item.Estado || '').toLowerCase()
+    const amount = Number(item.Monto) || 0
+    if (state === 'confirmado') totals.confirmado += amount
+    if (state === 'pendiente' || state === 'pendiente_verificacion') totals.pendiente += amount
+    return totals
+  }, { confirmado: 0, pendiente: 0 }),
+}))
 
 function baseRow(overrides = {}) {
   return {
@@ -98,6 +107,20 @@ describe('IngresosList — trazabilidad hacia la inscripción de origen', () => 
     await waitFor(() => expect(screen.getByText('Verificar Pago Pendiente')).toBeInTheDocument())
     expect(screen.getAllByText('Cliente Demo').length).toBeGreaterThan(0)
     expect(screen.getByPlaceholderText('Buscar cliente, referencia o comprobante').value).toBe('123456789')
+  })
+
+  it('verificar un ingreso vinculado confirma el pago y aclara que la factura es independiente', async () => {
+    state.rows = [baseRow({ Estado: 'pendiente_verificacion' })]
+    renderList()
+    await screen.findByText('Cliente Demo')
+
+    fireEvent.click(screen.getByTitle('Verificar pago pendiente'))
+    expect(await screen.findByText(/La factura electrónica no se emite automáticamente/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Confirmar/ }))
+
+    expect(await screen.findByText('Pago verificado e ingreso vinculado actualizado.')).toBeInTheDocument()
+    expect(screen.getByText(/No se emitió una factura en este paso/)).toBeInTheDocument()
+    expect(apiMock.verificarPagoInscripcion).toHaveBeenCalledWith('INS-1')
   })
 })
 

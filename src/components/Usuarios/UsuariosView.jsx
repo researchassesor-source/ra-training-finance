@@ -8,7 +8,7 @@ import Spinner from '../UI/Spinner'
 import { Plus, Pencil, Trash2, UserCheck, UserX } from 'lucide-react'
 import { ROLE_META, ROLE_ORDER, primaryRole, rolesOf } from '../../utils/roles'
 
-const EMPTY = { nombre: '', email: '', username: '', password: '', roles: ['usuario'], rol: 'usuario', activo: true, institucionAval: '' }
+const EMPTY = { nombre: '', email: '', username: '', password: '', roles: ['usuario'], rol: 'usuario', activo: true, institucionAval: '', institucionAvalId: '' }
 
 const ROLE_OPTIONS = [
   { value: 'usuario', label: 'Usuario', detail: 'Gastos y reportes propios' },
@@ -30,6 +30,7 @@ function mapInitial(initial) {
     rol:      primaryRole(rolesOf(initial)),
     activo:   initial.Activo === true || initial.Activo === 'TRUE' || initial.activo === true,
     institucionAval: initial.InstitucionAval || initial.institucionAval || '',
+    institucionAvalId: initial.InstitucionAvalID || initial.institucionAvalId || '',
   }
 }
 
@@ -37,8 +38,16 @@ function UsuarioForm({ initial, onSave, onCancel }) {
   const [form, setForm]   = useState(() => mapInitial(initial))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [institutions, setInstitutions] = useState([])
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
   const hasAvalRole = form.roles.includes('aval')
+  const legacyInstitution = Boolean(initial && form.institucionAval && !form.institucionAvalId)
+
+  useEffect(() => {
+    api.getOpcionesInstitucionesMaestras()
+      .then(result => setInstitutions(result.data || []))
+      .catch(() => setInstitutions([]))
+  }, [])
 
   function toggleRole(role) {
     setForm(actual => {
@@ -53,6 +62,7 @@ function UsuarioForm({ initial, onSave, onCancel }) {
         roles: nextRoles,
         rol: primaryRole(nextRoles),
         institucionAval: nextRoles.includes('aval') ? actual.institucionAval : '',
+        institucionAvalId: nextRoles.includes('aval') ? actual.institucionAvalId : '',
       }
     })
   }
@@ -60,11 +70,17 @@ function UsuarioForm({ initial, onSave, onCancel }) {
   async function handleSubmit(e) {
     e.preventDefault()
     if (!initial && !form.password) { setError('La contraseña es requerida'); return }
-    if (hasAvalRole && !form.institucionAval.trim()) {
-      setError('Ingrese la institución asignada a este usuario de aval.')
+    if (hasAvalRole && !form.institucionAvalId && !legacyInstitution) {
+      setError('Seleccione una institución activa de la ficha maestra para este usuario de aval.')
       return
     }
-    const payload = { ...form, rol: primaryRole(form.roles) }
+    const selectedInstitution = institutions.find(item => item.ID === form.institucionAvalId)
+    const payload = {
+      ...form,
+      rol: primaryRole(form.roles),
+      institucionAval: hasAvalRole ? (selectedInstitution?.Nombre || form.institucionAval) : '',
+      institucionAvalId: hasAvalRole && form.institucionAvalId !== '__legacy__' ? form.institucionAvalId : undefined,
+    }
     setSaving(true)
     setError('')
     try {
@@ -129,11 +145,21 @@ function UsuarioForm({ initial, onSave, onCancel }) {
         {hasAvalRole && (
           <div className="sm:col-span-2">
             <label className="label">Institución asignada *</label>
-            <input className="input" required value={form.institucionAval}
-              onChange={e => set('institucionAval', e.target.value)}
-              placeholder="Ej.: IPSA" />
+            <select className="input" required value={form.institucionAvalId || (legacyInstitution ? '__legacy__' : '')}
+              onChange={e => {
+                const id = e.target.value
+                const selected = institutions.find(item => item.ID === id)
+                setForm(current => ({ ...current, institucionAvalId: id === '__legacy__' ? '' : id, institucionAval: selected?.Nombre || (id === '__legacy__' ? current.institucionAval : '') }))
+              }}>
+              {!form.institucionAvalId && !legacyInstitution && <option value="">Seleccione una institución…</option>}
+              {legacyInstitution && <option value="__legacy__">Conservar asignación histórica: {form.institucionAval}</option>}
+              {form.institucionAvalId && !institutions.some(item => item.ID === form.institucionAvalId) && (
+                <option value={form.institucionAvalId}>{form.institucionAval || 'Institución vinculada'} (histórica/inactiva)</option>
+              )}
+              {institutions.map(item => <option key={item.ID} value={item.ID}>{item.Nombre}{item.Siglas ? ` (${item.Siglas})` : ''}</option>)}
+            </select>
             <p className="text-xs text-gray-500 mt-1">
-              Este usuario solo podrá ver y registrar avales de esta institución.
+              El usuario solo podrá consultar los avales vinculados al ID de esta institución. Una asignación histórica sin ficha se conserva hasta que administración la normalice.
             </p>
           </div>
         )}

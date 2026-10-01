@@ -64,6 +64,7 @@ describe('repositorio de PDF oficiales', () => {
     mocks.store.mockResolvedValue({ success: true, reference: 'certificate-drive:drive-v2', hash })
     await certificatePdfRepository.prepare({ ...certificate, TemplateVersion: 'ra-security-2026-v2' })
     expect(mocks.signing).toHaveBeenCalledTimes(1)
+    expect(mocks.signing).toHaveBeenCalledWith({ templateVersion: 'ra-security-2026-v2' })
     expect(mocks.prepare).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       signatures: { director: 'data:image/png;base64,AA==', manager: 'data:image/png;base64,BB==' },
     }))
@@ -71,5 +72,17 @@ describe('repositorio de PDF oficiales', () => {
     await certificatePdfRepository.prepare({ ...certificate, TemplateVersion: 'ra-security-2026-v2',
       PdfHash: hash, PdfStorageReference: 'certificate-drive:drive-v2' })
     expect(mocks.signing).toHaveBeenCalledTimes(1)
+  })
+
+  it('selecciona las rúbricas v3 solo para un PDF nuevo de esa versión', async () => {
+    mocks.signing.mockResolvedValue({ signatures: { director: 'v3-director', manager: 'v3-manager' } })
+    mocks.prepare.mockResolvedValue({ blob: new Blob([bytes], { type: 'application/pdf' }), hash,
+      templateVersion: 'ra-security-2026-v3', certificateVersion: 1 })
+    mocks.store.mockResolvedValue({ success: true, reference: 'certificate-drive:drive-v3', hash })
+    await certificatePdfRepository.prepare({ ...certificate, TemplateVersion: 'ra-security-2026-v3' })
+    expect(mocks.signing).toHaveBeenCalledWith({ templateVersion: 'ra-security-2026-v3' })
+    expect(mocks.prepare).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      signatures: { director: 'v3-director', manager: 'v3-manager' },
+    }))
   })
 })

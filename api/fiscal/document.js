@@ -4,7 +4,7 @@
  * internas de Drive al navegador.
  */
 
-import { callGasActionAsUser, GasClientError } from '../../lib/fiscal/orchestration/gasClient.js'
+import { callGasActionAsUser, fiscalGasErrorResponse } from '../../lib/fiscal/orchestration/gasClient.js'
 import { getFiscalUserToken } from '../../lib/fiscal/httpAuth.js'
 
 export default async function handler(req, res) {
@@ -13,10 +13,16 @@ export default async function handler(req, res) {
     return
   }
 
+  res.setHeader('Cache-Control', 'private, no-store')
+  res.setHeader('Vary', 'Authorization')
   const { facturaId, tipo = 'RIDE' } = req.query || {}
   const token = getFiscalUserToken(req)
-  if (!token || !facturaId) {
-    res.status(400).json({ success: false, error: 'token y facturaId son obligatorios.' })
+  if (!token) {
+    res.status(401).json({ success: false, error: 'Sesión inválida o expirada. Por favor inicia sesión de nuevo.' })
+    return
+  }
+  if (!facturaId) {
+    res.status(400).json({ success: false, error: 'facturaId es obligatorio.' })
     return
   }
 
@@ -28,7 +34,7 @@ export default async function handler(req, res) {
     res.setHeader('X-Document-Sha256', doc.sha256 || '')
     res.status(200).send(bytes)
   } catch (err) {
-    const message = err instanceof GasClientError ? err.message : 'No se pudo descargar el documento fiscal.'
-    res.status(502).json({ success: false, error: message })
+    const failure = fiscalGasErrorResponse(err, 'No se pudo descargar el documento fiscal.')
+    res.status(failure.status).json({ success: false, error: failure.error })
   }
 }

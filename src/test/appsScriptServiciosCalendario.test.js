@@ -38,11 +38,13 @@ describe('servicios y calendario operativo', () => {
     harness.seed('AuditoriaCertificados', [])
     const created = harness.context.processRequest({
       action: 'addCapacitador', token: 'admin-token',
-      capacitador: { nombre: 'Docente de Prueba', identificacion: '0100000001', resumen: 'Experiencia académica acreditada.' },
+      capacitador: { nombre: 'Docente de Prueba', identificacion: '0100000009', tipoIdentificacion: 'CEDULA_EC', resumen: 'Experiencia académica acreditada.' },
     })
     expect(created.success).toBe(true)
     const trainer = harness.context.processRequest({ action: 'getCapacitadores', token: 'admin-token' }).data[0]
-    expect(trainer).toMatchObject({ ID: created.id, Nombre: 'Docente de Prueba', Identificacion: '0100000001' })
+    expect(trainer).toMatchObject({ ID: created.id, Nombre: 'Docente de Prueba', Identificacion: '0100000009', TipoIdentificacion: 'CEDULA_EC' })
+    const trainerHeaders = harness.sheets.Capacitadores.rows[0]
+    expect(harness.sheets.Capacitadores.formats[1][trainerHeaders.indexOf('Identificacion')]).toBe('@')
     expect(harness.context.processRequest({
       action: 'addServicio', token: 'admin-token',
       servicio: { nombre: 'Curso con docente', tipo: 'Curso', duracion: '40', capacitadorId: created.id },
@@ -61,12 +63,29 @@ describe('servicios y calendario operativo', () => {
   it('rechaza perfiles duplicados y revierte creación si no puede auditar', () => {
     const harness = createHarness()
     harness.seed('AuditoriaCertificados', [])
-    const input = { nombre: 'Docente de Prueba', identificacion: '0100000001' }
+    const input = { nombre: 'Docente de Prueba', identificacion: '0100000009', tipoIdentificacion: 'CEDULA_EC' }
     expect(harness.context.processRequest({ action: 'addCapacitador', token: 'admin-token', capacitador: input }).success).toBe(true)
     expect(harness.context.processRequest({ action: 'addCapacitador', token: 'admin-token', capacitador: input }).success).toBe(false)
     harness.sheets.AuditoriaCertificados.appendRow = () => { throw new Error('audit unavailable') }
     expect(harness.context.processRequest({ action: 'addCapacitador', token: 'admin-token', capacitador: { nombre: 'Otro Docente' } }).success).toBe(false)
     expect(harness.objects('Capacitadores')).toHaveLength(1)
+  })
+
+  it('rechaza una cédula ecuatoriana inválida y no aplica su algoritmo a un pasaporte', () => {
+    const harness = createHarness()
+    harness.seed('AuditoriaCertificados', [])
+    const invalidCedula = harness.context.processRequest({
+      action: 'addCapacitador', token: 'admin-token',
+      capacitador: { nombre: 'Docente Inválido', identificacion: '0601234567', tipoIdentificacion: 'CEDULA_EC' },
+    })
+    const passport = harness.context.processRequest({
+      action: 'addCapacitador', token: 'admin-token',
+      capacitador: { nombre: 'Docente Extranjero', identificacion: '1234567890', tipoIdentificacion: 'PASAPORTE' },
+    })
+    expect(invalidCedula.success).toBe(false)
+    expect(invalidCedula.error).toMatch(/dígito verificador/)
+    expect(passport.success).toBe(true)
+    expect(harness.objects('Capacitadores')[0]).toMatchObject({ Identificacion: '1234567890', TipoIdentificacion: 'PASAPORTE' })
   })
 
   it('prepara el certificado de capacitador sin crear una inscripción ni emitir o alterar certificados', () => {
