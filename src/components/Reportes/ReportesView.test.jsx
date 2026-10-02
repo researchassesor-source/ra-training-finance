@@ -15,6 +15,11 @@ const apiMock = vi.hoisted(() => ({
   getDashboard: vi.fn(async () => ({ data: { kpis: {}, ingresosXMes: [], egresosXMes: [] } })),
   getReporteFlujosTrabajo: vi.fn(async () => ({ data: [] })),
   getReporteAsistencia: vi.fn(async () => ({ data: { registros: [], resumenes: [] } })),
+  getResumenCertificaciones: vi.fn(async () => ({ data: {
+    desde: '2026-01-01', hasta: '2026-12-31', personasCertificadas: 2,
+    documentosNormales: 2, documentosAvalados: 1, documentosTotales: 3,
+    reemisionesTotales: 1, documentosAnulados: 0, documentosSinFecha: 0,
+  } })),
   getFacturasFiscales: vi.fn(async () => ({ data: { items: [] } })),
 }))
 
@@ -29,6 +34,7 @@ const exportersMock = vi.hoisted(() => ({
   exportAsistenciaPDF: vi.fn(),
   exportFacturasEmitidasContableCSV: vi.fn(),
   exportFacturasRecibidasContableCSV: vi.fn(),
+  exportResumenCertificacionesCSV: vi.fn(),
 }))
 
 vi.mock('../../context/AuthContext', () => ({ useAuth: () => authState.value }))
@@ -53,6 +59,7 @@ describe('ReportesView — permisos contables', () => {
     expect(screen.queryByText('Reporte de Flujo de Trabajo')).not.toBeInTheDocument()
     expect(screen.queryByText('Reporte de Asistencia')).not.toBeInTheDocument()
     expect(screen.queryByText('Informe Ejecutivo Anual')).not.toBeInTheDocument()
+    expect(screen.queryByText('Resumen de certificaciones')).not.toBeInTheDocument()
     expect(apiMock.getUsuarios).not.toHaveBeenCalled()
   })
 
@@ -67,7 +74,19 @@ describe('ReportesView — permisos contables', () => {
     expect(screen.getByText('Reporte de Flujo de Trabajo')).toBeInTheDocument()
     expect(screen.getByText('Reporte de Asistencia')).toBeInTheDocument()
     expect(screen.getByText('Informe Ejecutivo Anual')).toBeInTheDocument()
+    expect(screen.getByText('Resumen de certificaciones')).toBeInTheDocument()
     await waitFor(() => expect(apiMock.getUsuarios).toHaveBeenCalled())
+  })
+
+  it('admin consulta personas únicas y descarga el resumen documental sin exponerlo al contador', async () => {
+    authState.value = { isAdmin: true, isContador: false, user: { username: 'admin', nombre: 'Admin', rol: 'admin' } }
+    render(<ReportesView />)
+    fireEvent.click(screen.getByRole('button', { name: 'Ver resumen' }))
+    await waitFor(() => expect(apiMock.getResumenCertificaciones).toHaveBeenCalledWith(expect.objectContaining({ desde: expect.any(String), hasta: expect.any(String) })))
+    expect(screen.getByText('Personas certificadas')).toBeInTheDocument()
+    expect(screen.getByText('3 documentos en total · 0 anulados')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Descargar CSV' }))
+    expect(exportersMock.exportResumenCertificacionesCSV).toHaveBeenCalledWith(expect.objectContaining({ personasCertificadas: 2, documentosTotales: 3 }))
   })
 
   it('botón Excel de facturas emitidas consulta producción en modo lectura', async () => {

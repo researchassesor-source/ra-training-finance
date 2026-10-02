@@ -8,6 +8,7 @@ const mock = vi.hoisted(() => ({
   getOpcionesInstitucionesMaestras: vi.fn(),
   getConveniosParaAval: vi.fn(),
   configurarAvalPosteriorCertificado: vi.fn(),
+  corregirIdentificacionAvalConfirmado: vi.fn(),
   getHistorialCertificados: vi.fn(),
 }))
 
@@ -16,6 +17,7 @@ vi.mock('../../services/api', () => ({ api: {
   getOpcionesInstitucionesMaestras: mock.getOpcionesInstitucionesMaestras,
   getConveniosParaAval: mock.getConveniosParaAval,
   configurarAvalPosteriorCertificado: mock.configurarAvalPosteriorCertificado,
+  corregirIdentificacionAvalConfirmado: mock.corregirIdentificacionAvalConfirmado,
   getHistorialCertificados: mock.getHistorialCertificados,
 } }))
 vi.mock('../../context/AuthContext', () => ({ useAuth: () => ({ isAdmin: mock.admin }) }))
@@ -44,7 +46,8 @@ describe('entregable institucional ITSAL', () => {
     expect(await screen.findByText(/PDF oficial archivado/)).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Descargar avalado' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Enviar por correo' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Corregir versión' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Crear nueva versión' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Corregir identificación' })).toBeTruthy()
   })
 
   it('muestra la emisión para instituciones distintas de ITSAL y no ofrece versionado fuera de alcance', async () => {
@@ -60,7 +63,30 @@ describe('entregable institucional ITSAL', () => {
     render(<CertificadosAvalView />)
     expect(await screen.findAllByText('Instituto Delta')).toHaveLength(2)
     expect(screen.getByRole('button', { name: 'Emitir y descargar avalado' })).toBeTruthy()
-    expect(screen.queryByRole('button', { name: 'Corregir versión' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Crear nueva versión' })).toBeNull()
+  })
+
+  it('exige motivo y confirmación para corregir cédula y oculta el envío del PDF anterior', async () => {
+    mock.getCertificadosAval.mockResolvedValue({ data: [{
+      ...row, ClienteTipoIdentificacion: 'CEDULA_EC',
+      EntregableAval: { ...row.EntregableAval, RequiereReemisionIdentificacion: true },
+    }] })
+    mock.corregirIdentificacionAvalConfirmado.mockResolvedValue({ success: true })
+    render(<CertificadosAvalView />)
+    expect(await screen.findByText(/La identificación actual difiere/)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Enviar por correo' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Corregir identificación' }))
+    expect(screen.getByText(/La versión archivada y las facturas emitidas permanecen intactas/i)).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('Identificación corregida'), { target: { value: '0601234560' } })
+    fireEvent.change(screen.getByLabelText('Motivo y respaldo de la corrección'), { target: { value: 'Cédula cotejada con documento original' } })
+    const save = screen.getByRole('button', { name: 'Guardar corrección' })
+    expect(save).toBeDisabled()
+    fireEvent.click(screen.getByRole('checkbox'))
+    fireEvent.click(save)
+    expect(mock.corregirIdentificacionAvalConfirmado).toHaveBeenCalledWith('INS-ITSAL-1', {
+      identificacionAnterior: '0100000001', identificacionNueva: '0601234560',
+      tipoIdentificacion: 'CEDULA_EC', motivo: 'Cédula cotejada con documento original',
+    })
   })
 
   it('muestra el historial sin mezclar los PDF de cada versión', async () => {

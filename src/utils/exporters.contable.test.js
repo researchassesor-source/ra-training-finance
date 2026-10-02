@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { exportFacturasEmitidasContableCSV, exportFacturasRecibidasContableCSV } from './exporters'
+import { exportFacturasEmitidasContableCSV, exportFacturasRecibidasContableCSV, exportResumenCertificacionesCSV } from './exporters'
 
 const saveAsMock = vi.hoisted(() => vi.fn())
 
@@ -60,5 +60,15 @@ describe('exportes contables para contador', () => {
     const csv = await csvTextFromLastSave()
     expect(csv).toContain('"Servicio profesional","001-001-000000123","0209202601","0.00","100.00","15.00","115.00"')
     expect(csv).toContain('"Gasto legacy","","","0.00","0.00","0.00","20.00"')
+  })
+
+  it('exporta el resumen documental con personas únicas y reemisiones separadas', async () => {
+    exportResumenCertificacionesCSV({ desde: '2026-09-01', hasta: '2026-09-30',
+      personasCertificadas: 2, documentosNormales: 2, documentosAvalados: 1, documentosTotales: 3,
+      reemisionesNormales: 1, reemisionesAvaladas: 0, reemisionesTotales: 1,
+      documentosAnulados: 0, documentosSinFecha: 0 })
+    const csv = await csvTextFromLastSave()
+    expect(csv).toContain('"PERSONAS UNICAS","DOCUMENTOS NORMALES","DOCUMENTOS AVALADOS"')
+    expect(csv).toContain('"2","2","1","3","1","0","1","0","0"')
   })
 })

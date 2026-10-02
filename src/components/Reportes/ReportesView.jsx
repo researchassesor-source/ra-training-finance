@@ -4,6 +4,7 @@ import {
   exportIngresosPDF, exportEgresosPDF, exportPagosPDF, exportContratosPDF,
   exportResumenPDF, exportResumenWord, exportFlujosTrabajoPDF, exportAsistenciaPDF,
   exportFacturasEmitidasContableCSV, exportFacturasRecibidasContableCSV,
+  exportResumenCertificacionesCSV,
 } from '../../utils/exporters'
 import { FileText, Download, Loader2, ClipboardList, CalendarCheck, FileSpreadsheet } from 'lucide-react'
 import { fmt } from '../../utils/formatters'
@@ -56,6 +57,7 @@ export default function ReportesView() {
   const [error, setError]   = useState('')
   const [usuarios, setUsuarios] = useState([])
   const [usuarioReporte, setUsuarioReporte] = useState('')
+  const [resumenCertificaciones, setResumenCertificaciones] = useState(null)
 
   const canSelectUsuarios = isAdmin
   const canSeeAccountingReports = isAdmin || isContador
@@ -208,6 +210,17 @@ export default function ReportesView() {
     finally { setLoad('asi', false) }
   }
 
+  async function consultarCertificaciones() {
+    setLoad('certificaciones', true)
+    setError('')
+    setResumenCertificaciones(null)
+    try {
+      const response = await api.getResumenCertificaciones(periodo)
+      setResumenCertificaciones(response.data)
+    } catch (e) { setError(e.message) }
+    finally { setLoad('certificaciones', false) }
+  }
+
   return (
     <div className="space-y-6 max-w-5xl">
       {/* Filters */}
@@ -326,6 +339,38 @@ export default function ReportesView() {
           </>
         )}
       </div>
+
+      {canSeeAdminReports && <section className="overflow-hidden rounded-2xl border border-brand-100 bg-white shadow-sm" aria-labelledby="certification-summary-title">
+        <div className="flex flex-col gap-3 border-b border-brand-100 bg-brand-50/60 p-5 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 id="certification-summary-title" className="font-semibold text-brand-900">Resumen de certificaciones</h3>
+            <p className="mt-1 text-xs text-slate-600">Personas únicas por inscripción; documentos normales y avalados se cuentan por separado.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className="btn-primary text-xs" onClick={consultarCertificaciones} disabled={loading.certificaciones}>
+              {loading.certificaciones ? <Loader2 size={14} className="animate-spin" /> : <ClipboardList size={14} />}
+              {loading.certificaciones ? 'Calculando…' : 'Ver resumen'}
+            </button>
+            {resumenCertificaciones && <button type="button" className="btn-secondary text-xs"
+              onClick={() => exportResumenCertificacionesCSV(resumenCertificaciones)}>
+              <Download size={14} /> Descargar CSV
+            </button>}
+          </div>
+        </div>
+        {resumenCertificaciones ? <div className="p-5">
+          <p className="mb-4 text-xs text-slate-500">Emisiones del {resumenCertificaciones.desde} al {resumenCertificaciones.hasta}. Solo PDFs oficiales archivados.</p>
+          <dl className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+            {[['Personas certificadas', resumenCertificaciones.personasCertificadas],
+              ['Documentos normales', resumenCertificaciones.documentosNormales],
+              ['Documentos avalados', resumenCertificaciones.documentosAvalados],
+              ['Reemisiones', resumenCertificaciones.reemisionesTotales]].map(([label, value]) =>
+              <div key={label} className="border-l-2 border-brand-300 pl-3"><dt className="text-xs text-slate-600">{label}</dt>
+                <dd className="mt-1 text-xl font-semibold tabular-nums text-brand-900">{value}</dd></div>)}
+          </dl>
+          <p className="mt-4 text-xs text-slate-500">{resumenCertificaciones.documentosTotales} documentos en total · {resumenCertificaciones.documentosAnulados} anulados
+            {resumenCertificaciones.documentosSinFecha > 0 && ` · ${resumenCertificaciones.documentosSinFecha} sin fecha excluidos del período`}</p>
+        </div> : <p className="px-5 py-4 text-xs text-slate-500">Seleccione un período y consulte el resumen. No se incluyen borradores ni certificados sin PDF íntegro.</p>}
+      </section>}
     </div>
   )
 }

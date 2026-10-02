@@ -73,11 +73,19 @@ function renderPreviewState(popup, { title, heading, message, tone = 'loading', 
 
 export function openCertificatePreviewWindow({
   openWindow = () => window.open('', '_blank'),
+  downloadOnly = typeof navigator !== 'undefined' && (
+    navigator.userAgentData?.mobile === true || /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '')
+  ),
   appHref = typeof window !== 'undefined' ? window.location.href : '',
   createObjectUrl = blob => URL.createObjectURL(blob),
   revokeObjectUrl = url => URL.revokeObjectURL(url),
   schedule = (callback, delay) => globalThis.setTimeout(callback, delay),
 } = {}) {
+  // En móviles el PDF se entrega por descarga; un popup en blanco previo suele quedar sin vista previa.
+  if (downloadOnly) {
+    return { available: false, blocked: false, mobileDownload: true,
+      showStage() {}, showError() {}, showPdf() { return '' } }
+  }
   let popup
   try {
     popup = openWindow()
@@ -274,6 +282,8 @@ export async function downloadCertificateWithAudit({
       }
     } else if (preview?.blocked) {
       previewWarning = 'El PDF se descargó, pero el navegador bloqueó la pestaña de vista previa. Permita ventanas emergentes para verla.'
+    } else if (preview?.mobileDownload) {
+      previewWarning = 'Se inició la descarga del PDF. En móvil no se abre una pestaña de vista previa adicional.'
     }
 
     try {

@@ -145,6 +145,17 @@ describe('vista previa y descarga auditada de certificados', () => {
     expect(preview.showError).toHaveBeenCalledOnce()
   })
 
+  it('en modo móvil evita abrir una pestaña vacía y conserva descarga y auditoría', async () => {
+    const openWindow = vi.fn()
+    const preview = openCertificatePreviewWindow({ downloadOnly: true, openWindow })
+    const fixture = flowFixture()
+    const result = await downloadCertificateWithAudit({ id: 'DEMO', ...fixture, preview })
+    expect(openWindow).not.toHaveBeenCalled()
+    expect(fixture.saveFile).toHaveBeenCalledOnce()
+    expect(fixture.order).toEqual(['requested', 'saved', 'completado'])
+    expect(result.previewWarning).toContain('En móvil')
+  })
+
   it('reintenta una sola vez la consulta lenta y no duplica ninguna escritura de auditoría', async () => {
     const fixture = flowFixture()
     fixture.api.getCertificadoParaDescarga = vi.fn()

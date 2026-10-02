@@ -158,6 +158,17 @@ export function exportFacturasEmitidasContableCSV(facturas = [], filtros = {}) {
   saveCsvExcel(headers, rows, `facturas_emitidas_contable_ra_training${label}.csv`)
 }
 
+export function exportResumenCertificacionesCSV(resumen) {
+  if (!resumen) throw new Error('No hay datos de certificación para exportar.')
+  const headers = ['DESDE', 'HASTA', 'PERSONAS UNICAS', 'DOCUMENTOS NORMALES', 'DOCUMENTOS AVALADOS',
+    'DOCUMENTOS TOTALES', 'REEMISIONES NORMALES', 'REEMISIONES AVALADAS', 'REEMISIONES TOTALES', 'ANULADOS', 'SIN FECHA']
+  saveCsvExcel(headers, [[resumen.desde || '', resumen.hasta || '', resumen.personasCertificadas,
+    resumen.documentosNormales, resumen.documentosAvalados, resumen.documentosTotales,
+    resumen.reemisionesNormales, resumen.reemisionesAvaladas, resumen.reemisionesTotales,
+    resumen.documentosAnulados, resumen.documentosSinFecha]],
+  `resumen_certificaciones_ra_training_${resumen.desde || 'inicio'}_a_${resumen.hasta || 'hoy'}.csv`)
+}
+
 export function exportFacturasRecibidasContableCSV(egresos = [], filtros = {}) {
   const headers = ['FECHA','DETALLE','FACT. No.','AUTORIZACION','BASE IMPONIBLE 0%','BASE IMPONIBLE 15%','IVA','TOTAL']
   const rows = egresos.map(egreso => {

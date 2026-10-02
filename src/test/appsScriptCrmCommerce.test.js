@@ -747,7 +747,7 @@ describe('marcarAval + entregable avalado', () => {
     expect(harness.objects('EntregablesAval').find(row => row.ID === next.data.ID)).toMatchObject(institutionalSnapshot)
   })
 
-  it('conserva la reemisión histórica ITSAL y cambia el QR vigente solo al archivar la nueva versión', () => {
+  it('conserva V1 ITSAL y prepara V2 con la plantilla institucional vigente; cambia el QR solo al archivar', () => {
     const harness = seededHarness()
     const id = facturaFullLista(harness)
     const request = harness.context.processRequest
@@ -761,7 +761,8 @@ describe('marcarAval + entregable avalado', () => {
     const next = request({ action: 'reemitirEntregableAval', token: 'admin-token', id,
       motivo: 'Corrección histórica', confirmacion: 'REEMITIR' })
     expect(next).toMatchObject({ success: true, data: { CertificateVersion: 2,
-      TemplateVersion: 'ra-itsal-security-2026-v1' } })
+      TemplateVersion: 'ra-institutional-aval-2026' } })
+    expect(harness.objects('EntregablesAval').find(row => row.ID === oldId).TemplateVersion).toBe('ra-itsal-security-2026-v1')
     expect(next.data.ID).not.toBe(oldId)
     expect(request({ action: 'reemitirEntregableAval', token: 'admin-token', id,
       motivo: 'Corrección histórica', confirmacion: 'REEMITIR' })).toMatchObject({
@@ -773,11 +774,81 @@ describe('marcarAval + entregable avalado', () => {
     const hash = crypto.createHash('sha256').update(bytes).digest('hex')
     expect(request({ action: 'guardarPdfEntregableAvalPrivado', token: 'admin-token', id,
       pdfBase64: bytes.toString('base64'), pdfHash: hash,
-      templateVersion: 'ra-itsal-security-2026-v1' }).success).toBe(true)
+      templateVersion: 'ra-institutional-aval-2026' }).success).toBe(true)
     expect(request({ action: 'verificarCertificado', id: oldId }).data).toMatchObject({ estado: 'reemitido', certificadoVigenteId: next.data.ID })
     expect(request({ action: 'verificarCertificado', id: next.data.ID }).data).toMatchObject({ estado: 'vigente', version: 2 })
     expect(harness.objects('EntregablesAval')).toHaveLength(2)
     expect(harness.objects('Certificados')).toHaveLength(1)
+  })
+
+  it('congela V1, toma firmantes actuales para V2 y corrige la identificación sin tocar el aval económico', () => {
+    const harness = seededHarness()
+    const request = harness.context.processRequest
+    const id = facturaFullLista(harness)
+    const normalV1 = harness.objects('Certificados').find(row => row.InscripcionID === id)
+    expect(request({ action: 'registrarArtefactoCertificado', token: 'admin-token', id: normalV1.ID,
+      pdfHash: 'a'.repeat(64), pdfStorageReference: `test-memory:${normalV1.ID}:v1`,
+      templateVersion: normalV1.TemplateVersion, certificateVersion: 1 }).success).toBe(true)
+    expect(request({ action: 'marcarAval', token: 'aval-token', id, avalCodigoExterno: 'ITSAL-V1' }).success).toBe(true)
+    const { issued } = issueAndArchiveAval(harness, id)
+    const avalV1 = harness.objects('EntregablesAval').find(row => row.ID === issued.data.ID)
+    const economics = Object.fromEntries(['AvalMontoBase', 'AvalPorcentajeAplicado', 'AvalMontoCalculado', 'ValorAval']
+      .map(key => [key, porId(harness, id)[key]]))
+    const authority = harness.objects('AutoridadesInstitucion')[0]
+    expect(request({ action: 'updateAutoridadInstitucion', token: 'admin-token', id: authority.ID,
+      autoridad: { nombre: 'Nueva Autoridad ITSAL', cargo: 'Directora General', funcion: 'Autoridad firmante',
+        firmaCertificados: true, estado: 'activo' } }).success).toBe(true)
+    expect(request({ action: 'guardarDatosFirmanteCertificado', token: 'admin-token',
+      nombre: 'Mgs. Alexandra Villagómez', cargo: 'Gerente General Actual',
+      confirmacion: 'CONFIRMO_DATOS_OFICIALES_DE_FIRMA' }).success).toBe(true)
+    for (const rol of ['director', 'manager']) {
+      expect(request({ action: 'registrarFirmaOficialCertificado', token: 'admin-token', rol,
+        pngBase64: institutionalSignatureBase64(), version: 'v3',
+        confirmacion: 'CONFIRMO_FIRMA_AUTENTICA_Y_USO_AUTORIZADO' }).success).toBe(true)
+    }
+    expect(request({ action: 'activarPlantillaCertificadoV3', token: 'admin-token',
+      confirmacion: 'ACTIVAR_CERTIFICADOS_SEGURIDAD_V3' }).success).toBe(true)
+    expect(request({ action: 'corregirIdentificacionAvalConfirmado', token: 'aval-token', id,
+      identificacionAnterior: '0102030405', identificacionNueva: '0601234560', tipoIdentificacion: 'CEDULA_EC',
+      motivo: 'Corrección documentada de cédula', confirmacion: 'CORREGIR_IDENTIFICACION_AVAL' }).success).toBe(false)
+    expect(request({ action: 'corregirIdentificacionAvalConfirmado', token: 'admin-token', id,
+      identificacionAnterior: '0102030405', identificacionNueva: 601234560, tipoIdentificacion: 'CEDULA_EC',
+      motivo: 'Corrección documentada de cédula', confirmacion: 'CORREGIR_IDENTIFICACION_AVAL' }).success).toBe(false)
+    expect(request({ action: 'corregirIdentificacionAvalConfirmado', token: 'admin-token', id,
+      identificacionAnterior: '0102030405', identificacionNueva: '0601234567', tipoIdentificacion: 'CEDULA_EC',
+      motivo: 'Corrección documentada de cédula', confirmacion: 'CORREGIR_IDENTIFICACION_AVAL' }).success).toBe(false)
+    const auditSheet = harness.ensureSheet('AuditoriaCertificados')
+    const appendAudit = auditSheet.appendRow.bind(auditSheet)
+    auditSheet.appendRow = () => { throw new Error('Auditoría temporalmente no disponible') }
+    expect(request({ action: 'corregirIdentificacionAvalConfirmado', token: 'admin-token', id,
+      identificacionAnterior: '0102030405', identificacionNueva: '0601234560', tipoIdentificacion: 'CEDULA_EC',
+      motivo: 'Corrección documentada de cédula', confirmacion: 'CORREGIR_IDENTIFICACION_AVAL' }).success).toBe(false)
+    expect(porId(harness, id).ClienteID).toBe('0102030405')
+    auditSheet.appendRow = appendAudit
+    const correction = request({ action: 'corregirIdentificacionAvalConfirmado', token: 'admin-token', id,
+      identificacionAnterior: '0102030405', identificacionNueva: '0601234560', tipoIdentificacion: 'CEDULA_EC',
+      motivo: 'Corrección documentada de cédula', confirmacion: 'CORREGIR_IDENTIFICACION_AVAL' })
+    expect(correction).toMatchObject({ success: true, data: { identificacion: '0601234560', requiereReemisionAval: true } })
+    expect(request({ action: 'getCertificadosAval', token: 'admin-token' }).data.find(row => row.ID === id).ClienteID).toBe('0601234560')
+    expect(request({ action: 'emitirEntregableAval', token: 'admin-token', id }).data.ClienteID).toBe('0102030405')
+    expect(request({ action: 'enviarCertificadoEmail', token: 'admin-token', id }).error).toMatch(/Reemita y archive una versión normal nueva/i)
+    expect(request({ action: 'enviarEntregableAvalEmail', token: 'admin-token', id }).error).toMatch(/Reemita y archive una versión avalada nueva/i)
+    const normalV2 = request({ action: 'reemitirCertificado', token: 'admin-token', id,
+      motivo: 'Cédula corregida según documento presentado', confirmacion: 'REEMITIR' })
+    expect(normalV2).toMatchObject({ success: true, data: { ClienteID: '0601234560', CertificateVersion: 2 } })
+    expect(request({ action: 'registrarArtefactoCertificado', token: 'admin-token', id: normalV2.data.ID,
+      pdfHash: 'b'.repeat(64), pdfStorageReference: `test-memory:${normalV2.data.ID}:v2`,
+      templateVersion: normalV2.data.TemplateVersion, certificateVersion: 2 }).success).toBe(true)
+    const avalV2 = request({ action: 'reemitirEntregableAval', token: 'admin-token', id,
+      motivo: 'Cédula corregida con nueva autoridad', confirmacion: 'REEMITIR' })
+    expect(avalV2).toMatchObject({ success: true, data: { ClienteID: '0601234560', CertificateVersion: 2,
+      InstitutionData: { authorityName: 'Nueva Autoridad ITSAL', managerTitle: 'Gerente General Actual' } } })
+    expect(avalV2.data.InstitutionData.managerSignatureSha256).not.toBe(issued.data.InstitutionData.managerSignatureSha256)
+    expect(harness.objects('EntregablesAval').find(row => row.ID === avalV1.ID)).toEqual(avalV1)
+    expect(JSON.parse(harness.objects('EntregablesAval').find(row => row.ID === avalV2.data.ID).DocumentSnapshot).datos.participante.ClienteID)
+      .toBe('0601234560')
+    expect(porId(harness, id)).toMatchObject(economics)
+    expect(harness.objects('Certificados').find(row => row.ID === normalV1.ID).DocumentSnapshot).toBe(normalV1.DocumentSnapshot)
   })
 
   it('revierte la preparación si no se puede registrar su auditoría obligatoria', () => {

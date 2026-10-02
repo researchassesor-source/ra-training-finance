@@ -276,6 +276,12 @@ export const api = {
     bust('getInscripciones', 'getInstitucionesAval', 'getCertificadosAval')
     return call('corregirAvalConfirmado', { id, ...datos, confirmacion: 'CORREGIR_AVAL_CONFIRMADO' }, getToken())
   },
+  corregirIdentificacionAvalConfirmado: (id, datos = {}) => {
+    bust('getInscripciones', 'getCertificadosAval', 'getHistorialCertificados')
+    return call('corregirIdentificacionAvalConfirmado', {
+      id, ...datos, confirmacion: 'CORREGIR_IDENTIFICACION_AVAL',
+    }, getToken())
+  },
   emitirEntregableAval: (id) => call('emitirEntregableAval', { id }, getToken()),
   anularEntregableAval: (id, motivo) => call('anularEntregableAval', { id, motivo, confirmacion: 'ANULAR' }, getToken()),
   reemitirEntregableAval: (id, motivo) => call('reemitirEntregableAval', { id, motivo, confirmacion: 'REEMITIR' }, getToken()),
@@ -463,6 +469,8 @@ export const api = {
     call('getReporteFlujosTrabajo', params, getToken()),
   getReporteAsistencia: (params = {}) =>
     call('getReporteAsistencia', params, getToken()),
+  getResumenCertificaciones: (params = {}) =>
+    call('getResumenCertificaciones', params, getToken()),
   deleteTimbrada: (id) =>
     call('deleteTimbrada', { id }, getToken()),
 

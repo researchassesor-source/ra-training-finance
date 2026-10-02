@@ -28,6 +28,12 @@ export default function CertificadosAvalView() {
   const [correctionTarget, setCorrectionTarget] = useState(null)
   const [correctionReason, setCorrectionReason] = useState('')
   const [correctionConfirmed, setCorrectionConfirmed] = useState(false)
+  const [identityTarget, setIdentityTarget] = useState(null)
+  const [identityValue, setIdentityValue] = useState('')
+  const [identityType, setIdentityType] = useState('CEDULA_EC')
+  const [identityReason, setIdentityReason] = useState('')
+  const [identityConfirmed, setIdentityConfirmed] = useState(false)
+  const [identityError, setIdentityError] = useState('')
   const [saving, setSaving]   = useState(false)
   const [busyId, setBusyId] = useState('')
   const [notice, setNotice] = useState('')
@@ -125,6 +131,27 @@ export default function CertificadosAvalView() {
       setNotice('Corrección registrada con trazabilidad administrativa. El cálculo económico del aval no cambió.')
       load()
     } catch (err) { setError(err.message) }
+    finally { setSaving(false) }
+  }
+
+  async function handleCorrectIdentity(e) {
+    e.preventDefault()
+    if (!identityTarget || !identityConfirmed || identityReason.trim().length < 10) return
+    setSaving(true)
+    setError('')
+    setIdentityError('')
+    setNotice('')
+    try {
+      await api.corregirIdentificacionAvalConfirmado(identityTarget.ID, {
+        identificacionAnterior: String(identityTarget.ClienteID || ''),
+        identificacionNueva: identityValue.trim(),
+        tipoIdentificacion: identityType,
+        motivo: identityReason.trim(),
+      })
+      setIdentityTarget(null)
+      setNotice('Identificación corregida y auditada. Los PDFs y facturas anteriores no cambian. Reemita el certificado normal en Inscripciones y el avalado aquí antes de enviarlos.')
+      load()
+    } catch (err) { setIdentityError(err.message); setError(err.message) }
     finally { setSaving(false) }
   }
 
@@ -467,7 +494,7 @@ export default function CertificadosAvalView() {
                     </td>
                     <td className="px-4 py-3">
                       <p className="font-medium text-gray-900">{i.ClienteNombre}</p>
-                      {i.ClienteID && <p className="text-xs text-gray-400">CI: {i.ClienteID}</p>}
+                      {i.ClienteID && <p className="text-xs text-gray-400">Identificación: {i.ClienteID}</p>}
                       {i.ClienteEmail && <p className="text-xs text-gray-400">{i.ClienteEmail}</p>}
                     </td>
                     <td className="px-4 py-3 max-w-xs truncate">{i.ServicioNombre}</td>
@@ -541,17 +568,23 @@ export default function CertificadosAvalView() {
                         </div>
                         {i.EntregableAval?.CodigoCertificado && <p className="mt-1 break-all font-mono text-[11px] text-slate-600">{i.EntregableAval.CodigoCertificado} · V{i.EntregableAval.CertificateVersion}</p>}
                         {i.EntregableAval?.PdfHash && <p className="mt-1 text-[10px] text-emerald-700">PDF oficial archivado y descargable</p>}
+                        {i.EntregableAval?.RequiereReemisionIdentificacion && <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs font-medium text-amber-900">La identificación actual difiere de la del PDF archivado. Conserve V1, cree y archive V2 antes de enviarla.</p>}
                         {i.EntregableAval?.CertificateStatus === 'anulado' ? (
-                          <p className="mt-1 text-xs text-red-700">Documento avalado anulado; se conserva el histórico.</p>
+                          <div>
+                            <p className="mt-1 text-xs text-red-700">Documento avalado anulado; se conserva el histórico.</p>
+                            {i.EntregableAval?.PdfHash && <button type="button" disabled={busyId === i.ID}
+                              onClick={() => { setLifecycleTarget({ item: i, action: 'reissue' }); setLifecycleReason(''); setLifecycleConfirmed(false) }}
+                              className="btn-secondary mt-2 text-xs px-2 py-1">Crear nueva versión</button>}
+                          </div>
                         ) : i.EstadoAval === 'avalado' ? (
                           <>
                             {!i.EntregableAval?.PdfHash && <p className="mt-1 text-[11px] text-gray-500">Pendiente de emisión y archivo.</p>}
                             <div className="mt-2 flex flex-wrap gap-1.5">
                               <button type="button" disabled={busyId === i.ID || !i.AvalCodigoExterno}
                                 onClick={() => emitirAval(i)} className="btn-secondary text-xs px-2 py-1">
-                                <Download size={13} /> {i.EntregableAval?.PdfHash ? 'Descargar avalado' : 'Emitir y descargar avalado'}
+                                <Download size={13} /> {i.EntregableAval?.RequiereReemisionIdentificacion ? 'Ver PDF anterior' : i.EntregableAval?.PdfHash ? 'Descargar avalado' : 'Emitir y descargar avalado'}
                               </button>
-                              {i.EntregableAval?.PdfHash && !['enviando', 'requiere_revision'].includes(i.EntregableAval.EstadoEntregaFinal) && <button type="button" disabled={busyId === i.ID || i.EntregableAval.EstadoEntregaFinal === 'enviado'}
+                              {i.EntregableAval?.PdfHash && !i.EntregableAval.RequiereReemisionIdentificacion && !['enviando', 'requiere_revision'].includes(i.EntregableAval.EstadoEntregaFinal) && <button type="button" disabled={busyId === i.ID || i.EntregableAval.EstadoEntregaFinal === 'enviado'}
                                 onClick={() => { setDeliveryTarget(i); setDeliveryEmail(i.ClienteEmail || '') }} className="btn-primary text-xs px-2 py-1">
                                 {i.EntregableAval.EstadoEntregaFinal === 'enviado' ? 'Enviado' : 'Enviar por correo'}
                               </button>}
@@ -559,9 +592,9 @@ export default function CertificadosAvalView() {
                                 <button type="button" disabled={busyId === i.ID}
                                   onClick={() => { setReconcileTarget(i); setReconcileResult(''); setReconcileReason('') }}
                                   className="btn-secondary text-xs px-2 py-1 text-amber-800">Revisar envío</button>}
-                              {i.EntregableAval?.PdfHash && i.EntregableAval?.TemplateVersion === LEGACY_AVAL_TEMPLATE_VERSION && <button type="button" disabled={busyId === i.ID}
+                              {i.EntregableAval?.PdfHash && ['emitido', 'anulado'].includes(i.EntregableAval.CertificateStatus) && <button type="button" disabled={busyId === i.ID}
                                 onClick={() => { setLifecycleTarget({ item: i, action: 'reissue' }); setLifecycleReason(''); setLifecycleConfirmed(false) }}
-                                className="btn-secondary text-xs px-2 py-1">Corregir versión</button>}
+                                className="btn-secondary text-xs px-2 py-1">Crear nueva versión</button>}
                               {i.EntregableAval?.VersionHistory?.length > 0 && <button type="button" disabled={busyId === i.ID}
                                 onClick={() => setHistoryTarget(i)} className="btn-secondary text-xs px-2 py-1">
                                 <History size={13} /> Historial aval ({i.EntregableAval.VersionHistory.length})
@@ -588,10 +621,22 @@ export default function CertificadosAvalView() {
                           Confirmar aval
                         </button>
                       ) : isAdmin ? (
-                        <button onClick={() => { setCorrectionTarget(i); setCorrectionReason(''); setCorrectionConfirmed(false) }}
-                          className="btn-secondary text-xs px-3 py-1.5" title="Corrección excepcional auditada">
-                          <Pencil size={12} /> Corregir código
-                        </button>
+                        <div className="flex flex-wrap gap-1.5">
+                          <button onClick={() => { setCorrectionTarget(i); setCorrectionReason(''); setCorrectionConfirmed(false) }}
+                            className="btn-secondary text-xs px-3 py-1.5" title="Corrección excepcional auditada">
+                            <Pencil size={12} /> Corregir código
+                          </button>
+                          {i.EntregableAval?.PdfHash && ['emitido', 'anulado'].includes(i.EntregableAval.CertificateStatus) &&
+                            <button type="button" onClick={() => {
+                              setIdentityTarget(i); setIdentityValue(String(i.ClienteID || ''))
+                              setIdentityType(['CEDULA_EC', 'RUC_EC', 'PASAPORTE', 'OTRO'].includes(i.ClienteTipoIdentificacion)
+                                ? i.ClienteTipoIdentificacion : 'CEDULA_EC')
+                              setIdentityReason(''); setIdentityConfirmed(false)
+                              setIdentityError('')
+                            }} className="btn-secondary text-xs px-3 py-1.5" title="Corrige la identificación fuente; los PDFs anteriores se conservan">
+                              <Pencil size={12} /> Corregir identificación
+                            </button>}
+                        </div>
                       ) : <span className="text-xs text-emerald-700">Confirmado · bloqueado</span>}
                     </td>
                   </tr>
@@ -813,6 +858,32 @@ export default function CertificadosAvalView() {
               {saving ? 'Guardando…' : 'Guardar corrección'}
             </button>
           </div>
+        </form>}
+      </Modal>
+      <Modal open={!!identityTarget} onClose={() => setIdentityTarget(null)} title="Corregir identificación del participante" size="sm">
+        {identityTarget && <form onSubmit={handleCorrectIdentity} className="space-y-4">
+          {identityError && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{identityError}</p>}
+          <p className="text-sm text-slate-700">Corrija el dato fuente de <strong>{identityTarget.ClienteNombre}</strong>. La versión archivada y las facturas emitidas permanecen intactas.</p>
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+            Después de guardar, reemita y archive el certificado normal en Inscripciones y el avalado aquí. Hasta entonces no envíe el PDF anterior al participante.
+          </div>
+          <p className="text-xs text-slate-500">Identificación actual: <span className="font-mono font-semibold text-slate-800">{identityTarget.ClienteID || 'Sin registrar'}</span></p>
+          <div><label className="label" htmlFor="aval-identity-type">Tipo de identificación</label>
+            <select id="aval-identity-type" className="input" required value={identityType} onChange={e => setIdentityType(e.target.value)}>
+              <option value="CEDULA_EC">Cédula ecuatoriana</option><option value="RUC_EC">RUC</option>
+              <option value="PASAPORTE">Pasaporte</option><option value="OTRO">Otro documento</option>
+            </select></div>
+          <div><label className="label" htmlFor="aval-identity-value">Identificación corregida</label>
+            <input id="aval-identity-value" className="input font-mono" type="text" inputMode="text" required maxLength={64}
+              value={identityValue} onChange={e => setIdentityValue(e.target.value)} autoComplete="off" /></div>
+          <div><label className="label" htmlFor="aval-identity-reason">Motivo y respaldo de la corrección</label>
+            <textarea id="aval-identity-reason" className="input" required minLength={10} value={identityReason}
+              onChange={e => setIdentityReason(e.target.value)} placeholder="Ej.: Cédula cotejada con el documento presentado por la persona…" /></div>
+          <label className="flex items-start gap-2 text-sm text-slate-700"><input type="checkbox" checked={identityConfirmed}
+            onChange={e => setIdentityConfirmed(e.target.checked)} /> Confirmo que verifiqué el documento y que las versiones anteriores no se modificarán.</label>
+          <div className="flex gap-3"><button type="button" onClick={() => setIdentityTarget(null)} className="btn-secondary flex-1">Cancelar</button>
+            <button type="submit" disabled={saving || !identityConfirmed || identityReason.trim().length < 10}
+              className="btn-primary flex-1">{saving ? 'Guardando…' : 'Guardar corrección'}</button></div>
         </form>}
       </Modal>
       <Modal open={!!deliveryTarget} onClose={() => setDeliveryTarget(null)} title="Enviar certificado avalado" size="sm">

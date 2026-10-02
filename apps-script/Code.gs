@@ -106,6 +106,7 @@ function processRequest(data) {
     configurarAvalPosteriorCertificado: () => configurarAvalPosteriorCertificado(user, params),
     marcarAval:          () => marcarAval(user, params),
     corregirAvalConfirmado: () => corregirAvalConfirmado(user, params),
+    corregirIdentificacionAvalConfirmado: () => corregirIdentificacionAvalConfirmado(user, params),
     emitirEntregableAval: () => emitirEntregableAval(user, params),
     anularEntregableAval: () => anularEntregableAval(user, params),
     reemitirEntregableAval: () => reemitirEntregableAval(user, params),
@@ -167,6 +168,7 @@ function processRequest(data) {
     getFlujosSemana:      () => getFlujosSemana(user, params),
     getReporteFlujosTrabajo: () => getReporteFlujosTrabajo(user, params),
     getReporteAsistencia: () => getReporteAsistencia(user, params),
+    getResumenCertificaciones: () => getResumenCertificaciones(user, params),
     addFlujoSemanal:      () => addFlujoSemanal(user, params),
     updateFlujoSemanal:   () => updateFlujoSemanal(user, params),
     deleteFlujoSemanal:   () => deleteFlujoSemanal(user, params),
@@ -332,6 +334,18 @@ function leerSnapshotDocumentalCertificado_(row) {
     return parsed && parsed.schemaVersion === 1 && parsed.datos && typeof parsed.datos === 'object'
       ? parsed : null;
   } catch (error) { return null; }
+}
+
+function identificacionDocumentalDifiere_(documento, inscripcion, tipoSnapshot) {
+  const snapshot = leerSnapshotDocumentalCertificado_(documento);
+  // Un snapshot presente pero sin integridad verificable tampoco puede habilitar un envío.
+  if (!snapshot && String(documento && documento.DocumentSnapshot || '').trim()) return true;
+  if (!snapshot || snapshot.tipo !== tipoSnapshot) return false;
+  const participante = tipoSnapshot === 'aval_institucional' ? snapshot.datos.participante : snapshot.datos;
+  return Boolean(participante && (
+    String(participante.ClienteID || '') !== String(inscripcion.ClienteID || '')
+    || String(participante.ClienteTipoIdentificacion || '') !== String(inscripcion.ClienteTipoIdentificacion || '')
+  ));
 }
 
 function huellasFirmasOficialesCertificado_() {
@@ -5115,6 +5129,9 @@ function enviarCertificadoEmail(user, { id, email } = {}) {
   const resolved = resolverCertificadoAdministrativo(id, user);
   if (!resolved) return { success: false, error: 'No se pudo identificar la versión vigente del certificado.' };
   const certificate = resolved.certificado;
+  if (identificacionDocumentalDifiere_(certificate, row, 'participante')) {
+    return { success: false, error: 'La identificación fue corregida después de emitir este PDF. Reemita y archive una versión normal nueva antes de enviarla.' };
+  }
   const certificateStatus = estadoNormalizadoCertificado(certificate);
   if (['emitido', 'enviado'].indexOf(certificateStatus) === -1) {
     return { success: false, error: 'Solo se puede reenviar la versión vigente del certificado.' };
@@ -5914,6 +5931,7 @@ function getCertificadosAval(user, { filtros = {} } = {}) {
       ID: i.ID,
       ClienteNombre: i.ClienteNombre,
       ClienteID: i.ClienteID || '',
+      ClienteTipoIdentificacion: i.ClienteTipoIdentificacion || '',
       ClienteEmail: i.ClienteEmail || '',
       ServicioNombre: i.ServicioNombre,
       Modalidad: i.Modalidad,
@@ -5962,6 +5980,7 @@ function getCertificadosAval(user, { filtros = {} } = {}) {
         PdfHash: entrega.PdfHash || '', IssuedAt: entrega.IssuedAt || '',
         CertificateVersion: Number(entrega.CertificateVersion) || 1,
         TemplateVersion: entrega.TemplateVersion || '',
+        RequiereReemisionIdentificacion: identificacionDocumentalDifiere_(entrega, i, 'aval_institucional'),
         VersionHistory: isAdmin(user) ? entregables.filter(function(item) { return item.InscripcionID === i.ID; })
           .sort(function(a, b) { return (Number(b.CertificateVersion) || 0) - (Number(a.CertificateVersion) || 0); })
           .map(function(item) { return { id: item.ID, version: Number(item.CertificateVersion) || 1,
@@ -6225,6 +6244,68 @@ function corregirAvalConfirmado(user, { id, avalReferencia, avalEnlaceExterno, a
       throw error;
     }
     return { success: true };
+  });
+}
+
+/** Corrige solo el dato fuente de futuras versiones; nunca modifica PDFs ni facturas ya emitidos. */
+function corregirIdentificacionAvalConfirmado(user, { id, identificacionAnterior, identificacionNueva, tipoIdentificacion,
+  motivo, confirmacion } = {}) {
+  requireCertificateAdmin(user, 'AVAL_PARTICIPANT_ID_CORRECTION', { inscripcionId: id, canal: 'api' });
+  if (confirmacion !== 'CORREGIR_IDENTIFICACION_AVAL') {
+    return { success: false, error: 'Confirme explícitamente la corrección de identificación.' };
+  }
+  const reason = String(motivo || '').trim();
+  if (reason.length < 10) return { success: false, error: 'Explique el motivo de la corrección (mínimo 10 caracteres).' };
+  if (typeof identificacionAnterior !== 'string' || typeof identificacionNueva !== 'string') {
+    return { success: false, error: 'Las identificaciones deben enviarse como texto para conservar sus ceros iniciales.' };
+  }
+  const nextId = identificacionNueva.trim();
+  const nextType = normalizarTipoIdentificacion_(tipoIdentificacion);
+  const identityError = validarIdentificacion_(nextType, nextId, { required: true });
+  if (identityError) return { success: false, error: identityError };
+  return conBloqueoCertificados(function() {
+    const sheet = getSheet('Inscripciones');
+    const row = sheetToObjects(sheet).find(function(item) { return item.ID === id; });
+    if (!row) return { success: false, error: 'Inscripción no encontrada.' };
+    if (row.EstadoAval !== 'avalado') return { success: false, error: 'Esta corrección excepcional requiere un aval confirmado.' };
+    if (String(row.ClienteID || '') !== identificacionAnterior) {
+      return { success: false, error: 'La identificación cambió desde que abrió el formulario. Actualice la lista antes de continuar.' };
+    }
+    const actual = entregableAvalActual_(id);
+    if (!actual || !['emitido', 'anulado'].includes(estadoNormalizadoCertificado(actual))
+        || !/^[a-f0-9]{64}$/i.test(String(actual.PdfHash || ''))
+        || !String(actual.PdfStorageReference || '').startsWith('certificate-drive:')) {
+      return { success: false, error: 'Primero debe existir una versión avalada oficial e íntegra; no se modificará un PDF pendiente.' };
+    }
+    const normal = sheetToObjects(getSheet('Certificados')).filter(function(item) { return item.InscripcionID === id; })
+      .sort(function(a, b) { return (Number(b.CertificateVersion) || 1) - (Number(a.CertificateVersion) || 1); })[0];
+    if (normal && estadoNormalizadoCertificado(normal) === 'pendiente_pdf') {
+      return { success: false, error: 'Complete o revise la versión normal pendiente antes de corregir la identificación.' };
+    }
+    if (nextId === String(row.ClienteID || '') && nextType === normalizarTipoIdentificacion_(row.ClienteTipoIdentificacion)) {
+      return { success: false, error: 'La identificación y su tipo no cambiaron.' };
+    }
+    const before = { ClienteID: row.ClienteID || '', ClienteTipoIdentificacion: row.ClienteTipoIdentificacion || '' };
+    const after = { ClienteID: nextId, ClienteTipoIdentificacion: nextType };
+    updateRow(sheet, row, after);
+    const persisted = sheetToObjects(sheet).find(function(item) { return item.ID === id; });
+    if (!persisted || !camposPersistidosCoinciden(persisted, after)) {
+      updateRow(sheet, persisted || row, before);
+      return { success: false, error: 'No se pudo verificar la corrección. Se restauraron los datos anteriores.' };
+    }
+    try {
+      registrarAuditoriaCertificado({ certificadoId: actual.CodigoCertificado, inscripcionId: id,
+        usuario: user.Username, rol: user.Rol, accion: 'AVAL_PARTICIPANT_ID_CORRECTED',
+        estadoAnterior: String(before.ClienteID), estadoNuevo: nextId, canal: 'admin_correction',
+        resultado: 'ok', motivo: reason, metadatos: { tipoAnterior: before.ClienteTipoIdentificacion,
+          tipoNuevo: nextType, avalVersionId: actual.ID, normalVersionId: normal ? normal.ID : '' } });
+    } catch (error) {
+      updateRow(sheet, persisted, before);
+      throw error;
+    }
+    return { success: true, data: { identificacion: nextId, tipoIdentificacion: nextType,
+      requiereReemisionNormal: Boolean(normal), requiereReemisionAval: true,
+      advertencia: 'Los PDFs y las facturas previas no cambian. Reemita las versiones necesarias antes de enviarlas.' } };
   });
 }
 
@@ -6732,18 +6813,28 @@ const CERTIFICATE_ITSAL_TEMPLATE_VERSION = 'ra-itsal-security-2026-v1';
 
 function datosEntregableAval_(entregable, inscripcion) {
   const servicio = servicioParaCertificado_(inscripcion);
+  const snapshot = leerSnapshotDocumentalCertificado_(entregable);
+  const participant = snapshot && snapshot.tipo === 'aval_institucional' ? snapshot.datos.participante || {} : {};
+  const dato = function(key, fallback) {
+    return Object.prototype.hasOwnProperty.call(participant, key) ? participant[key] : fallback;
+  };
   return {
     ID: entregable.ID, CertificatePublicId: entregable.ID,
-    InscripcionID: inscripcion.ID, ClienteNombre: inscripcion.ClienteNombre,
-    ClienteID: inscripcion.ClienteID, ServicioNombre: inscripcion.ServicioNombre,
-    Duracion: mapaDuracionServicios()(inscripcion), Modalidad: inscripcion.Modalidad,
-    FechaInicio: inscripcion.FechaInicio, FechaFin: inscripcion.FechaFin,
+    InscripcionID: inscripcion.ID, ClienteNombre: dato('ClienteNombre', inscripcion.ClienteNombre),
+    ClienteID: dato('ClienteID', inscripcion.ClienteID),
+    ClienteTipoIdentificacion: dato('ClienteTipoIdentificacion', inscripcion.ClienteTipoIdentificacion || ''),
+    ServicioNombre: dato('ServicioNombre', inscripcion.ServicioNombre),
+    Duracion: dato('Duracion', mapaDuracionServicios()(inscripcion)), Modalidad: dato('Modalidad', inscripcion.Modalidad),
+    FechaInicio: dato('FechaInicio', inscripcion.FechaInicio), FechaFin: dato('FechaFin', inscripcion.FechaFin),
+    Capacitador: dato('Capacitador', (servicio && servicio.Capacitador) || ''),
+    ResumenCapacitador: dato('ResumenCapacitador', (servicio && servicio.ResumenCapacitador) || ''),
+    Lugar: dato('Lugar', (servicio && (servicio.LugarEvento || servicio.Lugar)) || ''),
     EstadoPago: inscripcion.EstadoPago, EstadoAval: inscripcion.EstadoAval,
     InstitucionAval: inscripcion.InstitucionAval,
     AvalReferencia: entregable.ReferenciaExterna || '',
     AvalEnlaceExterno: entregable.EnlaceExterno || '',
     AvalCodigoExterno: entregable.CodigoExterno || '',
-    CertificateType: servicio ? tipoCertificadoServicio_(servicio.TipoCertificado) : 'aprobacion',
+    CertificateType: dato('CertificateType', servicio ? tipoCertificadoServicio_(servicio.TipoCertificado) : 'aprobacion'),
     CertificateSubject: 'institutional_aval', CertificateStatus: entregable.CertificateStatus,
     CodigoCertificado: entregable.CodigoCertificado, CertificateVersion: Number(entregable.CertificateVersion) || 1,
     TemplateVersion: entregable.TemplateVersion, FechaEmisionCertificado: entregable.IssuedAt || entregable.CertificatePreparedAt || '',
@@ -7003,7 +7094,7 @@ function reemitirEntregableAval(user, { id, motivo, confirmacion } = {}) {
       }
       return { success: true, alreadyPrepared: true, data: datosEntregableAval_(actual, inscripcion) };
     }
-    if (['ra-institutional-aval-2026', CERTIFICATE_ITSAL_TEMPLATE_VERSION].indexOf(String(actual.TemplateVersion || '')) === -1) {
+    if ([CERTIFICATE_INSTITUTIONAL_AVAL_TEMPLATE, CERTIFICATE_ITSAL_TEMPLATE_VERSION].indexOf(String(actual.TemplateVersion || '')) === -1) {
       return { success: false, error: 'Esta versión avalada no tiene una plantilla compatible para conservar sus datos en una reemisión.' };
     }
     if (!['emitido', 'anulado'].includes(estadoNormalizadoCertificado(actual))
@@ -7011,19 +7102,36 @@ function reemitirEntregableAval(user, { id, motivo, confirmacion } = {}) {
       || !String(actual.PdfStorageReference || '').startsWith('certificate-drive:')) {
       return { success: false, error: 'Solo se puede reemitir una versión avalada con PDF oficial archivado e íntegro.' };
     }
+    if ([CERTIFICATE_SECURITY_TEMPLATE_VERSION, CERTIFICATE_SECURITY_TEMPLATE_V3_VERSION].indexOf(plantillaActivaCertificado_()) === -1) {
+      return { success: false, error: 'Active primero las firmas auténticas y la plantilla de seguridad vigente.' };
+    }
+    const signerProperties = PropertiesService.getScriptProperties();
+    const managerName = String(signerProperties.getProperty(CERTIFICATE_MANAGER_NAME_PROPERTY) || '').trim();
+    const managerTitle = String(signerProperties.getProperty(CERTIFICATE_MANAGER_TITLE_PROPERTY) || '').trim();
+    if (!managerName || !managerTitle) return { success: false, error: 'Configure el firmante vigente de R.A. Training.' };
+    const institutionalSnapshot = resolverSnapshotInstitucionalCertificadoAval_(inscripcion);
+    if (!institutionalSnapshot.success) return institutionalSnapshot;
+    institutionalSnapshot.data.CertificateManagerName = managerName;
+    institutionalSnapshot.data.CertificateManagerTitle = managerTitle;
+    institutionalSnapshot.data.CertificateManagerSignatureSha256 = huellasFirmasOficialesCertificado_().managerSignatureSha256;
+    if (!/^[a-f0-9]{64}$/i.test(institutionalSnapshot.data.CertificateManagerSignatureSha256 || '')) {
+      return { success: false, error: 'La firma vigente de Gerencia General no es verificable.' };
+    }
+    const missing = datosFaltantesCertificado(inscripcion);
+    if (missing.length) return { success: false, error: 'Faltan datos para la nueva versión: ' + missing.join(', ') + '.' };
     const versions = sheetToObjects(sheet).filter(function(item) { return item.InscripcionID === id; });
     const newId = generateId('AVAL');
     const now = new Date().toISOString();
     const newVersion = versions.reduce(function(max, item) { return Math.max(max, Number(item.CertificateVersion) || 1); }, 0) + 1;
     const codigo = generarCodigoCertificadoUnico({ ID: newId, FechaEmisionCertificado: now }, newId, id);
-    const next = Object.assign({}, actual, {
+    const next = Object.assign({}, actual, institutionalSnapshot.data, {
       ID: newId, InscripcionID: id, PdfHash: '', PdfStorageReference: '',
       EstadoEntregaFinal: 'pendiente_envio', FechaEntregaFinal: '', CreatedAt: now, UpdatedAt: now,
       CodigoCertificado: codigo,
       OriginalCertificateId: actual.OriginalCertificateId || actual.ID,
       ReplacesCertificateId: actual.ID,
       ReissuedCertificateId: '', VoidedAt: '', VoidedBy: '', VoidReason: '',
-      CertificateVersion: newVersion, TemplateVersion: actual.TemplateVersion,
+      CertificateVersion: newVersion, TemplateVersion: CERTIFICATE_INSTITUTIONAL_AVAL_TEMPLATE,
       CertificateStatus: 'pendiente_pdf', CertificatePreparedAt: now, IssuedAt: '', IssuedBy: user.Username,
       ReissueReason: String(motivo).trim(),
     });
@@ -7046,6 +7154,8 @@ function reemitirEntregableAval(user, { id, motivo, confirmacion } = {}) {
       version: newVersion,
       templateVersion: next.TemplateVersion,
       preparedAt: now,
+      managerName: managerName, managerTitle: managerTitle,
+      managerSignatureSha256: next.CertificateManagerSignatureSha256,
     }));
     const newRow = sheet.getLastRow() + 1;
     sheet.appendRow(SHEET_HEADERS.EntregablesAval.map(function(header) { return next[header] !== undefined ? next[header] : ''; }));
@@ -7175,6 +7285,9 @@ function enviarEntregableAvalEmail(user, { id, email } = {}) {
   const inscSheet = getSheet('Inscripciones');
   const row = sheetToObjects(inscSheet).find(function (r) { return r.ID === id; });
   if (!row) return { success: false, error: 'Inscripción no encontrada.' };
+  if (identificacionDocumentalDifiere_(entregable, row, 'aval_institucional')) {
+    return { success: false, error: 'La identificación fue corregida después de emitir este PDF. Reemita y archive una versión avalada nueva antes de enviarla.' };
+  }
   const destinatario = String(email || row.ClienteEmail || '').trim();
   if (!emailValido(destinatario)) return { success: false, error: 'La inscripción no tiene un correo electrónico válido.' };
   const official = leerPdfEntregableAvalPrivado(user, { id: id });
@@ -7580,6 +7693,45 @@ function hoyLocal() {
 // helper en TODOS los comparadores de fecha para evitar falsos negativos.
 function ds(val) {
   return val ? String(val).slice(0, 10) : '';
+}
+
+/** Estadística documental; no usa ingresos ni duplica personas por dos variantes. */
+function getResumenCertificaciones(user, { desde, hasta } = {}) {
+  requireAdmin(user);
+  const from = String(desde || '').trim();
+  const to = String(hasta || '').trim();
+  if ((from && !/^\d{4}-\d{2}-\d{2}$/.test(from)) || (to && !/^\d{4}-\d{2}-\d{2}$/.test(to)) || (from && to && from > to)) {
+    return { success: false, error: 'Seleccione un rango de fechas válido.' };
+  }
+  const persons = {};
+  const counts = { personasCertificadas: 0, documentosNormales: 0, documentosAvalados: 0,
+    reemisionesNormales: 0, reemisionesAvaladas: 0, documentosAnulados: 0, documentosSinFecha: 0 };
+  const add = function(row, variant) {
+    const status = estadoNormalizadoCertificado(row);
+    if (['emitido', 'enviado', 'reemitido', 'anulado'].indexOf(status) === -1
+        || !/^[a-f0-9]{64}$/i.test(String(row.PdfHash || ''))
+        || !String(row.PdfStorageReference || '').startsWith('certificate-drive:')) return;
+    const date = ds(row.IssuedAt || row.FechaEmisionCertificado || '');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { counts.documentosSinFecha += 1; return; }
+    if ((from && date < from) || (to && date > to)) return;
+    const enrollmentId = String(row.InscripcionID || '').trim();
+    if (enrollmentId) persons[enrollmentId] = true;
+    if (variant === 'normal') {
+      counts.documentosNormales += 1;
+      if (Number(row.CertificateVersion) > 1 || String(row.ReplacesCertificateId || '').trim()) counts.reemisionesNormales += 1;
+    } else {
+      counts.documentosAvalados += 1;
+      if (Number(row.CertificateVersion) > 1 || String(row.ReplacesCertificateId || '').trim()) counts.reemisionesAvaladas += 1;
+    }
+    if (status === 'anulado') counts.documentosAnulados += 1;
+  };
+  sheetToObjects(getSheet('Certificados')).forEach(function(row) { add(row, 'normal'); });
+  sheetToObjects(getSheet('EntregablesAval')).forEach(function(row) { add(row, 'avalado'); });
+  counts.personasCertificadas = Object.keys(persons).length;
+  counts.documentosTotales = counts.documentosNormales + counts.documentosAvalados;
+  counts.reemisionesTotales = counts.reemisionesNormales + counts.reemisionesAvaladas;
+  return { success: true, data: { desde: from, hasta: to, ...counts,
+    criterio: 'PDF oficial archivado con fecha de emisión; personas únicas por inscripción.' } };
 }
 
 function getMondayOf(dateStr) {
