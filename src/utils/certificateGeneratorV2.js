@@ -239,10 +239,8 @@ async function buildInstitutionalAvalPdf(record, options) {
   fittedText(pdf, `Código de aval: ${certificate.AvalCodigoExterno}`, 160, 127.5, 232, 8, 6.2)
   const agreementText = `Convenio: ${institution.agreementObject || institution.siglas || institution.name}${institution.agreementSignedAt ? ` · firmado ${formatLongDate(institution.agreementSignedAt)}` : ''}`
   fittedText(pdf, agreementText, 160, 132, 232, 7.5, 5.8)
-  if (institution.resolutionName) {
-    const supportingDocument = institution.resolutionNotes || institution.resolutionName
-    fittedText(pdf, `Documento institucional: ${supportingDocument}${institution.resolutionDate ? ` · ${formatLongDate(institution.resolutionDate)}` : ''}`, 160, 135.2, 232, 6.4, 5)
-  }
+  // La resolución se conserva como respaldo privado de la ficha institucional.
+  // No es parte del aval ni debe competir con la fecha y las rúbricas impresas.
   line(pdf, `Riobamba, ${formatLongDate(certificate.FechaEmisionCertificado)}`, 138, 185, 9, 7)
 
   signatureInBox(pdf, managerSignature, 76, 139, 49, 11)
@@ -281,10 +279,8 @@ async function buildInstitutionalAvalPdf(record, options) {
   pdf.text(`Código único: ${certificate.CodigoCertificado}`, 22, 24, { align: 'left' })
   pdf.setFont('CertificatePlex', 'normal')
   pdf.text('Documento digital con trazabilidad', 22, 28.5, { align: 'left' })
-  verifiedRegisterBadge(pdf)
-  pdf.setFont('CertificatePlex', 'bold')
-  pdf.setFontSize(8)
-  pdf.text('Registro digital verificable', 247, 36, { align: 'left' })
+  // En esta variante la esquina derecha pertenece al logotipo y nombre de la
+  // institución avalista. El distintivo genérico chocaba con «ITSAL».
   pdf.setFillColor(...NAVY)
   pdf.roundedRect(126, 166, 68, 14, 2, 2, 'F')
   pdf.setDrawColor(255, 255, 255)
