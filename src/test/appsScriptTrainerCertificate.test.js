@@ -31,6 +31,24 @@ function setup() {
 }
 
 describe('certificado profesional de capacitador', () => {
+  it('migra una hoja profesional antigua antes de reemitir y reutiliza la versión pendiente', () => {
+    const harness = setup()
+    const request = harness.context.processRequest
+    const original = request({ action: 'emitirCertificadoCapacitador', token: 'admin-token', servicioId: 'SRV-1' }).data
+    const legacy = harness.ensureSheet('CertificadosProfesionales')
+    legacy.rows.forEach(row => { row.length = 26 })
+    const params = { action: 'reemitirCertificadoCapacitador', token: 'admin-token', id: original.ID,
+      motivo: 'Corrección de identificación', confirmacion: 'REEMITIR' }
+    const prepared = request(params)
+    expect(prepared).toMatchObject({ success: true, data: { CertificateStatus: 'pendiente_pdf',
+      ReplacesCertificateId: original.ID } })
+    expect(prepared.data.CertificatePreparedAt).toBeTruthy()
+    expect(request(params)).toMatchObject({ success: true, alreadyPrepared: true,
+      data: { ID: prepared.data.ID } })
+    expect(harness.objects('CertificadosProfesionales')).toHaveLength(2)
+    expect(harness.sourceHeaders('CertificadosProfesionales').every(header => legacy.rows[0].includes(header))).toBe(true)
+  })
+
   it('guarda en texto una cédula iniciada en cero y la copia idéntica al nuevo certificado', () => {
     const harness = setup()
     const request = harness.context.processRequest

@@ -326,7 +326,17 @@ export async function buildCertificateV2Pdf(record, options = {}) {
     : validateCertificateData(certificate)
   if (missing.length) throw new Error(`Faltan datos para el certificado: ${missing.join(', ')}.`)
   const status = String(certificate.CertificateStatus || certificate.EstadoCertificado || '').toLowerCase()
-  if (!['emitido', 'enviado', 'reemitido'].includes(status) || !certificate.CodigoCertificado || !certificate.FechaEmisionCertificado) {
+  // A professional reissue is prepared first, then its PDF is archived and only
+  // then does the backend mark it as issued. The prepared timestamp is fixed
+  // before rendering so retries produce the identical PDF and hash.
+  const preparedProfessionalReissue = professional && status === 'pendiente_pdf'
+    && Number(certificate.CertificateVersion) > 1
+    && String(certificate.ReplacesCertificateId || '').trim()
+    && String(certificate.CertificatePreparedAt || '').trim()
+    && !certificate.PdfHash && !certificate.PdfStorageReference
+  if (preparedProfessionalReissue) certificate.FechaEmisionCertificado = certificate.CertificatePreparedAt
+  if (!(['emitido', 'enviado', 'reemitido'].includes(status) || preparedProfessionalReissue)
+    || !certificate.CodigoCertificado || !certificate.FechaEmisionCertificado) {
     throw new Error('El certificado debe estar emitido oficialmente antes de generar el PDF.')
   }
   const issuerRuc = String(options.issuerRuc ?? CERTIFICATE_V2_ISSUER.ruc).trim()

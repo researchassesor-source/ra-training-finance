@@ -147,6 +147,26 @@ describe('nueva plantilla de seguridad v2', () => {
     expect(result.blob.size).toBeGreaterThan(100_000)
   }, 20_000)
 
+  it('genera una reemisión profesional preparada sin fingir que ya fue emitida', async () => {
+    const professional = {
+      ...certificate, ID: 'PRO-REISSUE-2', CertificatePublicId: 'PRO-REISSUE-2',
+      CertificateVersion: 2, TemplateVersion: 'ra-security-2026-v3',
+      CertificateSubject: 'professional', ProfessionalRole: 'capacitador',
+      CertificateStatus: 'pendiente_pdf', EstadoCertificado: 'pendiente_pdf',
+      FechaEmisionCertificado: '', CertificatePreparedAt: '2026-10-02T22:05:39.114Z',
+      ReplacesCertificateId: 'PRO-ORIGINAL-1', CodigoCertificado: 'RA-PRO-2026-0002',
+      ClienteID: '0604509968', PdfHash: '', PdfStorageReference: '',
+    }
+    const first = await buildCertificatePdf(professional, options)
+    const retried = await buildCertificatePdf(professional, options)
+    expect(first.blob.type).toBe('application/pdf')
+    expect(await sha256Hex(first.blob)).toBe(await sha256Hex(retried.blob))
+    await expect(buildCertificatePdf({ ...professional, ReplacesCertificateId: '' }, options))
+      .rejects.toThrow('emitido oficialmente')
+    await expect(buildCertificatePdf({ ...professional, CertificatePreparedAt: '' }, options))
+      .rejects.toThrow('emitido oficialmente')
+  }, 30_000)
+
   it('certifica aval ITSAL solo con código institucional y QR propio, sin cambiar el certificado ordinario', async () => {
     const avalado = {
       ...certificate,

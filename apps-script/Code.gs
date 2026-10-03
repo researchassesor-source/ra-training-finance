@@ -2499,7 +2499,9 @@ function reemitirCertificadoCapacitador(user, { id, motivo, confirmacion } = {})
   requireCertificateAdmin(user, 'TRAINER_CERTIFICATE_REISSUE', { canal: 'api' });
   if (confirmacion !== 'REEMITIR' || String(motivo || '').trim().length < 5) return { success: false, error: 'Confirme la reemisión y explique el motivo.' };
   return conBloqueoCertificados(function() {
-    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('CertificadosProfesionales');
+    // Legacy sheets may predate the reissue/snapshot columns. Reconcile the
+    // schema before reading or appending, otherwise pending metadata is lost.
+    const sheet = getSheet('CertificadosProfesionales');
     const original = buscarCertificadoProfesional_(String(id || ''));
     if (!sheet || !original) {
       return { success: false, error: 'La versión profesional no se puede reemitir.' };
@@ -8618,6 +8620,7 @@ const CERTIFICATE_V3_MIGRATION_SCHEMAS = {
     'VoidedAt','VoidedBy','VoidReason','ReissueReason',
   ],
   Certificados: SHEET_HEADERS.Certificados,
+  CertificadosProfesionales: SHEET_HEADERS.CertificadosProfesionales,
   AuditoriaCertificados: SHEET_HEADERS.AuditoriaCertificados,
   DescargasCertificados: SHEET_HEADERS.DescargasCertificados,
 };
