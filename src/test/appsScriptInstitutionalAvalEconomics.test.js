@@ -60,6 +60,23 @@ function assignSellerAsInstitutionalUser(app, institutionId) {
 }
 
 describe('regla económica, confirmación e histórico del aval institucional', () => {
+  it('interpreta 1,50 como porcentaje del precio de catálogo y no como USD ni monto pagado', () => {
+    const app = setup()
+    expect(request(app, 'updateServicio', 'admin-token', { id: 'SRV-1',
+      servicio: { precio: 50 } }).success).toBe(true)
+    const institution = createInstitution(app)
+    const agreement = createAgreement(app, institution.id, { percentage: '1.50', base: 'precio_servicio' })
+    const enrollment = createEnrollment(app, institution.id, agreement.id, { monto: 10 })
+    expect(enrollment.success).toBe(true)
+    expect(assignInstitutionalUser(app, institution.id).success).toBe(true)
+    expect(request(app, 'getCertificadosAval', 'aval-one-token').data[0].AvalEstimacion)
+      .toMatchObject({ baseMonto: 50, porcentaje: 1.5, monto: 0.75, baseTipo: 'precio_servicio' })
+    expect(request(app, 'marcarAval', 'aval-one-token', { id: enrollment.id,
+      avalCodigoExterno: 'IU-1.5-PCT' })).toMatchObject({ success: true, data: {
+      baseMonto: 50, porcentajeAplicado: 1.5, valorAval: 0.75,
+    } })
+  })
+
   it('calcula $10 × 15% = $1.50 en backend y congela convenio, base, porcentaje, valor, usuario y fecha', () => {
     const app = setup()
     const institution = createInstitution(app)
@@ -122,6 +139,27 @@ describe('regla económica, confirmación e histórico del aval institucional', 
     expect(request(app, 'marcarAval', 'aval-one-token', { id: other.id, avalCodigoExterno: 'CROSS-1' })).toMatchObject({
       success: false, error: expect.stringMatching(/otra institución/i),
     })
+  })
+
+  it('una cuenta heredada asignada por nombre ve sus pendientes con ID maestro sin acceder a otra institución', () => {
+    const app = setup()
+    const one = createInstitution(app, 'Instituto Uno')
+    const two = createInstitution(app, 'Instituto Dos')
+    const agreementOne = createAgreement(app, one.id, { name: 'Convenio uno' })
+    const agreementTwo = createAgreement(app, two.id, { name: 'Convenio dos' })
+    const own = createEnrollment(app, one.id, agreementOne.id)
+    const other = createEnrollment(app, two.id, agreementTwo.id, { clienteNombre: 'Participante Dos' })
+
+    // El usuario se creó antes de existir InstitucionAvalID, pero su nombre
+    // coincide sin ambigüedad con la ficha maestra de Instituto Uno.
+    const pending = request(app, 'getCertificadosAval', 'aval-one-token')
+    expect(pending.data.map(item => item.ID)).toEqual([own.id])
+    expect(request(app, 'marcarAval', 'aval-one-token', {
+      id: other.id, avalCodigoExterno: 'NO-PERMITIDO',
+    })).toMatchObject({ success: false, error: expect.stringMatching(/otra institución/i) })
+    expect(request(app, 'marcarAval', 'aval-one-token', {
+      id: own.id, avalCodigoExterno: 'IU-2026-001',
+    }).success).toBe(true)
   })
 
   it('una cuenta con roles vendedor + aval conserva el alcance de su institución al crear y editar avales', () => {

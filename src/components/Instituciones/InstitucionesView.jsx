@@ -9,7 +9,7 @@ import Spinner from '../UI/Spinner'
 const EMPTY_INSTITUTION = {
   nombre: '', nombreLegal: '', nombreComercial: '', siglas: '', identificacion: '',
   tipoIdentificacion: 'RUC_EC', tipo: '', telefono: '', email: '', direccion: '',
-  ciudad: '', provincia: '', sitioWeb: '', estado: 'activo', notas: '',
+  ciudad: '', provincia: '', sitioWeb: '', codigoResolucion: '', estado: 'activo', notas: '',
 }
 
 const EMPTY_AUTHORITY = {
@@ -26,6 +26,7 @@ function institutionFormValue(item) {
     siglas: item.Siglas || '', identificacion: item.Identificacion || '', tipoIdentificacion: item.TipoIdentificacion || 'RUC_EC',
     tipo: item.Tipo || '', telefono: item.Telefono || '', email: item.Email || '', direccion: item.Direccion || '',
     ciudad: item.Ciudad || '', provincia: item.Provincia || '', sitioWeb: item.SitioWeb || '',
+    codigoResolucion: item.CodigoResolucion || '',
     estado: item.Estado || 'activo', notas: item.Notas || '',
   }
 }
@@ -123,6 +124,10 @@ function InstitutionForm({ initial, onSave, onCancel }) {
             <input id="institution-province" className="input" value={form.provincia} onChange={e => set('provincia', e.target.value)} /></div>
           <div><label className="label" htmlFor="institution-web">Sitio web</label>
             <input id="institution-web" className="input" type="url" placeholder="https://…" value={form.sitioWeb} onChange={e => set('sitioWeb', e.target.value)} /></div>
+          <div><label className="label" htmlFor="institution-resolution-code">Código de resolución institucional</label>
+            <input id="institution-resolution-code" className="input" maxLength={100} placeholder="Ej.: RPC-SO-22-No.364-2024" value={form.codigoResolucion} onChange={e => set('codigoResolucion', e.target.value)} />
+            <p className="mt-1 text-xs text-gray-500">Identifica jurídicamente a la institución; es distinto del código único que asigna a cada aval.</p>
+          </div>
           <div><label className="label" htmlFor="institution-state">Estado</label>
             <select id="institution-state" className="input" value={form.estado} onChange={e => set('estado', e.target.value)}><option value="activo">Activa</option><option value="inactivo">Inactiva</option></select></div>
           <div className="sm:col-span-2"><label className="label" htmlFor="institution-notes">Notas administrativas</label>

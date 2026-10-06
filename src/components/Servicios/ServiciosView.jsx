@@ -13,7 +13,7 @@ import { IDENTIFICATION_TYPE, identificationError, normalizeIdentification } fro
 
 const EMPTY = {
   nombre: '', tipo: '', modalidad: 'N/A', precio: '', duracion: '', descripcion: '',
-  activo: true, fechaEvento: '', fechaFinEvento: '', lugarEvento: '',
+  activo: true, fechaInicioCurso: '', fechaFinCurso: '', fechaEvento: '', fechaFinEvento: '', lugarEvento: '',
   capacitador: '', capacitadorId: '', estadoEvento: 'programado', tipoCertificado: 'aprobacion',
 }
 
@@ -55,6 +55,8 @@ function mapInitial(initial) {
     duracion:      initial.Duracion      || initial.duracion      || '',
     descripcion:   initial.Descripcion   || initial.descripcion   || '',
     activo:        initial.Activo === true || initial.Activo === 'TRUE' || initial.activo === true,
+    fechaInicioCurso: dateOnly(initial.FechaInicioCurso || initial.fechaInicioCurso),
+    fechaFinCurso: dateOnly(initial.FechaFinCurso || initial.fechaFinCurso),
     fechaEvento:   dateOnly(initial.FechaEvento   || initial.fechaEvento),
     fechaFinEvento:dateOnly(initial.FechaFinEvento|| initial.fechaFinEvento),
     lugarEvento:   initial.LugarEvento   || initial.lugarEvento   || '',
@@ -73,6 +75,10 @@ function ServicioForm({ initial, onSave, onCancel, capacitadores }) {
 
   async function handleSubmit(e) {
     e.preventDefault()
+    if (form.fechaInicioCurso && form.fechaFinCurso && form.fechaFinCurso < form.fechaInicioCurso) {
+      setError('El fin del curso no puede ser anterior a su inicio.')
+      return
+    }
     if (requiereDuracionAcademica(form.tipo) && !String(form.duracion || '').trim()) {
       setError('La duración académica es obligatoria para emitir certificados de este servicio.')
       return
@@ -142,6 +148,18 @@ function ServicioForm({ initial, onSave, onCancel, capacitadores }) {
           )}
         </div>
         <div className="sm:col-span-2 border-t border-gray-100 pt-3">
+          <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4 mb-4">
+            <p className="text-sm font-semibold text-brand-800">Período académico del curso</p>
+            <p className="mt-1 text-xs text-gray-600">Estas son las fechas que se propondrán en nuevas inscripciones y certificados. No son las fechas de las sesiones en vivo.</p>
+            <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <label className="text-sm text-gray-700">Inicio del curso
+                <input className="input mt-1" type="date" value={form.fechaInicioCurso} onChange={e => set('fechaInicioCurso', e.target.value)} />
+              </label>
+              <label className="text-sm text-gray-700">Fin del curso
+                <input className="input mt-1" type="date" value={form.fechaFinCurso} onChange={e => set('fechaFinCurso', e.target.value)} />
+              </label>
+            </div>
+          </div>
           <div className="flex items-center justify-between gap-3 mb-3">
             <div>
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Fecha del evento en calendario</p>
@@ -367,7 +385,19 @@ export default function ServiciosView() {
     finally { setTrainerCertificateBusy(false) }
   }
 
-  const filtered = filtro ? data.filter(s => s.Tipo === filtro) : data
+  const today = new Date().toISOString().slice(0, 10)
+  const filtered = (filtro ? data.filter(s => s.Tipo === filtro) : data).slice().sort((a, b) => {
+    const activeA = a.Activo === true || a.Activo === 'TRUE'
+    const activeB = b.Activo === true || b.Activo === 'TRUE'
+    if (activeA !== activeB) return activeA ? -1 : 1
+    const dateA = dateOnly(a.FechaInicioCurso || a.FechaEvento)
+    const dateB = dateOnly(b.FechaInicioCurso || b.FechaEvento)
+    const groupA = !dateA ? 2 : dateA >= today ? 0 : 1
+    const groupB = !dateB ? 2 : dateB >= today ? 0 : 1
+    if (groupA !== groupB) return groupA - groupB
+    if (dateA !== dateB) return groupA === 1 ? dateB.localeCompare(dateA) : dateA.localeCompare(dateB)
+    return String(a.Nombre || '').localeCompare(String(b.Nombre || ''), 'es')
+  })
   const activos  = data.filter(s => s.Activo === true || s.Activo === 'TRUE').length
 
   function handleShareCatalogo() {
@@ -445,6 +475,8 @@ export default function ServiciosView() {
           {filtered.map(s => {
             const activo = s.Activo === true || s.Activo === 'TRUE'
             const estadoEvento = normalizarEstadoEvento(s.EstadoEvento)
+            const fechaInicioCurso = dateOnly(s.FechaInicioCurso)
+            const fechaFinCurso = dateOnly(s.FechaFinCurso)
             const fechaEvento = dateOnly(s.FechaEvento)
             const fechaFin = dateOnly(s.FechaFinEvento || s.FechaEvento)
             const eventoVencido = fechaFin && fechaFin < new Date().toISOString().slice(0, 10)
@@ -474,12 +506,18 @@ export default function ServiciosView() {
                     <span>{s.Capacitador}</span>
                   </div>
                 )}
+                {(fechaInicioCurso || fechaFinCurso) && (
+                  <div className="flex items-center gap-1.5 rounded-lg bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
+                    <Calendar size={12} />
+                    <span><strong>Curso:</strong> {fechaInicioCurso ? fmt.date(fechaInicioCurso) : 'sin inicio'}{fechaFinCurso ? ` → ${fmt.date(fechaFinCurso)}` : ''}</span>
+                  </div>
+                )}
                 {fechaEvento && (
                   <div className={`flex items-center gap-1.5 text-xs rounded-lg px-2 py-1.5 ${
                     eventoVisible ? 'text-brand-700 bg-brand-50' : 'text-gray-600 bg-gray-50'
                   }`}>
                     <Calendar size={12} />
-                    <span>{fmt.date(fechaEvento)}{fechaFin && fechaFin !== fechaEvento ? ` → ${fmt.date(fechaFin)}` : ''}</span>
+                    <span><strong>Evento:</strong> {fmt.date(fechaEvento)}{fechaFin && fechaFin !== fechaEvento ? ` → ${fmt.date(fechaFin)}` : ''}</span>
                     {s.LugarEvento && <span className="text-gray-400">· {s.LugarEvento}</span>}
                   </div>
                 )}
@@ -576,7 +614,7 @@ export default function ServiciosView() {
                 <option value={IDENTIFICATION_TYPE.ECUADORIAN_ID}>Cédula ecuatoriana</option>
                 <option value={IDENTIFICATION_TYPE.ECUADORIAN_RUC}>RUC ecuatoriano</option>
                 <option value={IDENTIFICATION_TYPE.PASSPORT}>Pasaporte</option>
-                <option value={IDENTIFICATION_TYPE.OTHER}>Otro documento</option>
+                <option value={IDENTIFICATION_TYPE.OTHER}>DNI / documento extranjero</option>
               </select>
               <label className="label" htmlFor="trainerIdentity">Identificación</label>
               <input id="trainerIdentity" type="text" inputMode={[IDENTIFICATION_TYPE.ECUADORIAN_ID, IDENTIFICATION_TYPE.ECUADORIAN_RUC].includes(trainerForm.tipoIdentificacion) ? 'numeric' : 'text'}

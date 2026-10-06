@@ -96,10 +96,14 @@ export default function InscripcionesForm({ initial, onSave, onCancel }) {
 
   function handleServicio(id) {
     const s = servicios.find(s => s.ID === id)
-    set('servicioId', id)
-    set('servicioNombre', s?.Nombre || '')
-    if (!initial && s?.Precio) set('monto', s.Precio)
-    if (s?.Modalidad) set('modalidad', s.Modalidad)
+    setForm(current => ({ ...current,
+      servicioId: id,
+      servicioNombre: s?.Nombre || '',
+      monto: !initial && s?.Precio ? s.Precio : current.monto,
+      modalidad: s?.Modalidad || current.modalidad,
+      fechaInicio: !initial && s?.FechaInicioCurso ? toDateInput(s.FechaInicioCurso) : current.fechaInicio,
+      fechaFin: !initial && s?.FechaFinCurso ? toDateInput(s.FechaFinCurso) : current.fechaFin,
+    }))
   }
 
   useEffect(() => {
@@ -196,13 +200,14 @@ export default function InscripcionesForm({ initial, onSave, onCancel }) {
             </select>
           </div>
           <div>
-            <label className="label">Fecha de Inicio</label>
+            <label className="label">Inicio del curso para este participante</label>
             <input className="input" type="date" value={form.fechaInicio} onChange={e => set('fechaInicio', e.target.value)} />
           </div>
           <div>
-            <label className="label">Fecha de Fin</label>
+            <label className="label">Fin del curso para este participante</label>
             <input className="input" type="date" value={form.fechaFin} onChange={e => set('fechaFin', e.target.value)} />
           </div>
+          <p className="sm:col-span-2 text-xs text-gray-500">Se proponen las fechas académicas del servicio. Confírmelas antes de guardar: estas fechas aparecerán en el certificado y son independientes de las sesiones en vivo.</p>
         </div>
       </div>
 
@@ -225,7 +230,7 @@ export default function InscripcionesForm({ initial, onSave, onCancel }) {
               <option value={IDENTIFICATION_TYPE.ECUADORIAN_ID}>Cédula ecuatoriana</option>
               <option value={IDENTIFICATION_TYPE.ECUADORIAN_RUC}>RUC ecuatoriano</option>
               <option value={IDENTIFICATION_TYPE.PASSPORT}>Pasaporte</option>
-              <option value={IDENTIFICATION_TYPE.OTHER}>Otro documento</option>
+              <option value={IDENTIFICATION_TYPE.OTHER}>DNI / documento extranjero</option>
             </select>
           </div>
           <div>
@@ -290,7 +295,7 @@ export default function InscripcionesForm({ initial, onSave, onCancel }) {
                 <option value={IDENTIFICATION_TYPE.ECUADORIAN_RUC}>RUC ecuatoriano</option>
                 <option value={IDENTIFICATION_TYPE.PASSPORT}>Pasaporte</option>
                 <option value={IDENTIFICATION_TYPE.CONSUMER_FINAL}>Consumidor final (SRI)</option>
-                <option value={IDENTIFICATION_TYPE.OTHER}>Otro documento</option>
+                <option value={IDENTIFICATION_TYPE.OTHER}>DNI / documento extranjero</option>
               </select>
             </div>
             <div>
@@ -367,18 +372,27 @@ export default function InscripcionesForm({ initial, onSave, onCancel }) {
             <textarea className="input" rows={2} value={form.notas}
               onChange={e => set('notas', e.target.value)} placeholder="Opcional; no use este campo para el comprobante." />
           </div>
-          <fieldset className="sm:col-span-2 space-y-2">
-            <legend className="label">Tipo de certificado</legend>
-            <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-              <input type="radio" name="tipoCertificado" checked={!form.requiereAvalExterno}
-                onChange={() => set('requiereAvalExterno', false)} className="accent-brand-600" />
-              Certificado R.A. Training (aval propio)
-            </label>
-            <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-              <input type="radio" name="tipoCertificado" checked={form.requiereAvalExterno}
-                onChange={() => set('requiereAvalExterno', true)} className="accent-brand-600" />
-              R.A. Training + aval institucional
-            </label>
+          <fieldset className="sm:col-span-2">
+            <legend className="label">Certificados y avales solicitados</legend>
+            <p className="mb-3 text-xs text-gray-500">El certificado de R.A. Training es el documento base. Marque el aval institucional si el participante lo solicitó; cada emisión conserva su código y validación propios.</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <label className="flex items-start gap-3 rounded-xl border border-blue-200 bg-blue-50/60 p-3 text-sm text-gray-800">
+                <input type="checkbox" checked readOnly className="mt-0.5 accent-brand-600" aria-label="Certificado R.A. Training incluido" />
+                <span><strong className="block">R.A. Training</strong><span className="text-xs text-gray-600">Certificado propio incluido.</span></span>
+              </label>
+              <label className="flex items-start gap-3 rounded-xl border border-gray-200 p-3 text-sm text-gray-800 cursor-pointer hover:border-blue-300">
+                <input type="checkbox" checked={form.requiereAvalExterno} onChange={e => set('requiereAvalExterno', e.target.checked)} className="mt-0.5 accent-brand-600" />
+                <span><strong className="block">Aval institucional</strong><span className="text-xs text-gray-600">Se valida por la institución seleccionada abajo.</span></span>
+              </label>
+              <label className="flex items-start gap-3 rounded-xl border border-gray-200 bg-gray-50 p-3 text-sm text-gray-500">
+                <input type="checkbox" disabled className="mt-0.5" />
+                <span><strong className="block">MDT · capacitación</strong><span className="text-xs">No disponible hasta acreditar la autorización oficial.</span></span>
+              </label>
+              <label className="flex items-start gap-3 rounded-xl border border-gray-200 bg-gray-50 p-3 text-sm text-gray-500">
+                <input type="checkbox" disabled className="mt-0.5" />
+                <span><strong className="block">MDT · competencias laborales</strong><span className="text-xs">No disponible hasta acreditar la autorización oficial.</span></span>
+              </label>
+            </div>
           </fieldset>
           {form.requiereAvalExterno && (
             <div className="sm:col-span-2">

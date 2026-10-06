@@ -15,6 +15,40 @@ function createHarness() {
 }
 
 describe('servicios y calendario operativo', () => {
+  it('guarda por separado el período académico y las fechas del evento en vivo', () => {
+    const harness = createHarness()
+    const created = harness.context.processRequest({
+      action: 'addServicio', token: 'admin-token',
+      servicio: { nombre: 'Curso de prueba', tipo: 'Curso', duracion: '60',
+        fechaInicioCurso: '2026-10-26', fechaFinCurso: '2026-10-30',
+        fechaEvento: '2026-10-28', fechaFinEvento: '2026-10-28' },
+    })
+    expect(created.success).toBe(true)
+    expect(harness.objects('Servicios')[0]).toMatchObject({
+      FechaInicioCurso: '2026-10-26', FechaFinCurso: '2026-10-30',
+      FechaEvento: '2026-10-28', FechaFinEvento: '2026-10-28',
+    })
+    const enrollment = harness.context.processRequest({ action: 'addInscripcion', token: 'admin-token',
+      inscripcion: { servicioId: created.id, servicioNombre: 'Curso de prueba',
+        clienteNombre: 'Participante Curso', clienteID: '0601234560',
+        clienteTipoIdentificacion: 'CEDULA_EC', monto: 0, metodoPago: 'Efectivo' } })
+    expect(enrollment.success).toBe(true)
+    expect(harness.objects('Inscripciones')[0]).toMatchObject({
+      FechaInicio: '2026-10-26', FechaFin: '2026-10-30',
+    })
+    const invalid = harness.context.processRequest({ action: 'updateServicio', token: 'admin-token', id: created.id,
+      servicio: { fechaInicioCurso: '2026-10-31' } })
+    expect(invalid.success).toBe(false)
+    expect(harness.context.processRequest({ action: 'updateServicio', token: 'admin-token', id: created.id,
+      servicio: { fechaFinCurso: 'fecha inválida' } }).success).toBe(false)
+    expect(harness.context.processRequest({ action: 'addInscripcion', token: 'admin-token',
+      inscripcion: { servicioId: created.id, servicioNombre: 'Curso de prueba',
+        clienteNombre: 'Participante Dos', clienteID: '0601234560', clienteTipoIdentificacion: 'CEDULA_EC',
+        monto: 0, metodoPago: 'Efectivo', fechaInicio: '2026-10-31' } }).success).toBe(false)
+    expect(harness.objects('Servicios')[0].FechaInicioCurso).toBe('2026-10-26')
+    expect(harness.objects('Inscripciones')).toHaveLength(1)
+  })
+
   it('solo admite tipos de certificados de participantes y mantiene sincronizado el catálogo con Apps Script', () => {
     const harness = createHarness()
     Object.keys(PARTICIPANT_CERTIFICATE_TYPES).forEach((tipoCertificado, index) => {

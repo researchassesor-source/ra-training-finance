@@ -67,6 +67,18 @@ describe('ficha maestra institucional de Finance', () => {
     expect(duplicate.error).toMatch(/ya existe una institución/i)
   })
 
+  it('conserva la resolución oficial si una interfaz antigua actualiza otros datos sin conocer el campo', () => {
+    const app = harness()
+    const created = addInstitution(app, institution({ codigoResolucion: 'RPC-SO-22-No.364-2024' }))
+    expect(created.success).toBe(true)
+    const update = app.context.processRequest({ action: 'updateInstitucionMaestra', token: 'admin-token',
+      id: created.id, institucion: institution({ ciudad: 'Quito' }) })
+    expect(update.success).toBe(true)
+    expect(app.objects('Instituciones')[0]).toMatchObject({
+      CodigoResolucion: 'RPC-SO-22-No.364-2024', Ciudad: 'Quito',
+    })
+  })
+
   it('pide confirmación para un nombre ambiguo, no fusiona registros y permite desactivar sin borrar', () => {
     const app = harness()
     const first = addInstitution(app)

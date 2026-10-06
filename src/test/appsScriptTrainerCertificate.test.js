@@ -31,6 +31,25 @@ function setup() {
 }
 
 describe('certificado profesional de capacitador', () => {
+  it('usa las fechas académicas del curso y no las sesiones en vivo al emitir', () => {
+    const harness = setup()
+    const request = harness.context.processRequest
+    expect(request({ action: 'updateServicio', token: 'admin-token', id: 'SRV-1', servicio: {
+      fechaInicioCurso: '2026-08-01', fechaFinCurso: '2026-08-31',
+    } }).success).toBe(true)
+    const preflight = request({ action: 'preflightCertificadoCapacitador', token: 'admin-token', servicioId: 'SRV-1' })
+    expect(preflight).toMatchObject({ success: true, data: {
+      fechaInicio: '2026-08-01', fechaFin: '2026-08-31', datosCompletos: true,
+    } })
+    const issued = request({ action: 'emitirCertificadoCapacitador', token: 'admin-token', servicioId: 'SRV-1' })
+    expect(issued).toMatchObject({ success: true, data: {
+      FechaInicio: '2026-08-01', FechaFin: '2026-08-31',
+    } })
+    expect(harness.objects('CertificadosProfesionales')[0]).toMatchObject({
+      FechaInicio: '2026-08-01', FechaFin: '2026-08-31',
+    })
+  })
+
   it('migra una hoja profesional antigua antes de reemitir y reutiliza la versión pendiente', () => {
     const harness = setup()
     const request = harness.context.processRequest

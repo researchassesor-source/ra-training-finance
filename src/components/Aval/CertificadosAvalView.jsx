@@ -13,6 +13,7 @@ import Spinner from '../UI/Spinner'
 import { ShieldCheck, Clock, ExternalLink, Download, FileText, History, Pencil } from 'lucide-react'
 
 const AVAL_TEMPLATE_VERSION = 'ra-institutional-aval-2026'
+const AVAL_V2_TEMPLATE_VERSION = 'ra-institutional-aval-2026-v2'
 const LEGACY_AVAL_TEMPLATE_VERSION = 'ra-itsal-security-2026-v1'
 
 export default function CertificadosAvalView() {
@@ -20,7 +21,7 @@ export default function CertificadosAvalView() {
   const [data, setData]       = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError]     = useState('')
-  const [filtros, setFiltros] = useState({ estadoAval: '', institucionAval: '', servicio: '', desde: '', hasta: '' })
+  const [filtros, setFiltros] = useState({ estadoAval: isAdmin ? '' : 'pendiente', institucionAval: '', servicio: '', desde: '', hasta: '' })
   const [avalTarget, setAvalTarget] = useState(null)
   const [referencia, setReferencia] = useState('')
   const [enlaceExterno, setEnlaceExterno] = useState('')
@@ -170,7 +171,7 @@ export default function CertificadosAvalView() {
         const signatures = official.signatures
         const institutionAssets = {}
         let signers = official.signers
-        if (certificate.TemplateVersion === AVAL_TEMPLATE_VERSION) {
+        if ([AVAL_TEMPLATE_VERSION, AVAL_V2_TEMPLATE_VERSION].includes(certificate.TemplateVersion)) {
           const snapshot = certificate.InstitutionData
           if (!snapshot?.authoritySignatureAssetId || !/^[a-f0-9]{64}$/i.test(snapshot.authoritySignatureSha256 || '')) {
             throw new Error('El snapshot emitido no incluye la firma institucional registrada.')
@@ -411,7 +412,7 @@ export default function CertificadosAvalView() {
       <div>
         <h2 className="text-lg font-bold text-gray-900">Certificados con aval institucional</h2>
         <p className="text-sm text-gray-500">
-          {isAdmin ? 'Control de certificados que dependen de una institución avaladora.' : 'Solo se muestran los certificados asignados a su institución.'}
+          {isAdmin ? 'Control de certificados que dependen de una institución avaladora.' : 'Primero se muestran los avales pendientes de su institución. Puede cambiar el filtro para consultar los ya confirmados.'}
         </p>
       </div>
 
@@ -566,6 +567,13 @@ export default function CertificadosAvalView() {
                           <p className="text-xs font-semibold text-slate-800">Certificado con aval</p>
                           {i.EntregableAval?.CertificateStatus && <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${i.EntregableAval.CertificateStatus === 'emitido' ? 'bg-emerald-100 text-emerald-800' : i.EntregableAval.CertificateStatus === 'anulado' ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800'}`}>{i.EntregableAval.CertificateStatus}</span>}
                         </div>
+                        <p className="mt-1 text-[11px] font-medium text-indigo-800">
+                          {i.EstadoAval !== 'avalado'
+                            ? i.PuedeConfigurarAvalPosterior ? 'Paso 1: configure la institución y el convenio.' : 'Paso 1: espere la confirmación de la institución.'
+                            : !i.EntregableAval?.PdfHash ? 'Paso 2: emita y archive el PDF oficial.'
+                              : i.EntregableAval.EstadoEntregaFinal === 'enviado' ? 'Completado: PDF oficial enviado.'
+                                : 'Paso 3: revise y envíe el PDF archivado.'}
+                        </p>
                         {i.EntregableAval?.CodigoCertificado && <p className="mt-1 break-all font-mono text-[11px] text-slate-600">{i.EntregableAval.CodigoCertificado} · V{i.EntregableAval.CertificateVersion}</p>}
                         {i.EntregableAval?.PdfHash && <p className="mt-1 text-[10px] text-emerald-700">PDF oficial archivado y descargable</p>}
                         {i.EntregableAval?.RequiereReemisionIdentificacion && <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs font-medium text-amber-900">La identificación actual difiere de la del PDF archivado. Conserve V1, cree y archive V2 antes de enviarla.</p>}
@@ -871,7 +879,7 @@ export default function CertificadosAvalView() {
           <div><label className="label" htmlFor="aval-identity-type">Tipo de identificación</label>
             <select id="aval-identity-type" className="input" required value={identityType} onChange={e => setIdentityType(e.target.value)}>
               <option value="CEDULA_EC">Cédula ecuatoriana</option><option value="RUC_EC">RUC</option>
-              <option value="PASAPORTE">Pasaporte</option><option value="OTRO">Otro documento</option>
+              <option value="PASAPORTE">Pasaporte</option><option value="OTRO">DNI / documento extranjero</option>
             </select></div>
           <div><label className="label" htmlFor="aval-identity-value">Identificación corregida</label>
             <input id="aval-identity-value" className="input font-mono" type="text" inputMode="text" required maxLength={64}

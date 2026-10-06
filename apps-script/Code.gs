@@ -236,7 +236,7 @@ const SHEET_HEADERS = {
   Contratos:        ['ID','Tipo','Nombre','Concepto','ValorTotal','FechaInicio','FechaFin','Estado','Notas','CreadoPor','FechaCreacion'],
   Proyecciones:     ['ID','Evento','Tipo','FechaEstimada','MontoProyectado','MontoReal','Estado','Notas','CreadoPor','FechaCreacion'],
   Categorias:       ['ID','Nombre','Tipo','Activo'],
-  Servicios:        ['ID','Nombre','Tipo','Modalidad','Precio','Duracion','Descripcion','Activo','FechaCreacion','FechaEvento','FechaFinEvento','LugarEvento','Capacitador','EstadoEvento','TipoCertificado','CapacitadorID'],
+  Servicios:        ['ID','Nombre','Tipo','Modalidad','Precio','Duracion','Descripcion','Activo','FechaCreacion','FechaEvento','FechaFinEvento','LugarEvento','Capacitador','EstadoEvento','TipoCertificado','CapacitadorID','FechaInicioCurso','FechaFinCurso'],
   Capacitadores:    ['ID','Nombre','Identificacion','Resumen','Activo','CreadoPor','CreadoEn','ActualizadoPor','ActualizadoEn','TipoIdentificacion'],
   Inscripciones:    ['ID','ClienteNombre','ClienteID','ClienteTipoIdentificacion','ClienteEmail','ClienteTelefono','ServicioID','ServicioNombre','Modalidad','FechaInicio','Monto','MetodoPago','RazonSocial','RUC','TipoIdentificacionFactura','DireccionFactura','EstadoPago','EstadoCertificado','IngresoID','Notas','CreadoPor','FechaCreacion','FechaEmisionCertificado','RequiereAvalExterno','EstadoAval','AvalReferencia','FechaAval','ValorAval','FechaFin','NumeroComprobante','FechaPago','FechaVerificacionPago','VerificadoPor','InstitucionAval','CodigoCertificado','EmitidoPor','EstadoEntrega','FechaEntregaCertificado','EntregadoPor','AvalEnlaceExterno','AvalCodigoExterno','AvalTextoConfirmado','CertificateVersion','TemplateVersion','PdfHash','PdfStorageReference','OriginalCertificateId','ReissuedCertificateId','CertificateStatus','IssuedAt','IssuedBy','VoidedAt','VoidedBy','VoidReason','ReissueReason',
                      // Modulo comercial CRM (aditivo) -- ver seccion MODULO COMERCIAL CRM.
@@ -258,7 +258,7 @@ const SHEET_HEADERS = {
   Sesiones:         ['Token','Username','UserID','Rol','Nombre','Expira','Roles'],
   ConfigPagos:      ['ID','Nombre','Tipo','Detalles','Instrucciones','Activo','FechaCreacion'],
   Convenios:        ['ID','Organizacion','Representante','Cargo','Objeto','ObligacionesRA','ObligacionesAliado','Vigencia','FechaInicio','FechaFin','Estado','Notas','CreadoPor','FechaCreacion','InstitucionID','FechaFirma','ArchivadoPor','ArchivadoEn','PorcentajeAval','BaseCalculoAval'],
-  Instituciones:    ['ID','Nombre','NombreLegal','NombreComercial','Siglas','Identificacion','TipoIdentificacion','Tipo','Telefono','Email','Direccion','Ciudad','Provincia','SitioWeb','Estado','Notas','CreadoPor','CreadoEn','ActualizadoPor','ActualizadoEn','ArchivadoPor','ArchivadoEn'],
+  Instituciones:    ['ID','Nombre','NombreLegal','NombreComercial','Siglas','Identificacion','TipoIdentificacion','Tipo','Telefono','Email','Direccion','Ciudad','Provincia','SitioWeb','Estado','Notas','CreadoPor','CreadoEn','ActualizadoPor','ActualizadoEn','ArchivadoPor','ArchivadoEn','CodigoResolucion'],
   AutoridadesInstitucion: ['ID','InstitucionID','Nombre','Identificacion','TipoIdentificacion','Cargo','Funcion','EsRepresentanteLegal','FirmaConvenios','FirmaCertificados','FechaInicio','FechaFin','Estado','Notas','CreadoPor','CreadoEn','ActualizadoPor','ActualizadoEn','ArchivadoPor','ArchivadoEn'],
   ActivosInstitucionales: ['ID','InstitucionID','AutoridadID','Tipo','NombreArchivo','MimeType','DriveFileID','Sha256','TamanoBytes','Version','Estado','CreadoPor','CreadoEn'],
   DocumentosInstitucionales: ['ID','InstitucionID','ConvenioID','Tipo','NombreArchivo','MimeType','DriveFileID','Sha256','TamanoBytes','FechaDocumento','Notas','Estado','CreadoPor','CreadoEn'],
@@ -284,7 +284,7 @@ const SHEET_HEADERS = {
     'CertificateInstitutionId','CertificateAgreementId','CertificateInstitutionName','CertificateInstitutionLegalName','CertificateInstitutionSiglas','CertificateInstitutionIdentification','CertificateInstitutionIdentificationType','CertificateInstitutionCity','CertificateInstitutionProvince','CertificateInstitutionAddress','CertificateInstitutionWebsite',
     'CertificateAuthorityId','CertificateAuthorityName','CertificateAuthorityIdentification','CertificateAuthorityIdentificationType','CertificateAuthorityRole','CertificateAuthorityFunction','CertificateAuthoritySignatureAssetId','CertificateAuthoritySignatureSha256',
     'CertificateInstitutionLogoAssetId','CertificateInstitutionLogoSha256','CertificateInstitutionSealAssetId','CertificateInstitutionSealSha256','CertificateAgreementObject','CertificateAgreementSignedAt','CertificateResolutionDocumentId','CertificateResolutionName','CertificateResolutionDate','CertificateResolutionNotes',
-    'CertificateManagerName','CertificateManagerTitle','CertificateManagerSignatureSha256','CertificatePreparedAt','DocumentSnapshot','DocumentSnapshotHash'],
+    'CertificateManagerName','CertificateManagerTitle','CertificateManagerSignatureSha256','CertificatePreparedAt','DocumentSnapshot','DocumentSnapshotHash','CertificateResolutionCode'],
   // Módulo fiscal SRI (feature/sri-integration-production-ready) — ver docs/fiscal/DATA_MODEL.md
   FacturasFiscales: ['ID','Environment','Status','InscripcionID','IdempotencyKey','DocumentType','IssueDate','Timezone','IssuerRuc','Establishment','EmissionPoint','Sequential','DocumentNumber','AccessKey','NumericCode','BuyerIdentificationType','BuyerIdentification','BuyerName','BuyerEmail','BuyerAddress','SubtotalWithoutTax','Subtotal0','SubtotalTaxed','DiscountCents','TaxTotal','GrandTotal','Currency','PaymentMethodInternal','SriPaymentCode','XmlVersion','SoftwareProviderMode','SoftwareProviderRuc','XmlGeneratedReference','XmlSignedReference','XmlAuthorizedReference','RideReference','Sha256Generated','Sha256Signed','Sha256Authorized','Sha256Ride','SriReceptionStatus','SriAuthorizationStatus','AuthorizationNumber','AuthorizationDate','LastSriMessage','RetryCount','CreatedBy','CreatedAt','UpdatedAt','AuthorizedAt','DeliveredAt','LastPolledAt','NextPollAt','XmlAuthorizedContent','ReviewFlag','ReviewReason'],
   FacturaItems: ['ID','FacturaID','Codigo','Descripcion','Cantidad','PrecioUnitarioCents','DescuentoCents','TaxRateBasisPoints','SriTaxCode','BaseCents','TotalCents','CatalogVersion','ConfirmedBy','CreatedAt'],
@@ -297,6 +297,7 @@ const CERTIFICATE_TEMPLATE_VERSION = 'ra-canva-2026-v1';
 const CERTIFICATE_SECURITY_TEMPLATE_VERSION = 'ra-security-2026-v2';
 const CERTIFICATE_SECURITY_TEMPLATE_V3_VERSION = 'ra-security-2026-v3';
 const CERTIFICATE_INSTITUTIONAL_AVAL_TEMPLATE = 'ra-institutional-aval-2026';
+const CERTIFICATE_INSTITUTIONAL_AVAL_V2_TEMPLATE = 'ra-institutional-aval-2026-v2';
 const CERTIFICATE_V2_ACTIVE_PROPERTY = 'CERTIFICATE_V2_ACTIVE';
 const CERTIFICATE_V3_ACTIVE_PROPERTY = 'CERTIFICATE_V3_ACTIVE';
 const CERTIFICATE_MANAGER_NAME_PROPERTY = 'CERTIFICATE_MANAGER_NAME';
@@ -373,8 +374,8 @@ function datosSnapshotCertificadoParticipante_(inscripcion, certificado) {
     ServicioNombre: String(enriched.ServicioNombre || inscripcion.ServicioNombre || servicio.Nombre || ''),
     Duracion: String(duracion || servicio.Duracion || ''),
     Modalidad: String(inscripcion.Modalidad || servicio.Modalidad || ''),
-    FechaInicio: String(inscripcion.FechaInicio || servicio.FechaEvento || ''),
-    FechaFin: String(inscripcion.FechaFin || servicio.FechaFinEvento || inscripcion.FechaInicio || ''),
+    FechaInicio: String(inscripcion.FechaInicio || servicio.FechaInicioCurso || servicio.FechaEvento || ''),
+    FechaFin: String(inscripcion.FechaFin || servicio.FechaFinCurso || servicio.FechaFinEvento || inscripcion.FechaInicio || ''),
     Capacitador: String(servicio.Capacitador || ''),
     ResumenCapacitador: String(servicio.ResumenCapacitador || ''),
     Lugar: String(servicio.LugarEvento || servicio.Lugar || ''),
@@ -558,7 +559,7 @@ function getFirmasOficialesCertificado(user, { templateVersion, managerSignature
   const props = PropertiesService.getScriptProperties();
   const requestedTemplate = String(templateVersion || '').trim();
   let version = requestedTemplate === CERTIFICATE_SECURITY_TEMPLATE_V3_VERSION ? 'v3' : 'v2';
-  if (requestedTemplate === CERTIFICATE_INSTITUTIONAL_AVAL_TEMPLATE) {
+  if ([CERTIFICATE_INSTITUTIONAL_AVAL_TEMPLATE, CERTIFICATE_INSTITUTIONAL_AVAL_V2_TEMPLATE].indexOf(requestedTemplate) !== -1) {
     const requestedHash = String(managerSignatureSha256 || '').trim().toLowerCase();
     const v2Hash = String(props.getProperty(propiedadFirmaCertificado_('manager', 'v2') + '_SHA256') || '').toLowerCase();
     const v3Hash = String(props.getProperty(propiedadFirmaCertificado_('manager', 'v3') + '_SHA256') || '').toLowerCase();
@@ -1311,7 +1312,20 @@ function institucionAvalIdDelUsuario_(user) {
   const row = sheetToObjects(getSheet('Usuarios')).find(function(u) {
     return u.ID === user.ID || u.Username === user.Username;
   });
-  return row ? String(row.InstitucionAvalID || '').trim() : '';
+  if (!row) return '';
+  const explicitId = String(row.InstitucionAvalID || '').trim();
+  if (explicitId) return explicitId;
+  // Las cuentas antiguas guardaban solo el nombre de la institución. Resolverlo
+  // únicamente si identifica una ficha maestra activa e inequívoca evita que
+  // pierdan los avales pendientes al migrar inscripciones a IDs canónicos.
+  const legacyName = normalizarClaveInstitucion_(row.InstitucionAval);
+  if (!legacyName) return '';
+  const matches = sheetToObjects(getSheet('Instituciones')).filter(function(item) {
+    return String(item.Estado || '').toLowerCase() === 'activo'
+      && (normalizarClaveInstitucion_(item.Nombre) === legacyName
+        || normalizarClaveInstitucion_(item.Siglas) === legacyName);
+  });
+  return matches.length === 1 ? String(matches[0].ID || '').trim() : '';
 }
 
 function usuarioPuedeGestionarAvalDeInscripcion_(user, inscripcion) {
@@ -2075,6 +2089,7 @@ function normalizarTipoIdentificacion_(value) {
     PASSPORT: TIPOS_IDENTIFICACION.PASAPORTE,
     PASAPORTE: TIPOS_IDENTIFICACION.PASAPORTE,
     OTRO: TIPOS_IDENTIFICACION.OTRO,
+    DNI: TIPOS_IDENTIFICACION.OTRO,
     OTHER: TIPOS_IDENTIFICACION.OTRO,
     OTRO_DOCUMENTO: TIPOS_IDENTIFICACION.OTRO,
     NO_ESPECIFICADO: TIPOS_IDENTIFICACION.NO_ESPECIFICADO,
@@ -2358,8 +2373,8 @@ function preflightCertificadoCapacitador(user, { servicioId } = {}) {
   if (!/^\d+(?:[.,]\d+)?(?:\s*(?:h|hrs?\.?|horas?))?$/i.test(duration) || Number(duration.replace(',', '.').match(/^\d+(?:\.\d+)?/)?.[0] || 0) <= 0) {
     blockers.push('Defina la duración académica en horas (por ejemplo, 40 o 40 horas).');
   }
-  const start = fechaSolo(service.FechaEvento);
-  const end = fechaSolo(service.FechaFinEvento || service.FechaEvento);
+  const start = fechaSolo(service.FechaInicioCurso || service.FechaEvento);
+  const end = fechaSolo(service.FechaFinCurso || service.FechaFinEvento || service.FechaInicioCurso || service.FechaEvento);
   if (!start || !end || end < start) {
     blockers.push('Defina fechas válidas de inicio y fin del curso.');
   }
@@ -2537,7 +2552,9 @@ function reemitirCertificadoCapacitador(user, { id, motivo, confirmacion } = {})
       ID: newId, CodigoCertificado: code,
       Nombre: trainer.Nombre, Identificacion: trainer.Identificacion, TipoIdentificacion: trainer.TipoIdentificacion || TIPOS_IDENTIFICACION.NO_ESPECIFICADO,
       Resumen: trainer.Resumen, ServicioNombre: service.Nombre, Duracion: service.Duracion,
-      Modalidad: service.Modalidad || '', FechaInicio: fechaSolo(service.FechaEvento), FechaFin: fechaSolo(service.FechaFinEvento || service.FechaEvento),
+      Modalidad: service.Modalidad || '',
+      FechaInicio: fechaSolo(service.FechaInicioCurso || service.FechaEvento),
+      FechaFin: fechaSolo(service.FechaFinCurso || service.FechaFinEvento || service.FechaInicioCurso || service.FechaEvento),
       CertificateVersion: version, TemplateVersion: plantillaActivaCertificado_(),
       PdfHash: '', PdfStorageReference: '', OriginalCertificateId: original.OriginalCertificateId || original.ID,
       ReplacesCertificateId: original.ID, ReissuedCertificateId: '', CertificateStatus: 'pendiente_pdf',
@@ -2590,6 +2607,14 @@ function addServicio(user, { servicio }) {
   if (servicioRequiereDuracion(servicio.tipo) && !String(servicio.duracion || '').trim()) {
     return { success: false, error: 'La duración académica es obligatoria para este tipo de servicio.' };
   }
+  const fechaInicioCurso = fechaSolo(servicio.fechaInicioCurso);
+  const fechaFinCurso = fechaSolo(servicio.fechaFinCurso);
+  if ((servicio.fechaInicioCurso && !fechaInicioCurso) || (servicio.fechaFinCurso && !fechaFinCurso)) {
+    return { success: false, error: 'Ingrese fechas académicas válidas para el curso.' };
+  }
+  if (fechaInicioCurso && fechaFinCurso && fechaFinCurso < fechaInicioCurso) {
+    return { success: false, error: 'El fin del curso no puede ser anterior a su inicio.' };
+  }
   const sheet = getSheet('Servicios');
   const perfil = perfilCapacitadorServicio_(servicio, '');
   const id    = generateId('SRV');
@@ -2601,6 +2626,7 @@ function addServicio(user, { servicio }) {
     servicio.fechaEvento || '', servicio.fechaFinEvento || '', servicio.lugarEvento || '',
     perfil.nombre, servicio.estadoEvento || 'programado',
     tipoCertificadoServicio_(servicio.tipoCertificado), perfil.id,
+    fechaInicioCurso, fechaFinCurso,
   ]);
   bustSheet('servicios');
   bustSheet('inscripciones');
@@ -2621,6 +2647,16 @@ function updateServicio(user, { id, servicio }) {
   if (servicioRequiereDuracion(tipo) && !String(duracion || '').trim()) {
     return { success: false, error: 'La duración académica es obligatoria para este tipo de servicio.' };
   }
+  const inicioCursoSolicitado = pick('fechaInicioCurso', row.FechaInicioCurso || '');
+  const finCursoSolicitado = pick('fechaFinCurso', row.FechaFinCurso || '');
+  const fechaInicioCurso = fechaSolo(inicioCursoSolicitado);
+  const fechaFinCurso = fechaSolo(finCursoSolicitado);
+  if ((inicioCursoSolicitado && !fechaInicioCurso) || (finCursoSolicitado && !fechaFinCurso)) {
+    return { success: false, error: 'Ingrese fechas académicas válidas para el curso.' };
+  }
+  if (fechaInicioCurso && fechaFinCurso && fechaFinCurso < fechaInicioCurso) {
+    return { success: false, error: 'El fin del curso no puede ser anterior a su inicio.' };
+  }
   updateRow(sheet, row, {
     Nombre: pick('nombre', row.Nombre), Tipo: pick('tipo', row.Tipo), Modalidad: pick('modalidad', row.Modalidad),
     Precio: servicio.precio === undefined ? row.Precio : (Number(servicio.precio) || 0),
@@ -2634,6 +2670,8 @@ function updateServicio(user, { id, servicio }) {
     EstadoEvento: pick('estadoEvento', row.EstadoEvento || 'programado'),
     TipoCertificado: tipoCertificadoServicio_(pick('tipoCertificado', row.TipoCertificado || 'aprobacion')),
     CapacitadorID: perfil.id,
+    FechaInicioCurso: fechaInicioCurso,
+    FechaFinCurso: fechaFinCurso,
   });
   SpreadsheetApp.flush();
   bustSheet('servicios');
@@ -3207,8 +3245,8 @@ function importCrmEnrollment(user, { idempotencyKey, inscripcion } = {}) {
       valorCrmPreferido(inscripcion.modalidad, service.Modalidad),
     ) || '').trim();
     if (!modality) return { success: false, error: 'La modalidad enviada por CRM es obligatoria.' };
-    const startRaw = valorCrmPreferido(inscripcion.startDate, inscripcion.fechaInicio);
-    const endRaw = valorCrmPreferido(inscripcion.endDate, inscripcion.fechaFin);
+    const startRaw = valorCrmPreferido(inscripcion.startDate, valorCrmPreferido(inscripcion.fechaInicio, service.FechaInicioCurso));
+    const endRaw = valorCrmPreferido(inscripcion.endDate, valorCrmPreferido(inscripcion.fechaFin, service.FechaFinCurso));
     const startDate = startRaw ? fechaSolo(startRaw) : '';
     const endDate = endRaw ? fechaSolo(endRaw) : '';
     if (startRaw && !startDate) return { success: false, error: 'La fecha de inicio enviada por CRM no es válida.' };
@@ -3356,6 +3394,14 @@ function addInscripcion(user, params) {
   const estadoPago = isAdmin(user) ? estadoSolicitado : 'pendiente';
   const numeroComprobante = String(inscripcion.numeroComprobante || '').trim();
   const fechaPago = fechaSolo(inscripcion.fechaPago);
+  const servicioFechas = servicioAval || sheetToObjects(getSheet('Servicios')).find(function(item) {
+    return String(item.ID || '') === String(inscripcion.servicioId || '');
+  });
+  const fechaInicioInscripcion = fechaSolo(inscripcion.fechaInicio || (servicioFechas && servicioFechas.FechaInicioCurso));
+  const fechaFinInscripcion = fechaSolo(inscripcion.fechaFin || (servicioFechas && servicioFechas.FechaFinCurso));
+  if (fechaInicioInscripcion && fechaFinInscripcion && fechaFinInscripcion < fechaInicioInscripcion) {
+    return { success: false, error: 'El fin académico del curso no puede ser anterior a su inicio.' };
+  }
 
   appendInscripcionPorEncabezados(sheet, {
     ID: id,
@@ -3367,8 +3413,8 @@ function addInscripcion(user, params) {
     ServicioID: servicioAval ? servicioAval.ID : (inscripcion.servicioId || ''),
     ServicioNombre: servicioAval ? servicioAval.Nombre : inscripcion.servicioNombre,
     Modalidad: inscripcion.modalidad || 'N/A',
-    FechaInicio: fechaSolo(inscripcion.fechaInicio),
-    FechaFin: fechaSolo(inscripcion.fechaFin),
+    FechaInicio: fechaInicioInscripcion,
+    FechaFin: fechaFinInscripcion,
     Monto: Number(inscripcion.monto) || 0,
     MetodoPago: inscripcion.metodoPago || '',
     RazonSocial: inscripcion.razonSocial || '',
@@ -5309,6 +5355,7 @@ function validarDatosInstitucion_(source, existingId) {
     Ciudad: String(value.ciudad || '').trim().slice(0, 100),
     Provincia: String(value.provincia || '').trim().slice(0, 100),
     SitioWeb: website,
+    CodigoResolucion: String(value.codigoResolucion || '').trim().slice(0, 100),
     Estado: value.estado === 'inactivo' ? 'inactivo' : 'activo',
     Notas: String(value.notas || '').trim().slice(0, 1500),
   };
@@ -5489,7 +5536,13 @@ function updateInstitucionMaestra(user, { id, institucion, confirmarDuplicadoNom
     const sheet = getSheet('Instituciones');
     const current = sheetToObjects(sheet).find(function(item) { return item.ID === id; });
     if (!current) return { success: false, error: 'Institución no encontrada.' };
-    const input = Object.assign({}, institucion || {}, { confirmarDuplicadoNombre: confirmarDuplicadoNombre === true });
+    const input = Object.assign({}, institucion || {}, {
+      // Un cliente web anterior no conoce este campo; no debe borrarlo al
+      // editar otro dato de la ficha mientras se completa el despliegue.
+      codigoResolucion: institucion && institucion.codigoResolucion !== undefined
+        ? institucion.codigoResolucion : current.CodigoResolucion,
+      confirmarDuplicadoNombre: confirmarDuplicadoNombre === true,
+    });
     const fields = validarDatosInstitucion_(input, id);
     const now = new Date().toISOString();
     const before = { Nombre: current.Nombre, Identificacion: current.Identificacion, Estado: current.Estado };
@@ -6877,6 +6930,7 @@ function datosInstitucionalesCertificadoAval_(entregable) {
     resolutionName: entregable.CertificateResolutionName || '',
     resolutionDate: entregable.CertificateResolutionDate || '',
     resolutionNotes: entregable.CertificateResolutionNotes || '',
+    resolutionCode: entregable.CertificateResolutionCode || '',
     managerName: entregable.CertificateManagerName || '',
     managerTitle: entregable.CertificateManagerTitle || '',
     managerSignatureSha256: entregable.CertificateManagerSignatureSha256 || '',
@@ -6979,6 +7033,7 @@ function resolverSnapshotInstitucionalCertificadoAval_(inscripcion) {
     CertificateResolutionName: resolution ? String(resolution.NombreArchivo || '') : '',
     CertificateResolutionDate: resolution ? String(resolution.FechaDocumento || '') : '',
     CertificateResolutionNotes: resolution ? String(resolution.Notas || '') : '',
+    CertificateResolutionCode: String(institution.CodigoResolucion || '').trim(),
   } };
 }
 
@@ -7016,6 +7071,11 @@ function emitirEntregableAval(user, { id } = {}) {
     if (!servicioParaCertificado_(inscripcion)) return { success: false, error: 'No se encontró el servicio vinculado de forma inequívoca.' };
     const institutionalSnapshot = resolverSnapshotInstitucionalCertificadoAval_(inscripcion);
     if (!institutionalSnapshot.success) return institutionalSnapshot;
+    // La versión aprobada requiere logo y resolución reales. Mientras la ficha
+    // no esté completa se conserva la plantilla anterior, sin inventar datos.
+    const avalTemplate = institutionalSnapshot.data.CertificateInstitutionLogoAssetId
+      && institutionalSnapshot.data.CertificateResolutionCode
+      ? CERTIFICATE_INSTITUTIONAL_AVAL_V2_TEMPLATE : CERTIFICATE_INSTITUTIONAL_AVAL_TEMPLATE;
     institutionalSnapshot.data.CertificateManagerName = managerName;
     institutionalSnapshot.data.CertificateManagerTitle = managerTitle;
     // El aval institucional conserva el hash de la edición activa al prepararse.
@@ -7025,17 +7085,17 @@ function emitirEntregableAval(user, { id } = {}) {
     const codigo = generarCodigoCertificadoUnico({ ID: entregable.ID, FechaEmisionCertificado: new Date().toISOString() }, entregable.ID, id);
     const now = new Date().toISOString();
     const preparedFields = Object.assign({}, institutionalSnapshot.data, { CodigoCertificado: codigo, CertificateVersion: 1,
-      TemplateVersion: CERTIFICATE_INSTITUTIONAL_AVAL_TEMPLATE, CertificateStatus: 'pendiente_pdf', CertificatePreparedAt: now,
+      TemplateVersion: avalTemplate, CertificateStatus: 'pendiente_pdf', CertificatePreparedAt: now,
       IssuedAt: '', IssuedBy: user.Username, UpdatedAt: now });
     const avalSnapshot = snapshotDocumentalCertificado_('aval_institucional', {
       participante: datosSnapshotCertificadoParticipante_(inscripcion, {
-        CodigoCertificado: codigo, CertificateVersion: 1, TemplateVersion: CERTIFICATE_INSTITUTIONAL_AVAL_TEMPLATE,
+        CodigoCertificado: codigo, CertificateVersion: 1, TemplateVersion: avalTemplate,
         CertificatePreparedAt: now, IssuedBy: user.Username,
         CertificateType: tipoCertificadoServicio_((servicioParaCertificado_(inscripcion) || {}).TipoCertificado),
       }),
       institutionData: datosInstitucionalesCertificadoAval_(Object.assign({}, entregable, preparedFields)),
       codigoExterno: entregable.CodigoExterno || '', certificateVersion: 1,
-      templateVersion: CERTIFICATE_INSTITUTIONAL_AVAL_TEMPLATE, preparedAt: now,
+      templateVersion: avalTemplate, preparedAt: now,
       managerName: managerName, managerTitle: managerTitle,
       managerSignatureSha256: preparedFields.CertificateManagerSignatureSha256 || '',
     });
@@ -7096,7 +7156,7 @@ function reemitirEntregableAval(user, { id, motivo, confirmacion } = {}) {
       }
       return { success: true, alreadyPrepared: true, data: datosEntregableAval_(actual, inscripcion) };
     }
-    if ([CERTIFICATE_INSTITUTIONAL_AVAL_TEMPLATE, CERTIFICATE_ITSAL_TEMPLATE_VERSION].indexOf(String(actual.TemplateVersion || '')) === -1) {
+    if ([CERTIFICATE_INSTITUTIONAL_AVAL_TEMPLATE, CERTIFICATE_INSTITUTIONAL_AVAL_V2_TEMPLATE, CERTIFICATE_ITSAL_TEMPLATE_VERSION].indexOf(String(actual.TemplateVersion || '')) === -1) {
       return { success: false, error: 'Esta versión avalada no tiene una plantilla compatible para conservar sus datos en una reemisión.' };
     }
     if (!['emitido', 'anulado'].includes(estadoNormalizadoCertificado(actual))
@@ -7113,6 +7173,9 @@ function reemitirEntregableAval(user, { id, motivo, confirmacion } = {}) {
     if (!managerName || !managerTitle) return { success: false, error: 'Configure el firmante vigente de R.A. Training.' };
     const institutionalSnapshot = resolverSnapshotInstitucionalCertificadoAval_(inscripcion);
     if (!institutionalSnapshot.success) return institutionalSnapshot;
+    const avalTemplate = institutionalSnapshot.data.CertificateInstitutionLogoAssetId
+      && institutionalSnapshot.data.CertificateResolutionCode
+      ? CERTIFICATE_INSTITUTIONAL_AVAL_V2_TEMPLATE : CERTIFICATE_INSTITUTIONAL_AVAL_TEMPLATE;
     institutionalSnapshot.data.CertificateManagerName = managerName;
     institutionalSnapshot.data.CertificateManagerTitle = managerTitle;
     institutionalSnapshot.data.CertificateManagerSignatureSha256 = huellasFirmasOficialesCertificado_().managerSignatureSha256;
@@ -7133,7 +7196,7 @@ function reemitirEntregableAval(user, { id, motivo, confirmacion } = {}) {
       OriginalCertificateId: actual.OriginalCertificateId || actual.ID,
       ReplacesCertificateId: actual.ID,
       ReissuedCertificateId: '', VoidedAt: '', VoidedBy: '', VoidReason: '',
-      CertificateVersion: newVersion, TemplateVersion: CERTIFICATE_INSTITUTIONAL_AVAL_TEMPLATE,
+      CertificateVersion: newVersion, TemplateVersion: avalTemplate,
       CertificateStatus: 'pendiente_pdf', CertificatePreparedAt: now, IssuedAt: '', IssuedBy: user.Username,
       ReissueReason: String(motivo).trim(),
     });

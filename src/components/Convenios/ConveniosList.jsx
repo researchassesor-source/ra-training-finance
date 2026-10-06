@@ -102,7 +102,7 @@ function ConvenioForm({ initial, onSave, onCancel }) {
         <div className="mb-3">
           <h3 className="text-xs font-semibold text-indigo-800 uppercase tracking-wide">Condición económica de avales</h3>
           <p className="mt-1 text-xs leading-relaxed text-indigo-900/75">
-            La condición pertenece a este convenio. Al confirmar cada aval, Finance calculará el porcentaje en el servidor y guardará una copia histórica que no cambiará si luego se modifica el convenio.
+            La condición pertenece a este convenio. Es un porcentaje, no un monto fijo: 1,50 % de un curso de $50,00 equivale a $0,75. Finance lo calcula en el servidor y congela la base y el resultado en cada aval confirmado.
           </p>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -120,7 +120,7 @@ function ConvenioForm({ initial, onSave, onCancel }) {
               onChange={e => set('baseCalculoAval', e.target.value)}>
               <option value="">Sin regla económica configurada</option>
               <option value="precio_servicio">Precio del catálogo del servicio</option>
-              <option value="monto_inscripcion">Monto registrado en la inscripción</option>
+              <option value="monto_inscripcion">Monto registrado en la inscripción (solo si el convenio lo establece)</option>
             </select>
           </div>
         </div>

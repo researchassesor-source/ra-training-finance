@@ -22,6 +22,7 @@ const IDENTIFICATION_TYPE_ALIASES = Object.freeze({
   PASAPORTE: IDENTIFICATION_TYPE.PASSPORT,
   PASSPORT: IDENTIFICATION_TYPE.PASSPORT,
   OTRO: IDENTIFICATION_TYPE.OTHER,
+  DNI: IDENTIFICATION_TYPE.OTHER,
   OTHER: IDENTIFICATION_TYPE.OTHER,
   EXTERIOR: IDENTIFICATION_TYPE.OTHER,
   CONSUMIDOR_FINAL: IDENTIFICATION_TYPE.CONSUMER_FINAL,
@@ -111,7 +112,7 @@ export function identificationError(value, type, options = {}) {
   }
 
   if (type === IDENTIFICATION_TYPE.UNSPECIFIED) {
-    return 'Seleccione si es cédula ecuatoriana, pasaporte u otro documento.'
+    return 'Seleccione si es cédula ecuatoriana, pasaporte o DNI/documento extranjero.'
   }
   return 'Seleccione un tipo de documento válido.'
 }

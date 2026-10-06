@@ -79,7 +79,7 @@ describe('InscripcionesForm — identificación textual', () => {
   it('selecciona el aval desde la ficha maestra, no desde un campo de texto libre', async () => {
     renderForm()
     await screen.findByRole('option', { name: /Curso demo/ })
-    fireEvent.click(screen.getByLabelText('R.A. Training + aval institucional'))
+    fireEvent.click(screen.getByLabelText(/Aval institucional/))
 
     const institution = await screen.findByLabelText('Institución avaladora *')
     expect(institution.tagName).toBe('SELECT')
@@ -91,7 +91,7 @@ describe('InscripcionesForm — identificación textual', () => {
   it('carga el convenio de esa institución y muestra la regla económica, no un monto editable', async () => {
     renderForm()
     await screen.findByRole('option', { name: /Curso demo/ })
-    fireEvent.click(screen.getByLabelText('R.A. Training + aval institucional'))
+    fireEvent.click(screen.getByLabelText(/Aval institucional/))
     const institution = await screen.findByLabelText('Institución avaladora *')
     fireEvent.change(institution, { target: { value: 'INST-1' } })
 

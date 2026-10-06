@@ -14,6 +14,7 @@ export const CERTIFICATE_V2_VERSION = 'ra-security-2026-v2'
 export const CERTIFICATE_V3_VERSION = 'ra-security-2026-v3'
 export const CERTIFICATE_ITSAL_VERSION = 'ra-itsal-security-2026-v1'
 export const CERTIFICATE_INSTITUTIONAL_AVAL_TEMPLATE = 'ra-institutional-aval-2026'
+export const CERTIFICATE_INSTITUTIONAL_AVAL_V2_TEMPLATE = 'ra-institutional-aval-2026-v2'
 export const CERTIFICATE_V2_ISSUER = Object.freeze({ ruc: '0691787373001', expediente: '401111' })
 const WIDTH = 320
 const HEIGHT = 180
@@ -24,6 +25,7 @@ const assets = {
   logo: new URL('../assets/certificate/ra-training-logo.png', import.meta.url).href,
   mark: new URL('../assets/certificate/ra-training-mark.png', import.meta.url).href,
   seal: new URL('../assets/certificate/academic-seal.png', import.meta.url).href,
+  goldSeal: new URL('../assets/certificate/ra-gold-seal-v5.png', import.meta.url).href,
   itsal: new URL('../assets/certificate/itsal-official-logo.png', import.meta.url).href,
   regular: new URL('../assets/certificate/canva/IBMPlexSansCondensed-Regular.ttf', import.meta.url).href,
   bold: new URL('../assets/certificate/canva/IBMPlexSansCondensed-Bold.ttf', import.meta.url).href,
@@ -151,6 +153,172 @@ function institutionImageInBox(pdf, dataUrl, x, y, width, height) {
     drawnWidth, drawnHeight, undefined, 'FAST')
 }
 
+function drawApprovedGoldSeal(pdf, goldSeal) {
+  // Extracted from the approved v5 design, so the lettering and scalloped edge
+  // are identical in every newly issued certificate.
+  pdf.addImage(goldSeal, 'PNG', 149.2, 141.4, 21.6, 21.6)
+}
+
+function drawApprovedFooter(pdf, certificate, issuerRuc, issuerFile) {
+  pdf.setTextColor(...NAVY)
+  fittedText(pdf, `RESEARCH ASSESSOR TRAINING S.A.S. · R.U.C. ${issuerRuc} · EXPEDIENTE ${issuerFile} · DOCUMENTO DIGITAL VERIFICABLE`,
+    83, 173, 78, 4.5, 2.5)
+  fittedText(pdf, `Fecha de emisión: ${formatLongDate(certificate.FechaEmisionCertificado)} · DOCUMENTO DIGITAL VERIFICABLE · RESEARCH ASSESSOR TRAINING S.A.S.`,
+    252, 173, 118, 5.5, 3)
+  pdf.setFillColor(...NAVY)
+  pdf.setDrawColor(...ORANGE)
+  pdf.setLineWidth(0.3)
+  pdf.roundedRect(128, 173, 64, 7, 1.5, 1.5, 'FD')
+  pdf.setTextColor(255, 255, 255)
+  pdf.setFont('CertificatePlex', 'bold')
+  pdf.setFontSize(11)
+  pdf.text('ra-training.com', 160, 178, { align: 'center' })
+}
+
+function renderApprovedInstitutionalAval(pdf, data) {
+  const { certificate, institution, manager, qr, verificationUrl, background, logo, mark,
+    goldSeal, institutionLogo, authoritySignature, managerSignature, issuerRuc, issuerFile, type } = data
+  if (!institutionLogo) throw new Error('La nueva plantilla requiere el logotipo institucional oficial y verificable.')
+  if (!String(institution.resolutionCode || '').trim()) {
+    throw new Error('Registre el código de resolución en la ficha institucional antes de emitir con la nueva plantilla.')
+  }
+  pdf.addImage(background, 'PNG', 0, 0, WIDTH, HEIGHT)
+  pdf.addImage(logo, 'PNG', 25, 7.5, 39, 16.8)
+  pdf.saveGraphicsState()
+  pdf.setGState(new pdf.GState({ opacity: 0.05 }))
+  pdf.addImage(mark, 'PNG', 173, 78, 38, 45)
+  pdf.restoreGraphicsState()
+  institutionImageInBox(pdf, institutionLogo, 259, 9, 37, 17)
+  pdf.setTextColor(...NAVY)
+  fittedText(pdf, `R.U.C.: ${issuerRuc}`, 44.5, 28.1, 43, 7.7, 6.2, 'bold')
+  fittedText(pdf, 'Resolución de creación', 277.5, 28.1, 45, 7.4, 5.6, 'bold')
+  fittedText(pdf, String(institution.resolutionCode).trim(), 277.5, 32.1, 47, 7.4, 5.4, 'bold')
+
+  pdf.setDrawColor(...ORANGE)
+  pdf.setFillColor(...ORANGE)
+  pdf.setLineWidth(0.3)
+  pdf.line(66, 47, 94, 47)
+  pdf.line(226, 47, 254, 47)
+  diamond(pdf, 98, 47, 1.25)
+  diamond(pdf, 222, 47, 1.25)
+  pdf.setTextColor(...NAVY)
+  line(pdf, 'CERTIFICADO', 51, 170, 47, 37, 'times', 'bold')
+  pdf.setTextColor(...ORANGE)
+  line(pdf, type.heading, 61, 165, 28, 22, 'times', 'bold')
+  pdf.setTextColor(...NAVY)
+  line(pdf, 'Se certifica que:', 68.5, 180, 11, 9)
+  line(pdf, String(certificate.ClienteNombre).trim(), 78.5, 195, 30, 18, 'times', 'italic')
+  line(pdf, `Identificación: ${certificate.ClienteID}`, 84.3, 185, 11, 9)
+  line(pdf, type.intro, 91.2, 190, 11, 9)
+  line(pdf, String(certificate.ServicioNombre).trim(), 98.8, 195, 20, 12, 'times', 'bold')
+  line(pdf, `con una duración de ${normalizeDuration(certificate.Duracion)}, desarrollado desde`, 105.3, 190, 10, 8)
+  line(pdf, `el ${formatLongDate(certificate.FechaInicio)} hasta el ${formatLongDate(certificate.FechaFin)}, bajo la modalidad`, 110.5, 194, 10, 8)
+  line(pdf, `${certificate.Modalidad}.`, 115.7, 185, 10, 8)
+  fittedText(pdf, `Aval institucional: ${institution.legalName || institution.name}${institution.siglas ? ` (${institution.siglas})` : ''}`,
+    160, 123, 205, 8.5, 6.5, 'bold')
+  fittedText(pdf, `Convenio: ${institution.agreementObject || institution.name}${institution.agreementSignedAt ? ` · firmado ${formatLongDate(institution.agreementSignedAt)}` : ''}`,
+    160, 132, 205, 7.5, 5.8)
+  line(pdf, `Riobamba, ${formatLongDate(certificate.FechaEmisionCertificado)}`, 138, 185, 9, 7)
+
+  signatureInBox(pdf, managerSignature, 75, 139, 47, 11)
+  signatureInBox(pdf, authoritySignature, 195, 139, 47, 11)
+  pdf.setDrawColor(...NAVY)
+  pdf.setLineWidth(0.25)
+  pdf.line(74, 150, 128, 150)
+  pdf.line(192, 150, 246, 150)
+  pdf.setTextColor(...NAVY)
+  fittedText(pdf, manager.name.trim(), 101, 155, 58, 10, 6, 'bold')
+  fittedText(pdf, institution.authorityName, 219, 155, 58, 10, 6, 'bold')
+  pdf.setTextColor(...ORANGE)
+  fittedText(pdf, manager.title.trim(), 101, 160, 58, 8.5, 5.5)
+  fittedText(pdf, institution.authorityRole, 219, 160, 58, 8.5, 5.5)
+  drawApprovedGoldSeal(pdf, goldSeal)
+
+  pdf.setDrawColor(...ORANGE)
+  pdf.setLineWidth(0.4)
+  pdf.roundedRect(261, 106, 49, 59, 3, 3)
+  pdf.setTextColor(...NAVY)
+  pdf.setFont('CertificatePlex', 'bold')
+  pdf.setFontSize(12)
+  pdf.text('VERIFICACIÓN', 285.5, 113, { align: 'center' })
+  pdf.addImage(qr, 'PNG', 270.5, 116, 30, 30)
+  pdf.link(270.5, 116, 30, 30, { url: verificationUrl })
+  fittedText(pdf, certificate.CodigoCertificado, 285.5, 151.5, 43, 8, 6.5, 'bold')
+  fittedText(pdf, `Código de aval: ${certificate.AvalCodigoExterno}`, 285.5, 155.3, 43, 7, 5.4, 'bold')
+  fittedText(pdf, 'Documento digital con trazabilidad', 285.5, 159, 43, 5.9, 4.4)
+  fittedText(pdf, 'ra-training.com/verificar', 285.5, 162.4, 43, 6, 4.5)
+
+  drawApprovedFooter(pdf, certificate, issuerRuc, issuerFile)
+}
+
+function renderApprovedRaCertificate(pdf, data) {
+  const { certificate, professional, qr, verificationUrl, background, logo, mark, goldSeal,
+    directorSignature, managerSignature, issuerRuc, issuerFile, type } = data
+  pdf.addImage(background, 'PNG', 0, 0, WIDTH, HEIGHT)
+  pdf.addImage(logo, 'PNG', 25, 7.5, 39, 16.8)
+  pdf.saveGraphicsState()
+  pdf.setGState(new pdf.GState({ opacity: 0.05 }))
+  pdf.addImage(mark, 'PNG', 173, 78, 38, 45)
+  pdf.restoreGraphicsState()
+  pdf.setTextColor(...NAVY)
+  fittedText(pdf, `R.U.C.: ${issuerRuc}`, 44.5, 28.1, 43, 7.7, 6.2, 'bold')
+  fittedText(pdf, 'Código único', 277.5, 20, 50, 8, 6.4, 'bold')
+  fittedText(pdf, certificate.CodigoCertificado, 277.5, 25, 53, 8, 5.8, 'bold')
+  fittedText(pdf, 'Documento digital con trazabilidad', 277.5, 29.2, 53, 6.5, 5)
+
+  pdf.setDrawColor(...ORANGE)
+  pdf.setFillColor(...ORANGE)
+  pdf.setLineWidth(0.3)
+  pdf.line(66, 47, 94, 47)
+  pdf.line(226, 47, 254, 47)
+  diamond(pdf, 98, 47, 1.25)
+  diamond(pdf, 222, 47, 1.25)
+  pdf.setTextColor(...NAVY)
+  line(pdf, 'CERTIFICADO', 51, 170, 47, 37, 'times', 'bold')
+  pdf.setTextColor(...ORANGE)
+  line(pdf, type.heading, 61, 165, 28, 22, 'times', 'bold')
+  pdf.setTextColor(...NAVY)
+  line(pdf, 'Se certifica que:', 68.5, 180, 11, 9)
+  line(pdf, String(certificate.ClienteNombre).trim(), 78.5, 195, 30, 18, 'times', 'italic')
+  line(pdf, `${professional ? 'Identificación' : 'Cédula de Identidad'}: ${certificate.ClienteID}`, 84.3, 185, 11, 9)
+  line(pdf, type.intro, 91.2, 190, 11, 9)
+  line(pdf, String(certificate.ServicioNombre).trim(), 98.8, 195, 20, 12, 'times', 'bold')
+  line(pdf, `con una duración de ${normalizeDuration(certificate.Duracion)}, ${professional ? 'impartido' : 'desarrollado'} desde`, 105.3, 190, 10, 8)
+  line(pdf, `el ${formatLongDate(certificate.FechaInicio)} hasta el ${formatLongDate(certificate.FechaFin)}, bajo la modalidad`, 110.5, 194, 10, 8)
+  line(pdf, `${certificate.Modalidad}.`, 115.7, 185, 10, 8)
+  line(pdf, 'En constancia de lo anterior, se expide el presente certificado', 122.8, 202, 10, 8)
+  line(pdf, 'para los fines que el interesado considere pertinentes.', 128.2, 200, 10, 8)
+  line(pdf, `Riobamba, ${formatLongDate(certificate.FechaEmisionCertificado)}`, 138, 185, 9, 7)
+
+  signatureInBox(pdf, directorSignature, 75, 136, 47, 14)
+  signatureInBox(pdf, managerSignature, 195, 139, 47, 11)
+  pdf.setDrawColor(...NAVY)
+  pdf.setLineWidth(0.25)
+  pdf.line(74, 150, 128, 150)
+  pdf.line(192, 150, 246, 150)
+  pdf.setTextColor(...NAVY)
+  fittedText(pdf, 'Mgs. Edison Bonifaz A.', 101, 155, 58, 10, 6, 'bold')
+  fittedText(pdf, 'Mgs. Alexandra Villagómez', 219, 155, 58, 10, 6, 'bold')
+  pdf.setTextColor(...ORANGE)
+  fittedText(pdf, 'Director Académico', 101, 160, 58, 8.5, 5.5)
+  fittedText(pdf, 'Gerente General', 219, 160, 58, 8.5, 5.5)
+  drawApprovedGoldSeal(pdf, goldSeal)
+
+  pdf.setDrawColor(...ORANGE)
+  pdf.setLineWidth(0.4)
+  pdf.roundedRect(261, 106, 49, 59, 3, 3)
+  pdf.setTextColor(...NAVY)
+  pdf.setFont('CertificatePlex', 'bold')
+  pdf.setFontSize(12)
+  pdf.text('VERIFICACIÓN', 285.5, 113, { align: 'center' })
+  pdf.addImage(qr, 'PNG', 270.5, 116, 30, 30)
+  pdf.link(270.5, 116, 30, 30, { url: verificationUrl })
+  fittedText(pdf, certificate.CodigoCertificado, 285.5, 151.5, 43, 8, 6.5, 'bold')
+  fittedText(pdf, 'Documento digital con trazabilidad', 285.5, 158.5, 43, 5.9, 4.4)
+  fittedText(pdf, 'ra-training.com/verificar', 285.5, 162.4, 43, 6, 4.5)
+  drawApprovedFooter(pdf, certificate, issuerRuc, issuerFile)
+}
+
 async function buildInstitutionalAvalPdf(record, options) {
   const certificate = normalizeIssuedCertificate(record)
   if (certificate.CertificateSubject !== 'institutional_aval' || certificate.EstadoAval !== 'avalado'
@@ -185,14 +353,25 @@ async function buildInstitutionalAvalPdf(record, options) {
   const type = participantCertificateType(certificate.CertificateType)
   const publicId = String(certificate.CertificatePublicId || certificate.ID)
   const verificationUrl = buildVerificationUrl(publicId)
-  const [qr, background, logo, mark, seal, regular, bold, italic] = await Promise.all([
+  const modernAval = certificate.TemplateVersion === CERTIFICATE_INSTITUTIONAL_AVAL_V2_TEMPLATE
+  const [qr, background, logo, mark, seal, regular, bold, italic, goldSeal] = await Promise.all([
     generateQrDataUrl(publicId),
     ...['background', 'logo', 'mark', 'seal', 'regular', 'bold', 'italic'].map(key => asDataUrl(key, options.assetDataUrls)),
+    modernAval ? asDataUrl('goldSeal', options.assetDataUrls) : Promise.resolve(null),
   ])
   const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: [WIDTH, HEIGHT], compress: true })
   pdf.setFileId(deterministicCertificatePdfFileId(`${publicId}|${certificate.CodigoCertificado}|${certificate.TemplateVersion}`))
   pdf.setCreationDate(deterministicCertificatePdfCreationDate(certificate.FechaEmisionCertificado))
   addFonts(pdf, { regular, bold, italic })
+  if (modernAval) {
+    renderApprovedInstitutionalAval(pdf, { certificate, institution, manager, qr, verificationUrl,
+      background, logo, mark, goldSeal, institutionLogo, authoritySignature, managerSignature, issuerRuc, issuerFile, type })
+    pdf.setProperties({ title: `Certificado avalado ${certificate.CodigoCertificado}`, subject: certificate.ServicioNombre, author: 'Research Assessor Training S.A.S.' })
+    const safeName = String(certificate.ClienteNombre).replace(/[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ]+/g, '_')
+    const safeInstitution = String(institution.siglas || institution.name).replace(/[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ]+/g, '_')
+    return { blob: pdf.output('blob'), filename: `certificado_aval_${safeInstitution}_${safeName}.pdf`,
+      verificationUrl, certificateCode: certificate.CodigoCertificado, templateVersion: certificate.TemplateVersion }
+  }
   pdf.addImage(background, 'PNG', 0, 0, WIDTH, HEIGHT)
   pdf.addImage(logo, 'PNG', 140, 6.5, 40, 17)
   pdf.setFillColor(255, 255, 255)
@@ -303,7 +482,9 @@ async function buildInstitutionalAvalPdf(record, options) {
 }
 
 export async function buildCertificateV2Pdf(record, options = {}) {
-  if (record?.TemplateVersion === CERTIFICATE_INSTITUTIONAL_AVAL_TEMPLATE) return buildInstitutionalAvalPdf(record, options)
+  if ([CERTIFICATE_INSTITUTIONAL_AVAL_TEMPLATE, CERTIFICATE_INSTITUTIONAL_AVAL_V2_TEMPLATE].includes(record?.TemplateVersion)) {
+    return buildInstitutionalAvalPdf(record, options)
+  }
   const institutional = record?.TemplateVersion === CERTIFICATE_ITSAL_VERSION
   if (!institutional && ![CERTIFICATE_V2_VERSION, CERTIFICATE_V3_VERSION].includes(record?.TemplateVersion)) throw new Error('Versión de plantilla incorrecta.')
   const certificate = normalizeIssuedCertificate(record)
@@ -349,17 +530,27 @@ export async function buildCertificateV2Pdf(record, options = {}) {
   const type = professional
     ? { heading: 'DE CAPACITADOR', intro: 'Ha impartido en calidad de capacitador el curso:' }
     : participantCertificateType(certificate.CertificateType)
+  const approvedLayout = certificate.TemplateVersion === CERTIFICATE_V3_VERSION
   const publicId = String(certificate.CertificatePublicId || certificate.ID)
   const verificationUrl = buildVerificationUrl(publicId)
-  const [qr, background, logo, mark, seal, regular, bold, italic, itsal] = await Promise.all([
+  const [qr, background, logo, mark, seal, regular, bold, italic, itsal, goldSeal] = await Promise.all([
     generateQrDataUrl(publicId),
     ...['background', 'logo', 'mark', 'seal', 'regular', 'bold', 'italic'].map(key => asDataUrl(key, options.assetDataUrls)),
     institutional ? asDataUrl('itsal', options.assetDataUrls) : Promise.resolve(null),
+    approvedLayout ? asDataUrl('goldSeal', options.assetDataUrls) : Promise.resolve(null),
   ])
   const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: [WIDTH, HEIGHT], compress: true })
   pdf.setFileId(deterministicCertificatePdfFileId(`${publicId}|${certificate.CodigoCertificado}|${certificate.CertificateVersion || 1}|${certificate.TemplateVersion}`))
   pdf.setCreationDate(deterministicCertificatePdfCreationDate(certificate.FechaEmisionCertificado))
   addFonts(pdf, { regular, bold, italic })
+  if (approvedLayout) {
+    renderApprovedRaCertificate(pdf, { certificate, professional, qr, verificationUrl, background, logo,
+      mark, goldSeal, directorSignature, managerSignature, issuerRuc, issuerFile, type })
+    pdf.setProperties({ title: `Certificado ${certificate.CodigoCertificado}`, subject: certificate.ServicioNombre, author: 'Research Assessor Training S.A.S.' })
+    const safeName = String(certificate.ClienteNombre).replace(/[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ]+/g, '_')
+    return { blob: pdf.output('blob'), filename: `certificado_${safeName}_${certificate.CertificateVersion || 1}.pdf`,
+      verificationUrl, certificateCode: certificate.CodigoCertificado, templateVersion: certificate.TemplateVersion }
+  }
   pdf.addImage(background, 'PNG', 0, 0, WIDTH, HEIGHT)
   // Keep the identity compact so the corporate name and title have breathing room.
   pdf.addImage(logo, 'PNG', 140, 6.5, 40, 17)

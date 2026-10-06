@@ -587,6 +587,31 @@ describe('marcarAval + entregable avalado', () => {
     expect(request({ action: 'leerPdfEntregableAvalPrivado', token: 'aval-token', id }).success).toBe(false)
   })
 
+  it('usa el diseño aprobado solo si la ficha conserva logo y resolución auténticos', () => {
+    const harness = seededHarness()
+    const id = facturaFullLista(harness)
+    const request = harness.context.processRequest
+    const institution = harness.objects('Instituciones')[0]
+    expect(request({ action: 'updateInstitucionMaestra', token: 'admin-token', id: institution.ID,
+      institucion: { nombre: institution.Nombre, siglas: institution.Siglas, tipo: institution.Tipo,
+        identificacion: institution.Identificacion, tipoIdentificacion: institution.TipoIdentificacion,
+        ciudad: institution.Ciudad, estado: 'activo', codigoResolucion: 'RPC-SO-22-No.364-2024' } }).success).toBe(true)
+    expect(request({ action: 'addActivoInstitucion', token: 'admin-token', institucionId: institution.ID,
+      tipo: 'logo', archivo: { nombreArchivo: 'logo-institucional.png', mimeType: 'image/png',
+        base64: institutionalSignatureBase64() } }).success).toBe(true)
+    expect(request({ action: 'marcarAval', token: 'aval-token', id,
+      avalCodigoExterno: 'ITSA-1231243' }).success).toBe(true)
+    activateCertificateSignatures(harness)
+    const issued = request({ action: 'emitirEntregableAval', token: 'admin-token', id })
+    expect(issued).toMatchObject({ success: true, data: {
+      TemplateVersion: 'ra-institutional-aval-2026-v2',
+      InstitutionData: { resolutionCode: 'RPC-SO-22-No.364-2024' },
+    } })
+    expect(request({ action: 'getFirmasOficialesCertificado', token: 'admin-token',
+      templateVersion: 'ra-institutional-aval-2026-v2',
+      managerSignatureSha256: issued.data.InstitutionData.managerSignatureSha256 }).success).toBe(true)
+  })
+
   it('un aval ITSAL nuevo congela la firma de Gerencia v3 y no reutiliza la v2', () => {
     const harness = seededHarness()
     const id = facturaFullLista(harness)

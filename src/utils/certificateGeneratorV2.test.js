@@ -5,7 +5,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { PNG } from 'pngjs'
 import { sha256Hex } from '../services/certificateArtifactStore'
 import { buildCertificatePdf } from './certificateGenerator'
-import { CERTIFICATE_INSTITUTIONAL_AVAL_TEMPLATE, CERTIFICATE_V2_ISSUER } from './certificateGeneratorV2'
+import { CERTIFICATE_INSTITUTIONAL_AVAL_TEMPLATE, CERTIFICATE_INSTITUTIONAL_AVAL_V2_TEMPLATE, CERTIFICATE_V2_ISSUER } from './certificateGeneratorV2'
 
 const root = path.join(process.cwd(), 'src/assets/certificate')
 const dataUrl = (file, mimeType) => `data:${mimeType};base64,${fs.readFileSync(path.join(root, file)).toString('base64')}`
@@ -53,6 +53,7 @@ const options = {
     logo: dataUrl('ra-training-logo.png', 'image/png'),
     mark: dataUrl('ra-training-mark.png', 'image/png'),
     seal: dataUrl('academic-seal.png', 'image/png'),
+    goldSeal: dataUrl('ra-gold-seal-v5.png', 'image/png'),
     itsal: dataUrl('itsal-official-logo.png', 'image/png'),
     regular: dataUrl('canva/IBMPlexSansCondensed-Regular.ttf', 'font/ttf'),
     bold: dataUrl('canva/IBMPlexSansCondensed-Bold.ttf', 'font/ttf'),
@@ -101,7 +102,7 @@ describe('nueva plantilla de seguridad v2', () => {
     }
   }, 60_000)
 
-  it('genera la edición v3 con la misma composición y versión documental propia', async () => {
+  it('genera la edición v3 con la composición horizontal aprobada y versión documental propia', async () => {
     const previewOptions = {
       ...options,
       signatures: {
@@ -227,6 +228,38 @@ describe('nueva plantilla de seguridad v2', () => {
         reader.readAsArrayBuffer(result.blob)
       })
       fs.writeFileSync(process.env.CERTIFICATE_PREVIEW_INSTITUTIONAL_AVAL_FILE, Buffer.from(bytes))
+    }
+  }, 30_000)
+
+  it('renderiza la versión horizontal aprobada sin alterar el PDF institucional anterior', async () => {
+    const avalado = {
+      ...certificate,
+      ID: 'AVAL-DISENO-V2', CertificatePublicId: 'AVAL-DISENO-V2',
+      TemplateVersion: CERTIFICATE_INSTITUTIONAL_AVAL_V2_TEMPLATE,
+      CertificateSubject: 'institutional_aval', CertificateStatus: 'emitido',
+      EstadoAval: 'avalado', AvalCodigoExterno: 'ITSA-1231243',
+      InstitutionData: { institutionId: 'INS-ITSAL', agreementId: 'CVN-ITSAL', name: 'ITSAL',
+        legalName: 'Instituto Superior Tecnológico Internacional San Luis', siglas: 'ITSAL',
+        authorityId: 'AUT-ITSAL', authorityName: 'Luis Hernán Coloma Gaibor', authorityRole: 'Rector',
+        resolutionCode: 'RPC-SO-22-No.364-2024', agreementObject: 'Alianza Estratégica',
+        agreementSignedAt: '2026-08-26' },
+    }
+    const result = await buildCertificatePdf(avalado, { ...options,
+      signatures: { manager: visibleSignature },
+      signers: { manager: { name: 'Mgs. Alexandra Villagómez', title: 'Gerente General' } },
+      institutionAssets: { authoritySignature: visibleSignature,
+        logo: dataUrl('itsal-official-logo.png', 'image/png') },
+    })
+    expect(result).toMatchObject({ templateVersion: CERTIFICATE_INSTITUTIONAL_AVAL_V2_TEMPLATE })
+    expect(result.blob.size).toBeGreaterThan(100_000)
+    if (process.env.CERTIFICATE_PREVIEW_INSTITUTIONAL_AVAL_V2_FILE) {
+      const bytes = await new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(reader.result)
+        reader.onerror = reject
+        reader.readAsArrayBuffer(result.blob)
+      })
+      fs.writeFileSync(process.env.CERTIFICATE_PREVIEW_INSTITUTIONAL_AVAL_V2_FILE, Buffer.from(bytes))
     }
   }, 30_000)
 

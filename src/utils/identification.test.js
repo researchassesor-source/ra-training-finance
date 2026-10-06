@@ -34,6 +34,8 @@ describe('identificación documental', () => {
     const numericPassport = '1234567890'
     expect(identificationError(numericPassport, IDENTIFICATION_TYPE.PASSPORT)).toBe('')
     expect(identificationError('AB12345X', IDENTIFICATION_TYPE.OTHER)).toBe('')
+    expect(normalizeIdentificationType('DNI')).toBe(IDENTIFICATION_TYPE.OTHER)
+    expect(normalizeIdentificationType('OTRO')).toBe(IDENTIFICATION_TYPE.OTHER)
   })
 
   it('distingue el formato de RUC de la validación de cédula', () => {
