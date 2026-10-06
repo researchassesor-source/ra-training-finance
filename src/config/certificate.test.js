@@ -4,6 +4,13 @@ import { resolveAvalVisualConfiguration } from './certificate'
 const endorsed = { RequiereAvalExterno: true, EstadoAval: 'avalado' }
 
 describe('configuración visual del aval', () => {
+  it('mantiene separado el certificado propio del entregable institucional por defecto', () => {
+    expect(resolveAvalVisualConfiguration(endorsed, { VITE_DEPLOYMENT_ENV: 'production' }))
+      .toMatchObject({ visible: false, valid: true, mode: 'separate' })
+    expect(resolveAvalVisualConfiguration({ RequiereAvalExterno: false }, { VITE_DEPLOYMENT_ENV: 'production' }))
+      .toMatchObject({ visible: false, valid: true })
+  })
+
   it('muestra la leyenda pendiente solo fuera de Production', () => {
     expect(resolveAvalVisualConfiguration(endorsed, {
       VITE_DEPLOYMENT_ENV: 'preview', VITE_CERTIFICATE_AVAL_VISUAL_MODE: 'pending',

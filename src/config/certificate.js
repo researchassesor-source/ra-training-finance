@@ -12,8 +12,11 @@ function deploymentEnvironment(env) {
 export function resolveAvalVisualConfiguration(certificate, env = {}) {
   const hasAval = isTrue(certificate?.RequiereAvalExterno) && certificate?.EstadoAval === 'avalado'
   const environment = deploymentEnvironment(env)
-  const mode = String(env?.VITE_CERTIFICATE_AVAL_VISUAL_MODE || 'pending').trim().toLowerCase()
+  // El certificado propio y el entregable institucional son documentos distintos.
+  // El modo heredado de bloque embebido solo se usa si se configura expresamente.
+  const mode = String(env?.VITE_CERTIFICATE_AVAL_VISUAL_MODE || 'separate').trim().toLowerCase()
   if (!hasAval) return { visible: false, valid: true, environment, mode }
+  if (mode === 'separate') return { visible: false, valid: true, environment, mode }
   if (mode === 'pending') {
     if (environment === 'production') {
       return {
