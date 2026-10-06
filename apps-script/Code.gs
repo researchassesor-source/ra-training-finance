@@ -4228,6 +4228,14 @@ function emitirCertificadoBajoBloqueo(user, { id } = {}) {
   }
   if (row.EstadoPago !== 'verificado') return { success: false, error: 'El pago debe estar verificado antes de emitir el certificado.' };
 
+  // Un aval o un pago anticipado no prueban que el participante haya terminado
+  // el curso. Esta regla se aplica únicamente a emisiones nuevas: las versiones
+  // históricas ya emitidas se recuperan arriba sin alterar su trazabilidad.
+  const fechaFinAcademica = fechaSolo(row.FechaFin);
+  if (fechaFinAcademica && fechaFinAcademica > hoyLocal()) {
+    return { success: false, error: 'El curso todavía no ha terminado. Emita el certificado académico a partir de la fecha de fin.' };
+  }
+
   if (row.CRMOfferType) {
     // Flujo comercial nuevo (FULL/INSTITUTIONAL): el certificado institucional se
     // emite con pago + curso completado, SIN esperar el aval externo -- el aval
@@ -7061,6 +7069,10 @@ function emitirEntregableAval(user, { id } = {}) {
     const managerTitle = String(signerProperties.getProperty(CERTIFICATE_MANAGER_TITLE_PROPERTY) || '').trim();
     if (!managerName || !managerTitle) return { success: false, error: 'Configure el nombre completo y cargo oficial del gerente firmante en Ajustes de certificados.' };
     if (inscripcion.EstadoPago !== 'verificado') return { success: false, error: 'El pago debe estar verificado.' };
+    const fechaFinAcademica = fechaSolo(inscripcion.FechaFin);
+    if (fechaFinAcademica && fechaFinAcademica > hoyLocal()) {
+      return { success: false, error: 'El curso todavía no ha terminado. Emita el certificado con aval a partir de la fecha de fin.' };
+    }
     const avalUpgrade = validarUpgradeAvalVerificadoParaInscripcion_(inscripcion);
     if (avalUpgrade.exists && !avalUpgrade.success) return { success: false, error: avalUpgrade.error };
     if (inscripcion.CRMOfferType && inscripcion.CRMCompletionStatus !== CRM_COMPLETION_STATUS_COMPLETADO) {

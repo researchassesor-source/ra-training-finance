@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { api } from '../../services/api'
 import { useAuth } from '../../context/AuthContext'
 import { fmt } from '../../utils/formatters'
+import { courseHasNotEnded } from '../../utils/academicDates'
 import { exportCertificadosAvalExcel, exportCertificadosAvalPDF } from '../../utils/exporters'
 import { sha256Hex } from '../../services/certificateArtifactStore'
 import { certificatePdfRepository } from '../../services/certificatePdfRepository'
@@ -570,7 +571,9 @@ export default function CertificadosAvalView() {
                         <p className="mt-1 text-[11px] font-medium text-indigo-800">
                           {i.EstadoAval !== 'avalado'
                             ? i.PuedeConfigurarAvalPosterior ? 'Paso 1: configure la institución y el convenio.' : 'Paso 1: espere la confirmación de la institución.'
-                            : !i.EntregableAval?.PdfHash ? 'Paso 2: emita y archive el PDF oficial.'
+                            : !i.EntregableAval?.PdfHash ? !i.EntregableAval?.CertificateStatus && courseHasNotEnded(i.FechaFin)
+                              ? `Paso 2: espere hasta que termine el curso (${fmt.date(i.FechaFin)}).`
+                              : 'Paso 2: emita y archive el PDF oficial.'
                               : i.EntregableAval.EstadoEntregaFinal === 'enviado' ? 'Completado: PDF oficial enviado.'
                                 : 'Paso 3: revise y envíe el PDF archivado.'}
                         </p>
@@ -588,7 +591,7 @@ export default function CertificadosAvalView() {
                           <>
                             {!i.EntregableAval?.PdfHash && <p className="mt-1 text-[11px] text-gray-500">Pendiente de emisión y archivo.</p>}
                             <div className="mt-2 flex flex-wrap gap-1.5">
-                              <button type="button" disabled={busyId === i.ID || !i.AvalCodigoExterno}
+                              <button type="button" disabled={busyId === i.ID || !i.AvalCodigoExterno || (!i.EntregableAval?.CertificateStatus && courseHasNotEnded(i.FechaFin))}
                                 onClick={() => emitirAval(i)} className="btn-secondary text-xs px-2 py-1">
                                 <Download size={13} /> {i.EntregableAval?.RequiereReemisionIdentificacion ? 'Ver PDF anterior' : i.EntregableAval?.PdfHash ? 'Descargar avalado' : 'Emitir y descargar avalado'}
                               </button>

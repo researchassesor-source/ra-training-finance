@@ -325,6 +325,23 @@ describe('marcarAval + entregable avalado', () => {
     return full.data.financeInscripcionId
   }
 
+  it('no prepara un certificado con aval antes de la fecha de fin académica', () => {
+    const harness = seededHarness()
+    const id = facturaFullLista(harness)
+    const sheet = harness.sheets.Inscripciones
+    const endColumn = harness.sourceHeaders('Inscripciones').indexOf('FechaFin')
+    const inscriptionRow = sheet.rows.find(row => row[0] === id)
+    inscriptionRow[endColumn] = '2099-12-31'
+
+    const request = harness.context.processRequest
+    expect(request({ action: 'marcarAval', token: 'aval-token', id, avalCodigoExterno: 'ITSAL-2026-123' }).success).toBe(true)
+    activateCertificateSignatures(harness)
+    const result = request({ action: 'emitirEntregableAval', token: 'admin-token', id })
+    expect(result).toMatchObject({ success: false })
+    expect(result.error).toMatch(/todavía no ha terminado/)
+    expect(harness.objects('EntregablesAval')[0].CodigoCertificado).toBeFalsy()
+  })
+
   function certificadoNormalInstitucionalConUpgradePendiente(harness) {
     const request = harness.context.processRequest
     const institution = request({ action: 'addInstitucionMaestra', token: 'admin-token', institucion: {

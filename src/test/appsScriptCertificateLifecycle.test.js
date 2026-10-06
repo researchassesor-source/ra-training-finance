@@ -77,6 +77,22 @@ function historicalHashHarness() {
 }
 
 describe('ciclo de vida de certificados en Apps Script', () => {
+  it('no emite certificados académicos antes de finalizar el curso aunque el pago esté verificado', () => {
+    const harness = seededHarness()
+    harness.seed('Inscripciones', [{
+      ID: 'INS-FUTURE', ClienteNombre: 'Participante Futuro', ClienteID: '0000000005',
+      ServicioID: 'SRV-1', ServicioNombre: 'Curso Test', Modalidad: 'Virtual',
+      FechaInicio: '2099-12-01', FechaFin: '2099-12-31', EstadoPago: 'verificado',
+      EstadoCertificado: 'pendiente', EstadoAval: 'avalado', RequiereAvalExterno: true,
+    }])
+
+    const result = harness.context.processRequest({ action: 'emitirCertificado', token: 'admin-token', id: 'INS-FUTURE' })
+    expect(result).toMatchObject({ success: false })
+    expect(result.error).toMatch(/todavía no ha terminado/)
+    expect(harness.objects('Inscripciones').find(item => item.ID === 'INS-FUTURE').CodigoCertificado).toBeFalsy()
+    expect(harness.objects('Certificados')).toHaveLength(0)
+  })
+
   it('anula lógicamente, conserva el QR histórico y rechaza eliminación', () => {
     const harness = seededHarness()
     const { processRequest } = harness.context

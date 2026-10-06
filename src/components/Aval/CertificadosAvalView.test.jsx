@@ -40,6 +40,15 @@ const normalCertificate = {
 }
 
 describe('entregable institucional ITSAL', () => {
+  it('no ofrece una primera emisión avalada mientras el curso sigue programado', async () => {
+    mock.getCertificadosAval.mockResolvedValue({ data: [{ ...row,
+      FechaInicio: '2099-12-01', FechaFin: '2099-12-31', EntregableAval: null,
+    }] })
+    render(<CertificadosAvalView />)
+    expect(await screen.findByText(/espere hasta que termine el curso/)).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Emitir y descargar avalado' })).toBeDisabled()
+  })
+
   it('permite al admin descargar el PDF archivado y decidir explícitamente su envío', async () => {
     mock.getCertificadosAval.mockResolvedValue({ data: [row] })
     render(<CertificadosAvalView />)

@@ -137,6 +137,18 @@ describe('acciones visibles en inscripciones', () => {
   })
   afterEach(() => cleanup())
 
+  it('deshabilita la emisión de un certificado académico si el curso aún no termina', async () => {
+    state.user = { rol: 'admin', username: 'admin.demo', nombre: 'Admin Demo' }
+    state.rows = [{ ...emittedRow, EstadoCertificado: 'pendiente', CodigoCertificado: '',
+      FechaInicio: '2099-12-01', FechaFin: '2099-12-31' }]
+    renderList()
+    await screen.findByText('Participante Demo')
+    const issueButton = screen.getByRole('button', { name: /El curso todavía no ha terminado/ })
+    expect(issueButton).toBeDisabled()
+    fireEvent.click(issueButton)
+    expect(apiMock.emitirCertificado).not.toHaveBeenCalled()
+  })
+
   it('muestra descargar, QR y entrega al administrador', async () => {
     state.user = { rol: 'admin', username: 'admin.demo', nombre: 'Admin Demo' }
     renderList()

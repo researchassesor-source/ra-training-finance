@@ -19,6 +19,7 @@ import {
 } from '../../services/certificateDownloadFlow'
 import { useAuth } from '../../context/AuthContext'
 import { fmt, ESTADOS_CERTIFICADO, ESTADOS_PAGO_INS } from '../../utils/formatters'
+import { courseHasNotEnded } from '../../utils/academicDates'
 import { exportInscripcionPDF, exportInscripcionesCSV, exportInscripcionesPDF } from '../../utils/exporters'
 import { buildVerificationUrl, generateQrDataUrl } from '../../utils/qr'
 import { validateCertificateData } from '../../utils/certificateGenerator'
@@ -709,7 +710,8 @@ export default function InscripcionesList() {
                   const hasAval = item.RequiereAvalExterno === true || item.RequiereAvalExterno === 'TRUE'
                   const avalReady = !hasAval || item.EstadoAval === 'avalado'
                   const avalVisual = certificateAvalVisualStatus(item)
-                  const issuanceConfigurationReady = avalReady && avalVisual.valid && qrConfiguration.valid
+                  const courseStillInProgress = courseHasNotEnded(item.FechaFin)
+                  const issuanceConfigurationReady = !courseStillInProgress && avalReady && avalVisual.valid && qrConfiguration.valid
                   const capabilities = certificateCapabilities(user, item)
                   const canSelect = capabilities.canDeliver && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(item.ClienteEmail || '').trim())
                   const canVerifyPayment = ['pendiente', 'pagado', 'pendiente_verificacion'].includes(item.EstadoPago)
@@ -792,7 +794,9 @@ export default function InscripcionesList() {
                           <Action icon={DollarSign} label="Ver pago (ingreso)" onClick={() => navigate(`/ingresos?inscripcion=${encodeURIComponent(item.ID)}`)} disabled={rowBusy} css="hover:text-emerald-600 hover:bg-emerald-50" />
                         )}
                         {capabilities.canIssue && <Action icon={Award}
-                          label={!qrConfiguration.valid
+                          label={courseStillInProgress
+                            ? `El curso todavía no ha terminado; finaliza el ${fmt.date(item.FechaFin)}`
+                            : !qrConfiguration.valid
                             ? qrConfiguration.error
                             : !avalReady
                               ? `Pendiente del aval institucional${item.InstitucionAval ? ` de ${item.InstitucionAval}` : ''}`
