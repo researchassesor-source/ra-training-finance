@@ -1,6 +1,7 @@
 import { jsPDF } from 'jspdf'
 import { buildVerificationUrl, generateQrDataUrl } from './qr.js'
 import { participantCertificateType } from '../config/certificateTypes.js'
+import { fitInstitutionalLogoForPdf } from './pdfImageOptimization.js'
 import {
   deterministicCertificatePdfCreationDate,
   deterministicCertificatePdfFileId,
@@ -359,13 +360,14 @@ async function buildInstitutionalAvalPdf(record, options) {
     ...['background', 'logo', 'mark', 'seal', 'regular', 'bold', 'italic'].map(key => asDataUrl(key, options.assetDataUrls)),
     modernAval ? asDataUrl('goldSeal', options.assetDataUrls) : Promise.resolve(null),
   ])
+  const pdfInstitutionLogo = modernAval ? await fitInstitutionalLogoForPdf(institutionLogo) : institutionLogo
   const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: [WIDTH, HEIGHT], compress: true })
   pdf.setFileId(deterministicCertificatePdfFileId(`${publicId}|${certificate.CodigoCertificado}|${certificate.TemplateVersion}`))
   pdf.setCreationDate(deterministicCertificatePdfCreationDate(certificate.FechaEmisionCertificado))
   addFonts(pdf, { regular, bold, italic })
   if (modernAval) {
     renderApprovedInstitutionalAval(pdf, { certificate, institution, manager, qr, verificationUrl,
-      background, logo, mark, goldSeal, institutionLogo, authoritySignature, managerSignature, issuerRuc, issuerFile, type })
+      background, logo, mark, goldSeal, institutionLogo: pdfInstitutionLogo, authoritySignature, managerSignature, issuerRuc, issuerFile, type })
     pdf.setProperties({ title: `Certificado avalado ${certificate.CodigoCertificado}`, subject: certificate.ServicioNombre, author: 'Research Assessor Training S.A.S.' })
     const safeName = String(certificate.ClienteNombre).replace(/[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ]+/g, '_')
     const safeInstitution = String(institution.siglas || institution.name).replace(/[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ]+/g, '_')

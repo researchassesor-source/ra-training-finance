@@ -183,10 +183,12 @@ export default function CertificadosAvalView() {
     setBusyId(item.ID)
     setError('')
     setNotice('')
+    let stage = 'preparar el certificado'
     try {
       const issued = await api.emitirEntregableAval(item.ID)
       const certificate = issued.data
       if (!certificate.PdfHash) {
+        stage = 'obtener las firmas oficiales'
         const official = await api.getFirmasOficialesCertificado({
           templateVersion: certificate.TemplateVersion,
           managerSignatureSha256: certificate.InstitutionData?.managerSignatureSha256 || '',
@@ -209,6 +211,7 @@ export default function CertificadosAvalView() {
               if (required) throw new Error(`Falta el recurso institucional obligatorio: ${label}.`)
               return ''
             }
+            stage = `obtener ${label}`
             const response = await api.getArchivoInstitucionPrivado(id)
             const asset = response.data
             if (!asset || String(asset.sha256 || '').toLowerCase() !== String(expectedHash || '').toLowerCase()) {
@@ -232,14 +235,17 @@ export default function CertificadosAvalView() {
         const pdfSource = certificate.CertificateStatus === 'pendiente_pdf'
           ? { ...certificate, CertificateStatus: 'emitido' }
           : certificate
+        stage = 'generar el PDF'
         const prepared = await buildCertificateV2Pdf(pdfSource, { signatures, signers, institutionAssets })
         const pdfHash = await sha256Hex(prepared.blob)
+        stage = `archivar el PDF (${(prepared.blob.size / 1048576).toFixed(2)} MB)`
         await api.guardarPdfEntregableAvalPrivado(item.ID, {
           pdfBase64: await blobToBase64(prepared.blob), pdfHash,
           templateVersion: certificate.TemplateVersion,
         })
         saveAs(prepared.blob, prepared.filename)
       } else {
+        stage = 'descargar el PDF archivado'
         const archived = await api.leerPdfEntregableAvalPrivado(item.ID)
         const bytes = Uint8Array.from(atob(archived.contentBase64), ch => ch.charCodeAt(0))
         const blob = new Blob([bytes], { type: 'application/pdf' })
@@ -249,7 +255,7 @@ export default function CertificadosAvalView() {
       setNotice('Certificado avalado archivado y descargado. El envío al participante sigue siendo una acción separada.')
       load()
     } catch (err) {
-      setError(`${err.message} Si la emisión quedó registrada, use este mismo botón para reintentar sin crear otro código.`)
+      setError(`No se pudo ${stage}: ${err.message}. Reintente con este mismo botón; el código existente se conserva.`)
       load()
     } finally { setBusyId('') }
   }
