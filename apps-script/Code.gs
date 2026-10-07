@@ -102,6 +102,7 @@ function processRequest(data) {
     addDocumentoInstitucion: () => addDocumentoInstitucion(user, params),
     getArchivoInstitucionPrivado: () => getArchivoInstitucionPrivado(user, params),
     getCertificadosAval: () => getCertificadosAval(user, params),
+    buscarCertificadosParaAvalPosterior: () => buscarCertificadosParaAvalPosterior(user, params),
     getConveniosParaAval: () => getConveniosParaAval(user, params),
     configurarAvalPosteriorCertificado: () => configurarAvalPosteriorCertificado(user, params),
     marcarAval:          () => marcarAval(user, params),
@@ -253,7 +254,7 @@ const SHEET_HEADERS = {
                      'CRMOfferType','CRMParentOrderID','CRMCompletionStatus','CRMCompletedAt',
                      // Enlace canónico aditivo a la ficha maestra. InstitucionAval se
                      // conserva como snapshot legible para registros históricos y consumidores existentes.
-                      'InstitucionID','ConvenioID','AvalInstitucionID','AvalConvenioID','AvalBaseTipoAplicado','AvalMontoBase','AvalPorcentajeAplicado','AvalMontoCalculado','AvalConfirmadoPor',
+                      'InstitucionID','ConvenioID','AvalInstitucionID','AvalConvenioID','AvalBaseTipoAplicado','AvalMontoBase','AvalPorcentajeAplicado','AvalMontoCalculado','AvalConfirmadoPor','AvalIngresoID',
                       'CRMEnrollmentID','CRMContactID','CRMCourseID','Origen'],
   Sesiones:         ['Token','Username','UserID','Rol','Nombre','Expira','Roles'],
   ConfigPagos:      ['ID','Nombre','Tipo','Detalles','Instrucciones','Activo','FechaCreacion'],
@@ -605,7 +606,7 @@ function getSheet(name) {
       SHEET_HEADERS[name].forEach(function(h) {
         if (existing.indexOf(h) === -1) {
         const avalColumnsBeforeCrm = ['InstitucionID','ConvenioID','AvalInstitucionID','AvalConvenioID',
-          'AvalBaseTipoAplicado','AvalMontoBase','AvalPorcentajeAplicado','AvalMontoCalculado','AvalConfirmadoPor'];
+          'AvalBaseTipoAplicado','AvalMontoBase','AvalPorcentajeAplicado','AvalMontoCalculado','AvalConfirmadoPor','AvalIngresoID'];
         const crmEnrollmentIndex = name === 'Inscripciones' && avalColumnsBeforeCrm.indexOf(h) !== -1
           ? existing.indexOf('CRMEnrollmentID') : -1;
         const col = crmEnrollmentIndex >= 0 ? crmEnrollmentIndex + 1 : sheet.getLastColumn() + 1;
@@ -1671,6 +1672,8 @@ function updateIngreso(user, { id, ingreso }) {
   if (vinculada) {
     return { success: false, error: 'Este ingreso está vinculado a una inscripción. Edítelo desde el módulo Inscripciones.' };
   }
+  const avalPosterior = sheetToObjects(getSheet('Inscripciones')).some(function(ins) { return String(ins.AvalIngresoID || '') === String(id || ''); });
+  if (avalPosterior) return { success: false, error: 'Este ingreso financia un aval posterior y está protegido contra cambios.' };
   updateRow(sheet, row, {
     Fecha: ingreso.fecha, Tipo: ingreso.tipo, Modalidad: ingreso.modalidad,
     Concepto: ingreso.concepto, Cliente: ingreso.cliente, ContratoID: ingreso.contratoId,
@@ -5171,6 +5174,8 @@ function registrarGeneracionCertificado(user, { id } = {}) {
 function deleteIngresoSeguro(user, { id } = {}) {
   const vinculada = sheetToObjects(getSheet('Inscripciones')).find(function(ins) { return ins.IngresoID === id; });
   if (vinculada) return { success: false, error: 'No se puede eliminar un ingreso vinculado a una inscripción.' };
+  const avalPosterior = sheetToObjects(getSheet('Inscripciones')).some(function(ins) { return String(ins.AvalIngresoID || '') === String(id || ''); });
+  if (avalPosterior) return { success: false, error: 'No se puede eliminar un ingreso vinculado a un aval posterior.' };
   return deleteIfOwner(user, 'Ingresos', id, 'Estado');
 }
 
@@ -5872,6 +5877,53 @@ function entregableAvalActual_(inscripcionId, rows) {
     })[0] || null;
 }
 
+/** Busca certificados ya emitidos sin aval. Solo administración puede iniciar
+ * este trámite; la búsqueda no altera ni reconstruye el documento original. */
+function buscarCertificadosParaAvalPosterior(user, { q } = {}) {
+  requireAdmin(user);
+  const query = normalizarBusquedaInscripcion_(q);
+  if (query.length < 3 || query.length > 100) {
+    return { success: false, error: 'Busque por al menos tres caracteres del nombre, identificación o código del certificado.' };
+  }
+  const certificates = sheetToObjects(getSheet('Certificados'));
+  const certificatesByEnrollment = {};
+  certificates.forEach(function(certificate) {
+    const id = String(certificate.InscripcionID || '');
+    if (!certificatesByEnrollment[id]) certificatesByEnrollment[id] = [];
+    certificatesByEnrollment[id].push(certificate);
+  });
+  const matches = sheetToObjects(getSheet('Inscripciones')).filter(function(row) {
+    if (esVerdadero(row.RequiereAvalExterno)) return false;
+    const versions = certificatesByEnrollment[String(row.ID || '')] || [];
+    const issued = ['emitido', 'enviado'].indexOf(estadoNormalizadoCertificado(row)) !== -1
+      || versions.some(function(certificate) {
+        return ['emitido', 'enviado'].indexOf(estadoNormalizadoCertificado(certificate)) !== -1;
+      });
+    if (!issued) return false;
+    return coincideBusquedaInscripcion_(row, query)
+      || normalizarBusquedaInscripcion_(row.CodigoCertificado).indexOf(query) !== -1
+      || versions.some(function(certificate) {
+        return normalizarBusquedaInscripcion_(certificate.CodigoCertificado).indexOf(query) !== -1;
+      });
+  }).sort(function(a, b) {
+    return new Date(b.FechaCreacion || 0) - new Date(a.FechaCreacion || 0);
+  }).slice(0, 25);
+  return { success: true, data: matches.map(function(row) {
+    const original = resumenCertificadoNormalParaAval_(row, user);
+    if (!original) return null;
+    const crm = String(row.Origen || '').toUpperCase() === 'CRM'
+      || !!String(row.CRMOfferType || row.CRMEnrollmentID || '').trim();
+    return {
+      ID: row.ID, ClienteNombre: row.ClienteNombre || '', ClienteID: row.ClienteID || '',
+      ServicioNombre: row.ServicioNombre || '', EstadoPago: row.EstadoPago || '',
+      CertificadoNormal: original, OrigenCRM: crm,
+      PuedeConfigurarAvalPosterior: !crm && row.EstadoPago === 'verificado',
+      MotivoBloqueo: crm ? 'La inscripción proviene del CRM: registre y verifique su compra AVAL_UPGRADE.'
+        : row.EstadoPago !== 'verificado' ? 'Verifique primero el pago de la inscripción.' : '',
+    };
+  }).filter(Boolean) };
+}
+
 /**
  * Valida el pago adicional AVAL_UPGRADE contra la compra institucional padre y
  * la misma raíz académica. No confía en flags enviados desde el navegador.
@@ -6058,12 +6110,15 @@ function getCertificadosAval(user, { filtros = {} } = {}) {
 }
 
 /**
- * Vincula, una sola vez, un upgrade CRM pagado con la institución/convenio que
- * gestionará el aval posterior a un certificado normal ya emitido. La edición
+ * Vincula, una sola vez, un aval posterior autorizado con la institución/convenio
+ * que gestionará el segundo documento. CRM exige AVAL_UPGRADE pagado; Finance
+ * manual exige pago original verificado y un ingreso adicional confirmado o
+ * una autorización administrativa expresa sin cobro. La edición
  * genérica del certificado emitido sigue bloqueada; este flujo no toca el PDF,
  * código, firma, estado ni snapshot del documento normal.
  */
-function configurarAvalPosteriorCertificado(user, { id, institucionId, convenioId, confirmacion } = {}) {
+function configurarAvalPosteriorCertificado(user, { id, institucionId, convenioId, confirmacion,
+  motivo, ingresoAvalId, sinCobroAutorizado } = {}) {
   requireCertificateAdmin(user, 'POST_ISSUE_AVAL_CONFIGURED', { inscripcionId: id, canal: 'panel_aval' });
   if (confirmacion !== 'CONFIGURAR_AVAL_POSTERIOR') {
     return { success: false, error: 'Confirme explícitamente la configuración del aval posterior.' };
@@ -6073,11 +6128,51 @@ function configurarAvalPosteriorCertificado(user, { id, institucionId, convenioI
     const sheet = getSheet('Inscripciones');
     const row = sheetToObjects(sheet).find(function(item) { return String(item.ID || '') === idInscripcion; });
     if (!row) return { success: false, error: 'No se encontró la inscripción vinculada.' };
-    if (!esVerdadero(row.RequiereAvalExterno) || row.EstadoAval === 'avalado') {
-      return { success: false, error: 'Esta inscripción no tiene un aval posterior pendiente de configuración.' };
+    if (row.EstadoAval === 'avalado') {
+      return { success: false, error: 'El aval ya fue confirmado; no se puede reemplazar desde este trámite.' };
     }
+    const crm = String(row.Origen || '').toUpperCase() === 'CRM'
+      || !!String(row.CRMOfferType || row.CRMEnrollmentID || '').trim();
     const upgrade = validarUpgradeAvalVerificadoParaInscripcion_(row);
-    if (!upgrade.success) return { success: false, error: upgrade.error };
+    let ingresoAval = null;
+    const justificacion = String(motivo || '').trim();
+    if (crm) {
+      if (!esVerdadero(row.RequiereAvalExterno)) {
+        return { success: false, error: 'Esta inscripción no tiene un aval posterior pendiente de configuración.' };
+      }
+      if (!upgrade.success) return { success: false, error: upgrade.error };
+    } else {
+      if (row.EstadoPago !== 'verificado') {
+        return { success: false, error: 'Verifique el pago de la inscripción original antes de agregar el aval.' };
+      }
+      if (justificacion.length < 20 || justificacion.length > 500) {
+        return { success: false, error: 'Explique la autorización del aval posterior (20 a 500 caracteres).' };
+      }
+      const ingresoId = String(ingresoAvalId || '').trim();
+      if (!!ingresoId === (sinCobroAutorizado === true)) {
+        return { success: false, error: 'Seleccione un ingreso adicional confirmado o autorice expresamente el aval sin cobro.' };
+      }
+      if (ingresoId) {
+        ingresoAval = sheetToObjects(getSheet('Ingresos')).find(function(item) { return String(item.ID || '') === ingresoId; });
+        const sameClient = ingresoAval && normalizarBusquedaInscripcion_(ingresoAval.Cliente).normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+          === normalizarBusquedaInscripcion_(row.ClienteNombre).normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        if (!ingresoAval || ingresoAval.Estado !== 'confirmado' || Number(ingresoAval.Monto) <= 0
+            || String(row.IngresoID || '') === ingresoId || !sameClient
+            || normalizarBusquedaInscripcion_(ingresoAval.Concepto).indexOf('aval') === -1) {
+          return { success: false, error: 'El ingreso adicional debe estar confirmado, ser de este participante, tener monto positivo y concepto de aval.' };
+        }
+        const linkedElsewhere = sheetToObjects(sheet).some(function(item) {
+          return String(item.ID || '') !== idInscripcion && String(item.AvalIngresoID || '') === ingresoId;
+        });
+        if (linkedElsewhere) return { success: false, error: 'Este ingreso adicional ya se vinculó a otro aval posterior.' };
+        const reused = sheetToObjects(getSheet('AuditoriaCertificados')).some(function(event) {
+          if (event.Accion !== 'POST_ISSUE_AVAL_CONFIGURED' || String(event.InscripcionID || '') === idInscripcion) return false;
+          try { return JSON.parse(String(event.Metadatos || '{}')).ingresoAvalId === ingresoId; }
+          catch (error) { return false; }
+        });
+        if (reused) return { success: false, error: 'Este ingreso adicional ya se vinculó a otro aval posterior.' };
+      }
+    }
     const normalCertificate = resumenCertificadoNormalParaAval_(row, user);
     if (!normalCertificate) return { success: false, error: 'Primero debe existir un certificado normal emitido y vigente.' };
     if (String(row.AvalInstitucionID || '').trim() || String(row.AvalConvenioID || '').trim()) {
@@ -6111,10 +6206,12 @@ function configurarAvalPosteriorCertificado(user, { id, institucionId, convenioI
       InstitucionID: institution.ID,
       ConvenioID: agreementResult.data.convenio.ID,
       InstitucionAval: String(institution.Nombre || '').trim(),
+      AvalIngresoID: ingresoAval ? ingresoAval.ID : '',
     };
     const sameConfiguration = String(row.InstitucionID || '') === String(fields.InstitucionID)
       && String(row.ConvenioID || '') === String(fields.ConvenioID)
       && String(row.InstitucionAval || '') === String(fields.InstitucionAval)
+      && String(row.AvalIngresoID || '') === String(fields.AvalIngresoID)
       && esVerdadero(row.RequiereAvalExterno) && row.EstadoAval === 'pendiente';
     if (sameConfiguration) return { success: true, alreadyConfigured: true, data: { institutionName: fields.InstitucionAval } };
     if (String(row.InstitucionID || '').trim() || String(row.ConvenioID || '').trim()) {
@@ -6146,11 +6243,15 @@ function configurarAvalPosteriorCertificado(user, { id, institucionId, convenioI
           normalDocumentId: normalCertificate.ID,
           normalCertificateCode: normalCertificate.CodigoCertificado,
           normalVersion: normalCertificate.CertificateVersion,
-          upgradeCrmOrderId: upgrade.data.upgrade.CRMOrderID,
-          parentCrmOrderId: upgrade.data.parent.CRMOrderID,
+          origenAvalPosterior: crm ? 'crm_upgrade' : 'finance_manual',
+          upgradeCrmOrderId: crm ? upgrade.data.upgrade.CRMOrderID : '',
+          parentCrmOrderId: crm ? upgrade.data.parent.CRMOrderID : '',
+          ingresoAvalId: ingresoAval ? ingresoAval.ID : '',
+          sinCobroAutorizado: !crm && sinCobroAutorizado === true,
           institutionId: institution.ID,
           agreementId: agreementResult.data.convenio.ID,
         },
+        motivo: crm ? '' : justificacion,
       });
     } catch (error) {
       updateRow(sheet, updated, before);
@@ -7069,6 +7170,14 @@ function emitirEntregableAval(user, { id } = {}) {
     const managerTitle = String(signerProperties.getProperty(CERTIFICATE_MANAGER_TITLE_PROPERTY) || '').trim();
     if (!managerName || !managerTitle) return { success: false, error: 'Configure el nombre completo y cargo oficial del gerente firmante en Ajustes de certificados.' };
     if (inscripcion.EstadoPago !== 'verificado') return { success: false, error: 'El pago debe estar verificado.' };
+    if (String(inscripcion.AvalIngresoID || '').trim()) {
+      const income = sheetToObjects(getSheet('Ingresos')).find(function(item) {
+        return String(item.ID || '') === String(inscripcion.AvalIngresoID || '');
+      });
+      if (!income || income.Estado !== 'confirmado' || Number(income.Monto) <= 0) {
+        return { success: false, error: 'El ingreso adicional del aval ya no está confirmado. Revise su registro antes de emitir.' };
+      }
+    }
     const fechaFinAcademica = fechaSolo(inscripcion.FechaFin);
     if (fechaFinAcademica && fechaFinAcademica > hoyLocal()) {
       return { success: false, error: 'El curso todavía no ha terminado. Emita el certificado con aval a partir de la fecha de fin.' };

@@ -383,6 +383,41 @@ describe('marcarAval + entregable avalado', () => {
     return { id, institutionId: institution.id, agreementId: agreement.id, normal, upgradeOrderId: 'ORD-POST-ISSUE-UPGRADE' }
   }
 
+  function certificadoNormalManualSinAval(harness, participant = 'Ana Pérez') {
+    const request = harness.context.processRequest
+    const institution = request({ action: 'addInstitucionMaestra', token: 'admin-token', institucion: {
+      nombre: 'Instituto Aval Manual', siglas: 'IAM', tipo: 'Instituto', identificacion: '1790012345001',
+      tipoIdentificacion: 'RUC_EC', ciudad: 'Quito', estado: 'activo',
+    } })
+    expect(institution.success).toBe(true)
+    const agreement = request({ action: 'addConvenio', token: 'admin-token', convenio: {
+      institucionId: institution.id, objeto: 'Convenio vigente para aval manual', estado: 'activo',
+      porcentajeAval: '15', baseCalculoAval: 'precio_servicio',
+    } })
+    expect(agreement.success).toBe(true)
+    const authority = request({ action: 'addAutoridadInstitucion', token: 'admin-token', institucionId: institution.id,
+      autoridad: { nombre: 'Autoridad Manual', cargo: 'Directora Académica', funcion: 'Autoridad firmante',
+        firmaCertificados: true, estado: 'activo' } })
+    expect(authority.success).toBe(true)
+    expect(request({ action: 'addActivoInstitucion', token: 'admin-token', institucionId: institution.id,
+      autoridadId: authority.id, tipo: 'firma', archivo: { nombreArchivo: 'firma-manual.png', mimeType: 'image/png',
+        base64: institutionalSignatureBase64() } }).success).toBe(true)
+    expect(request({ action: 'updateUsuario', token: 'admin-token', id: 'USR-I', usuario: {
+      roles: ['aval'], institucionAvalId: institution.id, institucionAval: 'Instituto Aval Manual',
+    } }).success).toBe(true)
+    const enrollment = request({ action: 'addInscripcion', token: 'admin-token', inscripcion: {
+      clienteNombre: participant, clienteID: 'P12345678', clienteTipoIdentificacion: 'PASAPORTE',
+      clienteEmail: 'ana@example.com', servicioId: 'SRV-1', servicioNombre: 'Habilidades blandas para profesionales',
+      modalidad: 'Virtual', fechaInicio: '2026-09-01', fechaFin: '2026-09-30', monto: 20,
+      metodoPago: 'efectivo', estadoPago: 'verificado',
+    } })
+    expect(enrollment.success).toBe(true)
+    expect(request({ action: 'emitirCertificado', token: 'admin-token', id: enrollment.id }).success).toBe(true)
+    const original = harness.objects('Certificados').find(item => item.InscripcionID === enrollment.id)
+    expect(original).toBeTruthy()
+    return { id: enrollment.id, institutionId: institution.id, agreementId: agreement.id, original }
+  }
+
   it('marcarAval confirmado crea el entregable en EntregablesAval, no una segunda fila en Certificados', () => {
     const harness = seededHarness()
     const id = facturaFullLista(harness)
@@ -461,6 +496,66 @@ describe('marcarAval + entregable avalado', () => {
     expect(harness.objects('AuditoriaCertificados').map(item => item.Accion)).toEqual(expect.arrayContaining([
       'POST_ISSUE_AVAL_CONFIGURED', 'AVAL_CONFIRMED', 'AVAL_CERTIFICATE_PREPARED', 'AVAL_CERTIFICATE_PDF_ARCHIVED',
     ]))
+  })
+
+  it('permite un aval posterior Finance autorizado sin cobro, sin cambiar el certificado emitido', () => {
+    const harness = seededHarness()
+    const request = harness.context.processRequest
+    const setup = certificadoNormalManualSinAval(harness)
+    const candidates = request({ action: 'buscarCertificadosParaAvalPosterior', token: 'admin-token',
+      q: setup.original.CodigoCertificado })
+    expect(candidates).toMatchObject({ success: true, data: [{ ID: setup.id, OrigenCRM: false,
+      PuedeConfigurarAvalPosterior: true }] })
+    expect(request({ action: 'buscarCertificadosParaAvalPosterior', token: 'aval-token', q: 'Ana' }).success).toBe(false)
+    const args = { action: 'configurarAvalPosteriorCertificado', token: 'admin-token', id: setup.id,
+      institucionId: setup.institutionId, convenioId: setup.agreementId,
+      confirmacion: 'CONFIGURAR_AVAL_POSTERIOR', motivo: 'Aval posterior autorizado expresamente por gerencia.' }
+    expect(request(args).success).toBe(false)
+    expect(request({ ...args, sinCobroAutorizado: true })).toMatchObject({ success: true, alreadyConfigured: false })
+    expect(request({ ...args, sinCobroAutorizado: true })).toMatchObject({ success: true, alreadyConfigured: true })
+    expect(harness.objects('Certificados').find(item => item.InscripcionID === setup.id)).toEqual(setup.original)
+    expect(request({ action: 'marcarAval', token: 'aval-token', id: setup.id,
+      avalReferencia: 'MANUAL-AVAL', avalCodigoExterno: 'IAM-2026-1' }).success).toBe(true)
+    issueAndArchiveAval(harness, setup.id)
+    expect(harness.objects('Certificados').find(item => item.InscripcionID === setup.id)).toEqual(setup.original)
+    expect(harness.objects('EntregablesAval').filter(item => item.InscripcionID === setup.id)).toHaveLength(1)
+    expect(request({ action: 'buscarCertificadosParaAvalPosterior', token: 'admin-token',
+      q: setup.original.CodigoCertificado }).data).toHaveLength(0)
+    const audit = harness.objects('AuditoriaCertificados').find(item => item.Accion === 'POST_ISSUE_AVAL_CONFIGURED')
+    expect(audit.Motivo).toMatch(/gerencia/)
+    expect(JSON.parse(audit.Metadatos)).toMatchObject({ origenAvalPosterior: 'finance_manual', sinCobroAutorizado: true })
+  })
+
+  it('exige ingreso adicional confirmado y evita reutilizarlo para otro aval', () => {
+    const harness = seededHarness()
+    const request = harness.context.processRequest
+    const first = certificadoNormalManualSinAval(harness)
+    const secondEnrollment = request({ action: 'addInscripcion', token: 'admin-token', inscripcion: {
+      clienteNombre: 'Ana Pérez', clienteID: 'P12345678', clienteTipoIdentificacion: 'PASAPORTE',
+      clienteEmail: 'ana@example.com', servicioId: 'SRV-1', servicioNombre: 'Habilidades blandas para profesionales',
+      modalidad: 'Virtual', fechaInicio: '2026-09-01', fechaFin: '2026-09-30', monto: 20,
+      metodoPago: 'efectivo', estadoPago: 'verificado',
+    } })
+    expect(secondEnrollment.success).toBe(true)
+    expect(request({ action: 'emitirCertificado', token: 'admin-token', id: secondEnrollment.id }).success).toBe(true)
+    const income = request({ action: 'addIngreso', token: 'admin-token', ingreso: {
+      fecha: '2026-10-01', tipo: 'curso', modalidad: 'Virtual', concepto: 'Aval posterior de Ana Pérez',
+      cliente: 'Ana Pérez', monto: 8, metodoPago: 'efectivo', estado: 'confirmado',
+    } })
+    expect(income.success).toBe(true)
+    const args = { action: 'configurarAvalPosteriorCertificado', token: 'admin-token',
+      institucionId: first.institutionId, convenioId: first.agreementId,
+      confirmacion: 'CONFIGURAR_AVAL_POSTERIOR', motivo: 'Cobro adicional de aval posterior verificado por administración.',
+      ingresoAvalId: income.id }
+    expect(request({ ...args, id: first.id }).success).toBe(true)
+    expect(porId(harness, first.id).AvalIngresoID).toBe(income.id)
+    expect(request({ action: 'updateIngreso', token: 'admin-token', id: income.id, ingreso: {
+      fecha: '2026-10-01', tipo: 'curso', modalidad: 'Virtual', concepto: 'Otro concepto',
+      cliente: 'Ana Pérez', monto: 1, metodoPago: 'efectivo', estado: 'confirmado',
+    } }).error).toMatch(/aval posterior.*protegido/)
+    expect(request({ action: 'deleteIngreso', token: 'admin-token', id: income.id }).error).toMatch(/aval posterior/)
+    expect(request({ ...args, id: secondEnrollment.id }).error).toMatch(/ya se vinculó a otro aval/)
+    expect(porId(harness, secondEnrollment.id).RequiereAvalExterno).toBe(false)
   })
 
   it('Bloque 7: normal V2 y avalado V2 versionan de forma independiente sobre una sola raíz', () => {

@@ -5,6 +5,8 @@ import CertificadosAvalView from './CertificadosAvalView'
 const mock = vi.hoisted(() => ({
   admin: true,
   getCertificadosAval: vi.fn(),
+  buscarCertificadosParaAvalPosterior: vi.fn(),
+  getIngresos: vi.fn(),
   getOpcionesInstitucionesMaestras: vi.fn(),
   getConveniosParaAval: vi.fn(),
   configurarAvalPosteriorCertificado: vi.fn(),
@@ -14,6 +16,8 @@ const mock = vi.hoisted(() => ({
 
 vi.mock('../../services/api', () => ({ api: {
   getCertificadosAval: mock.getCertificadosAval,
+  buscarCertificadosParaAvalPosterior: mock.buscarCertificadosParaAvalPosterior,
+  getIngresos: mock.getIngresos,
   getOpcionesInstitucionesMaestras: mock.getOpcionesInstitucionesMaestras,
   getConveniosParaAval: mock.getConveniosParaAval,
   configurarAvalPosteriorCertificado: mock.configurarAvalPosteriorCertificado,
@@ -157,6 +161,41 @@ describe('entregable institucional ITSAL', () => {
       institucionId: 'INST-1', convenioId: 'CONV-1',
     })
     expect(await screen.findByText(/El certificado normal permanece intacto/)).toBeTruthy()
+  })
+
+  it('busca un certificado Finance emitido y exige autorización comercial antes de agregar el aval', async () => {
+    mock.getCertificadosAval.mockResolvedValue({ data: [] })
+    mock.buscarCertificadosParaAvalPosterior.mockResolvedValue({ data: [{
+      ID: 'INS-MANUAL-1', ClienteNombre: 'Ana Pérez', ClienteID: 'P12345678',
+      ServicioNombre: 'Curso de Prueba', CertificadoNormal: normalCertificate,
+      OrigenCRM: false, PuedeConfigurarAvalPosterior: true,
+    }] })
+    mock.getOpcionesInstitucionesMaestras.mockResolvedValue({ data: [{ ID: 'INST-1', Nombre: 'Instituto de Prueba' }] })
+    mock.getConveniosParaAval.mockResolvedValue({ data: [{ ID: 'CONV-1', Objeto: 'Convenio vigente', DisponibleParaAval: true }] })
+    mock.getIngresos.mockResolvedValue({ data: [] })
+    mock.configurarAvalPosteriorCertificado.mockResolvedValue({ data: { institutionName: 'Instituto de Prueba' } })
+    render(<CertificadosAvalView />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Añadir aval a certificado ya emitido' }))
+    fireEvent.change(screen.getByLabelText('Buscar certificado emitido'), { target: { value: 'RA-NORMAL-001' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Buscar' }))
+    expect(await screen.findByText(/Ana Pérez · Curso de Prueba/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Preparar aval posterior' }))
+    expect(await screen.findByText('Autorización comercial del aval posterior')).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('Institución avaladora'), { target: { value: 'INST-1' } })
+    expect(await screen.findByRole('option', { name: /Convenio vigente/ })).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('Convenio vigente y regla económica'), { target: { value: 'CONV-1' } })
+    const submit = screen.getByRole('button', { name: 'Continuar con el aval' })
+    expect(submit).toBeDisabled()
+    fireEvent.click(screen.getByLabelText('Autorizado sin cobro adicional'))
+    fireEvent.change(screen.getByLabelText(/Motivo y autorización/), { target: { value: 'Aval posterior autorizado expresamente por gerencia.' } })
+    fireEvent.click(screen.getByRole('checkbox'))
+    expect(submit).toBeEnabled()
+    fireEvent.click(submit)
+    expect(mock.configurarAvalPosteriorCertificado).toHaveBeenCalledWith('INS-MANUAL-1', {
+      institucionId: 'INST-1', convenioId: 'CONV-1',
+      motivo: 'Aval posterior autorizado expresamente por gerencia.',
+      ingresoAvalId: '', sinCobroAutorizado: true,
+    })
   })
 
   it('muestra el historial normal aislado y descarga la versión archivada desde su propio vínculo', async () => {

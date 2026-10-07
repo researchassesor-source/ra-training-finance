@@ -11,7 +11,7 @@ import { blobToBase64 } from '../../utils/blob'
 import { saveAs } from 'file-saver'
 import Modal from '../UI/Modal'
 import Spinner from '../UI/Spinner'
-import { ShieldCheck, Clock, ExternalLink, Download, FileText, History, Pencil } from 'lucide-react'
+import { ShieldCheck, Clock, ExternalLink, Download, FileText, History, Pencil, Search } from 'lucide-react'
 
 const AVAL_TEMPLATE_VERSION = 'ra-institutional-aval-2026'
 const AVAL_V2_TEMPLATE_VERSION = 'ra-institutional-aval-2026-v2'
@@ -58,6 +58,15 @@ export default function CertificadosAvalView() {
   const [normalHistoryTarget, setNormalHistoryTarget] = useState(null)
   const [normalHistory, setNormalHistory] = useState([])
   const [normalHistoryLoading, setNormalHistoryLoading] = useState(false)
+  const [postIssueSearchOpen, setPostIssueSearchOpen] = useState(false)
+  const [postIssueQuery, setPostIssueQuery] = useState('')
+  const [postIssueResults, setPostIssueResults] = useState([])
+  const [postIssueSearchLoading, setPostIssueSearchLoading] = useState(false)
+  const [postIssueSearched, setPostIssueSearched] = useState(false)
+  const [configurationReason, setConfigurationReason] = useState('')
+  const [commercialMode, setCommercialMode] = useState('')
+  const [incomeOptions, setIncomeOptions] = useState([])
+  const [selectedIncomeId, setSelectedIncomeId] = useState('')
 
   const load = useCallback(() => {
     setLoading(true)
@@ -311,14 +320,46 @@ export default function CertificadosAvalView() {
     setSelectedInstitutionId('')
     setSelectedAgreementId('')
     setConfigurationConfirmed(false)
+    setConfigurationReason('')
+    setCommercialMode('')
+    setSelectedIncomeId('')
+    setIncomeOptions([])
     setConfigurationLoading(true)
     try {
-      const result = await api.getOpcionesInstitucionesMaestras()
-      setInstitutionOptions(result.data || [])
+      const [institutions, incomes] = await Promise.all([
+        api.getOpcionesInstitucionesMaestras(),
+        item.OrigenCRM === false ? api.getIngresos() : Promise.resolve({ data: [] }),
+      ])
+      setInstitutionOptions(institutions.data || [])
+      if (item.OrigenCRM === false) {
+        const normalize = value => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
+        setIncomeOptions((incomes.data || []).filter(income =>
+          income.Estado === 'confirmado' && Number(income.Monto) > 0
+          && normalize(income.Cliente) === normalize(item.ClienteNombre)
+          && normalize(income.Concepto).includes('aval')))
+      }
     } catch (err) {
       setError(err.message || 'No se pudo cargar la lista de instituciones.')
     } finally {
       setConfigurationLoading(false)
+    }
+  }
+
+  async function searchIssuedCertificate(e) {
+    e.preventDefault()
+    if (postIssueQuery.trim().length < 3) return
+    setPostIssueSearchLoading(true)
+    setError('')
+    setPostIssueResults([])
+    setPostIssueSearched(false)
+    try {
+      const result = await api.buscarCertificadosParaAvalPosterior(postIssueQuery.trim())
+      setPostIssueResults(result.data || [])
+      setPostIssueSearched(true)
+    } catch (err) {
+      setError(err.message || 'No se pudieron buscar certificados emitidos.')
+    } finally {
+      setPostIssueSearchLoading(false)
     }
   }
 
@@ -342,15 +383,25 @@ export default function CertificadosAvalView() {
   async function configurePostIssueAval(e) {
     e.preventDefault()
     if (!configurationTarget || !selectedInstitutionId || !selectedAgreementId) return
+    if (configurationTarget.OrigenCRM === false && (configurationReason.trim().length < 20
+      || !commercialMode || (commercialMode === 'ingreso' && !selectedIncomeId))) return
     setSaving(true)
     setError('')
     setNotice('')
     try {
-      const result = await api.configurarAvalPosteriorCertificado(configurationTarget.ID, {
+      const configuration = {
         institucionId: selectedInstitutionId,
         convenioId: selectedAgreementId,
-      })
+      }
+      if (configurationTarget.OrigenCRM === false) {
+        configuration.motivo = configurationReason.trim()
+        configuration.ingresoAvalId = commercialMode === 'ingreso' ? selectedIncomeId : ''
+        configuration.sinCobroAutorizado = commercialMode === 'sin_cobro'
+      }
+      const result = await api.configurarAvalPosteriorCertificado(configurationTarget.ID, configuration)
       setConfigurationTarget(null)
+      setPostIssueSearchOpen(false)
+      setPostIssueResults([])
       setNotice(result.alreadyConfigured
         ? 'La institución y el convenio ya estaban vinculados; no se duplicó ni se cambió el aval.'
         : `Aval posterior configurado con ${result.data?.institutionName || 'la institución seleccionada'}. El certificado normal permanece intacto.`)
@@ -415,6 +466,9 @@ export default function CertificadosAvalView() {
         <p className="text-sm text-gray-500">
           {isAdmin ? 'Control de certificados que dependen de una institución avaladora.' : 'Primero se muestran los avales pendientes de su institución. Puede cambiar el filtro para consultar los ya confirmados.'}
         </p>
+        {isAdmin && <button type="button" className="btn-primary mt-3 text-sm" onClick={() => {
+          setPostIssueQuery(''); setPostIssueResults([]); setPostIssueSearched(false); setError(''); setPostIssueSearchOpen(true)
+        }}><Search size={15} /> Añadir aval a certificado ya emitido</button>}
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -705,6 +759,31 @@ export default function CertificadosAvalView() {
           </form>
         )}
       </Modal>
+      <Modal open={postIssueSearchOpen} onClose={() => setPostIssueSearchOpen(false)} title="Buscar certificado ya emitido" size="lg">
+        <div className="space-y-4">
+          <p className="text-sm text-slate-600">Busque por nombre, identificación o código RA. El certificado original seguirá válido y sin cambios.</p>
+          <form onSubmit={searchIssuedCertificate} className="flex gap-2">
+            <input className="input flex-1" aria-label="Buscar certificado emitido" value={postIssueQuery}
+              onChange={event => { setPostIssueQuery(event.target.value); setPostIssueSearched(false); setPostIssueResults([]) }} placeholder="Nombre, identificación o RA-…" minLength={3} required />
+            <button type="submit" className="btn-primary" disabled={postIssueSearchLoading || postIssueQuery.trim().length < 3}>
+              {postIssueSearchLoading ? 'Buscando…' : 'Buscar'}
+            </button>
+          </form>
+          {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+          {postIssueResults.length === 0 && postIssueSearched && !postIssueSearchLoading
+            && <p className="text-sm text-slate-500">Sin resultados. Compruebe el código o el nombre y vuelva a buscar.</p>}
+          <div className="max-h-80 space-y-2 overflow-y-auto">
+            {postIssueResults.map(item => <div key={item.ID} className="rounded-xl border border-slate-200 p-3 text-sm">
+              <p className="font-semibold text-slate-900">{item.ClienteNombre} · {item.ServicioNombre}</p>
+              <p className="mt-1 font-mono text-xs text-slate-600">{item.CertificadoNormal?.CodigoCertificado} · V{item.CertificadoNormal?.CertificateVersion}</p>
+              {item.MotivoBloqueo ? <p className="mt-2 text-xs text-amber-800">{item.MotivoBloqueo}</p>
+                : <button type="button" className="btn-secondary mt-2 text-xs" onClick={() => {
+                  setPostIssueSearchOpen(false); openPostIssueAvalConfiguration(item)
+                }}>Preparar aval posterior</button>}
+            </div>)}
+          </div>
+        </div>
+      </Modal>
       <Modal open={!!configurationTarget} onClose={() => setConfigurationTarget(null)} title="Configurar aval posterior" size="md">
         {configurationTarget && <form onSubmit={configurePostIssueAval} className="space-y-4">
           <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-4 text-sm text-emerald-950">
@@ -738,8 +817,27 @@ export default function CertificadosAvalView() {
                 {agreement.Objeto || agreement.ID}{agreement.PorcentajeAval !== '' && agreement.PorcentajeAval !== undefined ? ` · ${agreement.PorcentajeAval}%` : ''}
               </option>)}
             </select>
-            {selectedInstitutionId && !configurationLoading && agreementOptions.length === 0 && <p className="mt-1 text-xs text-amber-700">No hay convenios vigentes configurados para calcular este aval.</p>}
+          {selectedInstitutionId && !configurationLoading && agreementOptions.length === 0 && <p className="mt-1 text-xs text-amber-700">No hay convenios vigentes configurados para calcular este aval.</p>}
           </div>
+          {configurationTarget.OrigenCRM === false && <div className="space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm">
+            <p className="font-semibold text-amber-950">Autorización comercial del aval posterior</p>
+            <p className="text-xs text-amber-900">El pago del curso original debe estar verificado. Si se cobró el aval aparte, seleccione un ingreso confirmado para este participante y con concepto de aval; si gerencia lo autorizó sin cobro, deje constancia del motivo.</p>
+            <label className="flex items-center gap-2"><input type="radio" name="aval-post-issue-mode" checked={commercialMode === 'ingreso'} onChange={() => setCommercialMode('ingreso')} /> Pago adicional registrado</label>
+            <label className="flex items-center gap-2"><input type="radio" name="aval-post-issue-mode" checked={commercialMode === 'sin_cobro'} onChange={() => { setCommercialMode('sin_cobro'); setSelectedIncomeId('') }} /> Autorizado sin cobro adicional</label>
+            {commercialMode === 'ingreso' && <div>
+              <label className="label" htmlFor="post-issue-income">Ingreso confirmado del aval</label>
+              <select id="post-issue-income" className="input" value={selectedIncomeId} onChange={event => setSelectedIncomeId(event.target.value)} required>
+                <option value="">Seleccione un ingreso…</option>
+                {incomeOptions.map(income => <option key={income.ID} value={income.ID}>{income.Concepto} · {fmt.usd(income.Monto)} · {income.Fecha}</option>)}
+              </select>
+              {incomeOptions.length === 0 && !configurationLoading && <p className="mt-1 text-xs text-amber-800">No hay un ingreso de aval confirmado para este participante. Regístrelo y confírmelo en Ingresos antes de continuar.</p>}
+            </div>}
+            <div>
+              <label className="label" htmlFor="post-issue-reason">Motivo y autorización (mínimo 20 caracteres)</label>
+              <textarea id="post-issue-reason" className="input min-h-20" maxLength={500} minLength={20} required value={configurationReason}
+                onChange={event => setConfigurationReason(event.target.value)} placeholder="Indique quién autorizó el aval y por qué se solicita después de la emisión." />
+            </div>
+          </div>}
           {configurationLoading && <p role="status" className="text-xs text-slate-500">Cargando instituciones y convenios…</p>}
           {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
           <label className="flex items-start gap-2 rounded-lg border border-slate-200 p-3 text-sm text-slate-700">
@@ -748,7 +846,9 @@ export default function CertificadosAvalView() {
           </label>
           <div className="flex flex-col-reverse gap-2 border-t border-slate-100 pt-3 sm:flex-row sm:justify-end">
             <button type="button" className="btn-secondary" onClick={() => setConfigurationTarget(null)}>Cancelar</button>
-            <button type="submit" className="btn-primary" disabled={saving || configurationLoading || !selectedInstitutionId || !selectedAgreementId || !configurationConfirmed}>
+            <button type="submit" className="btn-primary" disabled={saving || configurationLoading || !selectedInstitutionId || !selectedAgreementId || !configurationConfirmed
+              || (configurationTarget.OrigenCRM === false && (configurationReason.trim().length < 20 || !commercialMode
+                || (commercialMode === 'ingreso' && !selectedIncomeId)))}>
               {saving ? 'Configurando…' : 'Continuar con el aval'}
             </button>
           </div>

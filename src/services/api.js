@@ -260,12 +260,15 @@ export const api = {
     call('getArchivoInstitucionPrivado', { id }, getToken()),
   getCertificadosAval: (filtros = {}) =>
     call('getCertificadosAval', { filtros }, getToken()),
+  buscarCertificadosParaAvalPosterior: (q) =>
+    call('buscarCertificadosParaAvalPosterior', { q }, getToken()),
   getConveniosParaAval: (institucionId, convenioActualId = '') =>
     call('getConveniosParaAval', { institucionId, convenioActualId }, getToken()),
-  configurarAvalPosteriorCertificado: (id, { institucionId, convenioId }) => {
+  configurarAvalPosteriorCertificado: (id, { institucionId, convenioId, motivo, ingresoAvalId, sinCobroAutorizado }) => {
     bust('getInscripciones', 'getDashboard', 'getCertificadosAval')
     return call('configurarAvalPosteriorCertificado', {
-      id, institucionId, convenioId, confirmacion: 'CONFIGURAR_AVAL_POSTERIOR',
+      id, institucionId, convenioId, motivo, ingresoAvalId, sinCobroAutorizado,
+      confirmacion: 'CONFIGURAR_AVAL_POSTERIOR',
     }, getToken())
   },
   marcarAval: (id, datos = {}) => {
