@@ -526,6 +526,18 @@ describe('marcarAval + entregable avalado', () => {
     expect(JSON.parse(audit.Metadatos)).toMatchObject({ origenAvalPosterior: 'finance_manual', sinCobroAutorizado: true })
   })
 
+  it('buscar un certificado histórico no crea filas en Certificados', () => {
+    const harness = seededHarness()
+    const setup = certificadoNormalManualSinAval(harness)
+    harness.sheets.Certificados.rows.splice(1)
+    const before = harness.objects('Inscripciones').find(item => item.ID === setup.id)
+    const result = harness.context.processRequest({ action: 'buscarCertificadosParaAvalPosterior',
+      token: 'admin-token', q: setup.original.CodigoCertificado })
+    expect(result).toMatchObject({ success: true, data: [{ ID: setup.id }] })
+    expect(harness.objects('Certificados')).toHaveLength(0)
+    expect(harness.objects('Inscripciones').find(item => item.ID === setup.id)).toEqual(before)
+  })
+
   it('exige ingreso adicional confirmado y evita reutilizarlo para otro aval', () => {
     const harness = seededHarness()
     const request = harness.context.processRequest

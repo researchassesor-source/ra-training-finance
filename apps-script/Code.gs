@@ -5909,7 +5909,7 @@ function buscarCertificadosParaAvalPosterior(user, { q } = {}) {
     return new Date(b.FechaCreacion || 0) - new Date(a.FechaCreacion || 0);
   }).slice(0, 25);
   return { success: true, data: matches.map(function(row) {
-    const original = resumenCertificadoNormalParaAval_(row, user);
+    const original = resumenCertificadoNormalParaAval_(row);
     if (!original) return null;
     const crm = String(row.Origen || '').toUpperCase() === 'CRM'
       || !!String(row.CRMOfferType || row.CRMEnrollmentID || '').trim();
@@ -5959,13 +5959,23 @@ function validarUpgradeAvalVerificadoParaInscripcion_(inscripcion) {
   return { exists: true, success: true, data: { upgrade: upgrade, parent: parent } };
 }
 
-function resumenCertificadoNormalParaAval_(inscripcion, user) {
+function resumenCertificadoNormalParaAval_(inscripcion) {
   if (!inscripcion || !inscripcion.ID) return null;
-  const resolved = resolverCertificadoAdministrativo(inscripcion.ID, user);
-  if (!resolved) return null;
-  const status = estadoNormalizadoCertificado(resolved.certificado);
+  // La búsqueda y la validación previa no deben materializar certificados
+  // históricos: resolverCertificadoAdministrativo puede llamar a
+  // asegurarRegistroCertificado y escribir una fila en Certificados.
+  const certificates = sheetToObjects(getSheet('Certificados'));
+  const current = certificates.filter(function(item) {
+    return (inscripcion.CodigoCertificado && item.CodigoCertificado === inscripcion.CodigoCertificado)
+      || (inscripcion.ID && item.ID === (inscripcion.ReissuedCertificateId || inscripcion.ID));
+  });
+  if (current.length > 1) return null;
+  const certificado = current[0] || (certificadoProtegidoContraEliminacion(inscripcion)
+    ? certificadoHistoricoDesdeInscripcion(inscripcion) : null);
+  if (!certificado) return null;
+  const status = estadoNormalizadoCertificado(certificado);
   if (['emitido', 'enviado'].indexOf(status) === -1) return null;
-  let versions = sheetToObjects(getSheet('Certificados')).filter(function(item) {
+  let versions = certificates.filter(function(item) {
     return String(item.InscripcionID || '') === String(inscripcion.ID);
   });
   if (!versions.length && certificadoProtegidoContraEliminacion(inscripcion)) {
@@ -5973,12 +5983,12 @@ function resumenCertificadoNormalParaAval_(inscripcion, user) {
   }
   versions.sort(function(a, b) { return (Number(b.CertificateVersion) || 1) - (Number(a.CertificateVersion) || 1); });
   return {
-    ID: resolved.certificado.ID || inscripcion.ID,
-    CodigoCertificado: resolved.certificado.CodigoCertificado || inscripcion.CodigoCertificado || '',
+    ID: certificado.ID || inscripcion.ID,
+    CodigoCertificado: certificado.CodigoCertificado || inscripcion.CodigoCertificado || '',
     CertificateStatus: status,
-    CertificateVersion: Number(resolved.certificado.CertificateVersion) || 1,
-    IssuedAt: resolved.certificado.IssuedAt || inscripcion.FechaEmisionCertificado || '',
-    PdfArchived: Boolean(resolved.certificado.PdfHash && resolved.certificado.PdfStorageReference),
+    CertificateVersion: Number(certificado.CertificateVersion) || 1,
+    IssuedAt: certificado.IssuedAt || inscripcion.FechaEmisionCertificado || '',
+    PdfArchived: Boolean(certificado.PdfHash && certificado.PdfStorageReference),
     VersionHistory: versions.map(function(item) {
       return {
         id: item.ID || inscripcion.ID,
@@ -6173,7 +6183,7 @@ function configurarAvalPosteriorCertificado(user, { id, institucionId, convenioI
         if (reused) return { success: false, error: 'Este ingreso adicional ya se vinculó a otro aval posterior.' };
       }
     }
-    const normalCertificate = resumenCertificadoNormalParaAval_(row, user);
+    const normalCertificate = resumenCertificadoNormalParaAval_(row);
     if (!normalCertificate) return { success: false, error: 'Primero debe existir un certificado normal emitido y vigente.' };
     if (String(row.AvalInstitucionID || '').trim() || String(row.AvalConvenioID || '').trim()) {
       return { success: false, error: 'Ya existe un aval confirmado vinculado; su institución no puede cambiarse desde esta acción.' };
