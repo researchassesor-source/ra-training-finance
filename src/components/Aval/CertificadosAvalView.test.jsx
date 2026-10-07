@@ -239,6 +239,30 @@ describe('entregable institucional ITSAL', () => {
     expect(await screen.findByText(/Cobro de .* registrado en Ingresos/)).toBeTruthy()
   })
 
+  it('ofrece el cobro en la misma ventana para Alexander, inscripción CRM anterior al módulo de compras', async () => {
+    mock.getCertificadosAval.mockResolvedValue({ data: [] })
+    mock.buscarCertificadosParaAvalPosterior.mockResolvedValue({ data: [{
+      ID: 'INS-CRM-LEGACY-ALEXANDER', ClienteNombre: 'Alexander Mosquera Puente',
+      ServicioNombre: 'IA para Apoyo en Tareas Académicas', CertificadoNormal: normalCertificate,
+      OrigenCRM: true, CobroEnFinance: true, PuedeConfigurarAvalPosterior: true, MotivoBloqueo: '',
+    }] })
+    mock.getOpcionesInstitucionesMaestras.mockResolvedValue({ data: [{ ID: 'INST-1', Nombre: 'Instituto de Prueba' }] })
+    mock.getConveniosParaAval.mockResolvedValue({ data: [{ ID: 'CONV-1', Objeto: 'Convenio vigente', DisponibleParaAval: true }] })
+    mock.getIngresos.mockResolvedValue({ data: [] })
+    render(<CertificadosAvalView />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Añadir aval a certificado ya emitido' }))
+    fireEvent.change(screen.getByLabelText('Buscar certificado emitido'), { target: { value: '1752233005' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Buscar' }))
+    expect(await screen.findByText(/Inscripción CRM anterior al módulo de compras/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Preparar aval posterior' }))
+    expect(await screen.findByRole('option', { name: 'Instituto de Prueba' })).toBeTruthy()
+    expect(mock.getIngresos).toHaveBeenCalled()
+    expect(screen.getByLabelText('Aval con cobro adicional')).toBeTruthy()
+    expect(screen.getByLabelText('Autorizado sin cobro adicional')).toBeTruthy()
+    expect(screen.getByLabelText(/Motivo y autorización/)).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Continuar con el aval' })).toBeDisabled()
+  })
+
   it('muestra el historial normal aislado y descarga la versión archivada desde su propio vínculo', async () => {
     mock.getCertificadosAval.mockResolvedValue({ data: [{
       ...row,

@@ -22,6 +22,9 @@ const localDateInput = () => {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 }
 
+const cobraAvalEnFinance = item => typeof item?.CobroEnFinance === 'boolean'
+  ? item.CobroEnFinance : item?.OrigenCRM === false
+
 export default function CertificadosAvalView() {
   const { isAdmin } = useAuth()
   const [data, setData]       = useState([])
@@ -341,10 +344,10 @@ export default function CertificadosAvalView() {
     try {
       const [institutions, incomes] = await Promise.all([
         api.getOpcionesInstitucionesMaestras(),
-        item.OrigenCRM === false ? api.getIngresos() : Promise.resolve({ data: [] }),
+        cobraAvalEnFinance(item) ? api.getIngresos() : Promise.resolve({ data: [] }),
       ])
       setInstitutionOptions(institutions.data || [])
-      if (item.OrigenCRM === false) {
+      if (cobraAvalEnFinance(item)) {
         const normalize = value => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
         const availableIncomes = (incomes.data || []).filter(income =>
           income.Estado === 'confirmado' && Number(income.Monto) > 0
@@ -398,7 +401,7 @@ export default function CertificadosAvalView() {
   async function configurePostIssueAval(e) {
     e.preventDefault()
     if (!configurationTarget || !selectedInstitutionId || !selectedAgreementId) return
-    if (configurationTarget.OrigenCRM === false && (configurationReason.trim().length < 20
+    if (cobraAvalEnFinance(configurationTarget) && (configurationReason.trim().length < 20
       || !commercialMode || (commercialMode === 'ingreso' && (incomeEntryMode === 'existente'
         ? !selectedIncomeId : !newIncomeReady)))) return
     setSaving(true)
@@ -409,7 +412,7 @@ export default function CertificadosAvalView() {
         institucionId: selectedInstitutionId,
         convenioId: selectedAgreementId,
       }
-      if (configurationTarget.OrigenCRM === false) {
+      if (cobraAvalEnFinance(configurationTarget)) {
         configuration.motivo = configurationReason.trim()
         configuration.ingresoAvalId = commercialMode === 'ingreso' && incomeEntryMode === 'existente' ? selectedIncomeId : ''
         if (commercialMode === 'ingreso' && incomeEntryMode === 'nuevo') {
@@ -802,9 +805,10 @@ export default function CertificadosAvalView() {
               <p className="font-semibold text-slate-900">{item.ClienteNombre} · {item.ServicioNombre}</p>
               <p className="mt-1 font-mono text-xs text-slate-600">{item.CertificadoNormal?.CodigoCertificado} · V{item.CertificadoNormal?.CertificateVersion}</p>
               {item.MotivoBloqueo ? <p className="mt-2 text-xs text-amber-800">{item.MotivoBloqueo}</p>
-                : <button type="button" className="btn-secondary mt-2 text-xs" onClick={() => {
+                : <>{item.OrigenCRM && item.CobroEnFinance && <p className="mt-2 text-xs text-slate-600">Inscripción CRM anterior al módulo de compras: registre aquí el cobro adicional o una autorización sin cobro.</p>}
+                  <button type="button" className="btn-secondary mt-2 text-xs" onClick={() => {
                   setPostIssueSearchOpen(false); openPostIssueAvalConfiguration(item)
-                }}>Preparar aval posterior</button>}
+                }}>Preparar aval posterior</button></>}
             </div>)}
           </div>
         </div>
@@ -844,7 +848,7 @@ export default function CertificadosAvalView() {
             </select>
           {selectedInstitutionId && !configurationLoading && agreementOptions.length === 0 && <p className="mt-1 text-xs text-amber-700">No hay convenios vigentes configurados para calcular este aval.</p>}
           </div>
-          {configurationTarget.OrigenCRM === false && <div className="space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm">
+          {cobraAvalEnFinance(configurationTarget) && <div className="space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm">
             <p className="font-semibold text-amber-950">Autorización comercial del aval posterior</p>
             <p className="text-xs text-amber-900">El pago del curso original debe estar verificado. Si ya recibió el cobro del aval, puede registrarlo aquí o vincular uno existente. Si gerencia autorizó el aval sin cobro, deje constancia del motivo.</p>
             <label className="flex items-center gap-2"><input type="radio" name="aval-post-issue-mode" checked={commercialMode === 'ingreso'} onChange={() => setCommercialMode('ingreso')} /> Aval con cobro adicional</label>
@@ -898,7 +902,7 @@ export default function CertificadosAvalView() {
           <div className="flex flex-col-reverse gap-2 border-t border-slate-100 pt-3 sm:flex-row sm:justify-end">
             <button type="button" className="btn-secondary" onClick={() => setConfigurationTarget(null)}>Cancelar</button>
             <button type="submit" className="btn-primary" disabled={saving || configurationLoading || !selectedInstitutionId || !selectedAgreementId || !configurationConfirmed
-              || (configurationTarget.OrigenCRM === false && (configurationReason.trim().length < 20 || !commercialMode
+              || (cobraAvalEnFinance(configurationTarget) && (configurationReason.trim().length < 20 || !commercialMode
                 || (commercialMode === 'ingreso' && (incomeEntryMode === 'existente' ? !selectedIncomeId : !newIncomeReady))))}>
               {saving ? 'Configurando…' : commercialMode === 'ingreso' && incomeEntryMode === 'nuevo' ? 'Registrar cobro y continuar' : 'Continuar con el aval'}
             </button>

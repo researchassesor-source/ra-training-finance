@@ -383,7 +383,7 @@ describe('marcarAval + entregable avalado', () => {
     return { id, institutionId: institution.id, agreementId: agreement.id, normal, upgradeOrderId: 'ORD-POST-ISSUE-UPGRADE' }
   }
 
-  function certificadoNormalManualSinAval(harness, participant = 'Ana Pérez') {
+  function certificadoNormalManualSinAval(harness, participant = 'Ana Pérez', legacyCrm = false) {
     const request = harness.context.processRequest
     const institution = request({ action: 'addInstitucionMaestra', token: 'admin-token', institucion: {
       nombre: 'Instituto Aval Manual', siglas: 'IAM', tipo: 'Instituto', identificacion: '1790012345001',
@@ -406,12 +406,22 @@ describe('marcarAval + entregable avalado', () => {
       roles: ['aval'], institucionAvalId: institution.id, institucionAval: 'Instituto Aval Manual',
     } }).success).toBe(true)
     const enrollment = request({ action: 'addInscripcion', token: 'admin-token', inscripcion: {
-      clienteNombre: participant, clienteID: 'P12345678', clienteTipoIdentificacion: 'PASAPORTE',
+      clienteNombre: participant, clienteID: legacyCrm ? '1752233005' : 'P12345678',
+      clienteTipoIdentificacion: legacyCrm ? 'CEDULA_EC' : 'PASAPORTE',
       clienteEmail: 'ana@example.com', servicioId: 'SRV-1', servicioNombre: 'Habilidades blandas para profesionales',
       modalidad: 'Virtual', fechaInicio: '2026-09-01', fechaFin: '2026-09-30', monto: 20,
       metodoPago: 'efectivo', estadoPago: 'verificado',
     } })
     expect(enrollment.success).toBe(true)
+    if (legacyCrm) {
+      const headers = harness.sourceHeaders('Inscripciones')
+      const values = harness.sheets.Inscripciones.rows.find(item => item[headers.indexOf('ID')] === enrollment.id)
+      values[headers.indexOf('Origen')] = 'CRM'
+      values[headers.indexOf('CRMEnrollmentID')] = 'cmsl8ip4z0007kz046uihyu8w'
+      values[headers.indexOf('CRMContactID')] = 'CRM-CONTACT-ALEXANDER'
+      values[headers.indexOf('CRMCourseID')] = 'CRM-COURSE-IA'
+      values[headers.indexOf('ServicioNombre')] = 'IA para Apoyo en Tareas Académicas'
+    }
     expect(request({ action: 'emitirCertificado', token: 'admin-token', id: enrollment.id }).success).toBe(true)
     const original = harness.objects('Certificados').find(item => item.InscripcionID === enrollment.id)
     expect(original).toBeTruthy()
@@ -443,6 +453,10 @@ describe('marcarAval + entregable avalado', () => {
     expect(request({ action: 'configurarAvalPosteriorCertificado', token: 'aval-token', id: setup.id,
       institucionId: setup.institutionId, convenioId: setup.agreementId, confirmacion: 'CONFIGURAR_AVAL_POSTERIOR' }).success).toBe(false)
     expect(crmCall(harness, 'verificarPagoCompraCrm', { crmOrderId: setup.upgradeOrderId, numeroComprobante: 'UPGRADE-1', fechaPago: '2026-09-05' }).success).toBe(true)
+    expect(request({ action: 'buscarCertificadosParaAvalPosterior', token: 'admin-token',
+      q: setup.normal.CodigoCertificado })).toMatchObject({ success: true, data: [{ ID: setup.id,
+      OrigenCRM: true, CobroEnFinance: false, PuedeConfigurarAvalPosterior: true,
+      AvalUpgradeCRMOrderID: setup.upgradeOrderId }] })
 
     const originalNormal = harness.objects('Certificados').find(item => item.InscripcionID === setup.id)
     expect(originalNormal).toEqual(setup.normal)
@@ -524,6 +538,41 @@ describe('marcarAval + entregable avalado', () => {
     const audit = harness.objects('AuditoriaCertificados').find(item => item.Accion === 'POST_ISSUE_AVAL_CONFIGURED')
     expect(audit.Motivo).toMatch(/gerencia/)
     expect(JSON.parse(audit.Metadatos)).toMatchObject({ origenAvalPosterior: 'finance_manual', sinCobroAutorizado: true })
+  })
+
+  it('Alexander: CRM legacy sin CRMCompras permite cobro de aval en Finance y conserva el certificado normal', () => {
+    const harness = seededHarness()
+    const request = harness.context.processRequest
+    const setup = certificadoNormalManualSinAval(harness, 'Alexander Mosquera Puente', true)
+    expect(harness.objects('CRMCompras')).toHaveLength(0)
+    const found = request({ action: 'buscarCertificadosParaAvalPosterior', token: 'admin-token', q: '1752233005' })
+    expect(found).toMatchObject({ success: true, data: [{ ID: setup.id, ClienteNombre: 'Alexander Mosquera Puente',
+      ServicioNombre: 'IA para Apoyo en Tareas Académicas', OrigenCRM: true, CobroEnFinance: true,
+      PuedeConfigurarAvalPosterior: true, MotivoBloqueo: '' }] })
+    const ingresosOriginales = harness.objects('Ingresos').length
+    const args = { action: 'configurarAvalPosteriorCertificado', token: 'admin-token', id: setup.id,
+      institucionId: setup.institutionId, convenioId: setup.agreementId,
+      confirmacion: 'CONFIGURAR_AVAL_POSTERIOR',
+      motivo: 'Prueba aislada: administración confirmó el cobro adicional para el aval posterior.',
+      nuevoIngresoAval: { fecha: '2026-10-07', monto: 8.5, metodoPago: 'Transferencia',
+        referencia: 'COMPROBANTE-SINTETICO', cobroConfirmado: true } }
+    expect(request({ ...args, nuevoIngresoAval: { ...args.nuevoIngresoAval, cobroConfirmado: false } }).success).toBe(false)
+    expect(harness.objects('Ingresos')).toHaveLength(ingresosOriginales)
+    expect(request(args)).toMatchObject({ success: true, alreadyConfigured: false })
+    expect(harness.objects('CRMCompras')).toHaveLength(0)
+    expect(harness.objects('Ingresos')).toHaveLength(ingresosOriginales + 1)
+    expect(request(args).success).toBe(false)
+    expect(harness.objects('Ingresos')).toHaveLength(ingresosOriginales + 1)
+    expect(harness.objects('Certificados').find(item => item.InscripcionID === setup.id)).toEqual(setup.original)
+    expect(request({ action: 'marcarAval', token: 'aval-token', id: setup.id,
+      avalReferencia: 'AVAL-PRUEBA', avalCodigoExterno: 'CODIGO-SINTETICO' }).success).toBe(true)
+    const { issued } = issueAndArchiveAval(harness, setup.id)
+    expect(harness.objects('EntregablesAval').filter(item => item.InscripcionID === setup.id)).toHaveLength(1)
+    expect(harness.objects('Certificados').find(item => item.InscripcionID === setup.id)).toEqual(setup.original)
+    expect(request({ action: 'verificarCertificado', id: setup.original.CodigoCertificado }).data.tipoDocumento).toBe('certificado_normal')
+    expect(request({ action: 'verificarCertificado', id: issued.data.CodigoCertificado }).data.tipoDocumento).toBe('certificado_avalado')
+    const audit = harness.objects('AuditoriaCertificados').find(item => item.Accion === 'POST_ISSUE_AVAL_CONFIGURED')
+    expect(JSON.parse(audit.Metadatos).origenAvalPosterior).toBe('finance_legacy_crm')
   })
 
   it('buscar un certificado histórico no crea filas en Certificados', () => {

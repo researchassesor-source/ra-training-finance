@@ -5886,6 +5886,8 @@ function buscarCertificadosParaAvalPosterior(user, { q } = {}) {
     return { success: false, error: 'Busque por al menos tres caracteres del nombre, identificación o código del certificado.' };
   }
   const certificates = sheetToObjects(getSheet('Certificados'));
+  const crmPurchases = sheetToObjects(getSheet('CRMCompras'));
+  const avalDeliverables = sheetToObjects(getSheet('EntregablesAval'));
   const certificatesByEnrollment = {};
   certificates.forEach(function(certificate) {
     const id = String(certificate.InscripcionID || '');
@@ -5893,7 +5895,12 @@ function buscarCertificadosParaAvalPosterior(user, { q } = {}) {
     certificatesByEnrollment[id].push(certificate);
   });
   const matches = sheetToObjects(getSheet('Inscripciones')).filter(function(row) {
-    if (esVerdadero(row.RequiereAvalExterno)) return false;
+    if (row.EstadoAval === 'avalado' || String(row.InstitucionID || row.ConvenioID ||
+        row.AvalInstitucionID || row.AvalConvenioID || row.AvalReferencia ||
+        row.AvalEnlaceExterno || row.AvalCodigoExterno || '').trim() ||
+        Number(row.ValorAval || 0) !== 0 || avalDeliverables.some(function(item) {
+          return String(item.InscripcionID || '') === String(row.ID || '');
+        })) return false;
     const versions = certificatesByEnrollment[String(row.ID || '')] || [];
     const issued = ['emitido', 'enviado'].indexOf(estadoNormalizadoCertificado(row)) !== -1
       || versions.some(function(certificate) {
@@ -5913,15 +5920,37 @@ function buscarCertificadosParaAvalPosterior(user, { q } = {}) {
     if (!original) return null;
     const crm = String(row.Origen || '').toUpperCase() === 'CRM'
       || !!String(row.CRMOfferType || row.CRMEnrollmentID || '').trim();
+    const compraCrm = crm && tieneCompraComercialCrmParaAval_(row, crmPurchases);
+    const upgrade = compraCrm && esVerdadero(row.RequiereAvalExterno)
+      ? validarUpgradeAvalVerificadoParaInscripcion_(row) : null;
+    const cobroEnFinance = !compraCrm;
+    const puedeConfigurar = row.EstadoPago === 'verificado' &&
+      (cobroEnFinance || Boolean(upgrade && upgrade.success));
     return {
       ID: row.ID, ClienteNombre: row.ClienteNombre || '', ClienteID: row.ClienteID || '',
       ServicioNombre: row.ServicioNombre || '', EstadoPago: row.EstadoPago || '',
-      CertificadoNormal: original, OrigenCRM: crm,
-      PuedeConfigurarAvalPosterior: !crm && row.EstadoPago === 'verificado',
-      MotivoBloqueo: crm ? 'La inscripción proviene del CRM: registre y verifique su compra AVAL_UPGRADE.'
-        : row.EstadoPago !== 'verificado' ? 'Verifique primero el pago de la inscripción.' : '',
+      CertificadoNormal: original, OrigenCRM: crm, CobroEnFinance: cobroEnFinance,
+      AvalUpgradeCRMOrderID: upgrade && upgrade.success ? String(upgrade.data.upgrade.CRMOrderID || '') : '',
+      PuedeConfigurarAvalPosterior: puedeConfigurar,
+      MotivoBloqueo: row.EstadoPago !== 'verificado' ? 'Verifique primero el pago de la inscripción.'
+        : compraCrm && !esVerdadero(row.RequiereAvalExterno)
+          ? 'La compra comercial del CRM aún no tiene un aval posterior pendiente.'
+          : compraCrm && !upgrade.success ? upgrade.error : '',
     };
   }).filter(Boolean) };
+}
+
+/** Las inscripciones CRM anteriores al módulo de compras no tienen una compra
+ * base que permita crear AVAL_UPGRADE. Una oferta o compra comercial existente
+ * mantiene el flujo CRM estricto; no se convierte en cobro manual. */
+function tieneCompraComercialCrmParaAval_(inscripcion, purchases) {
+  if (String(inscripcion.CRMOfferType || inscripcion.CRMParentOrderID || '').trim()) return true;
+  const inscriptionId = String(inscripcion.ID || '').trim();
+  const enrollmentId = String(inscripcion.CRMEnrollmentID || '').trim();
+  return (purchases || []).some(function(purchase) {
+    return (inscriptionId && String(purchase.FinanceInscripcionID || '') === inscriptionId)
+      || (enrollmentId && String(purchase.CRMEnrollmentID || '') === enrollmentId);
+  });
 }
 
 /**
@@ -6143,11 +6172,12 @@ function configurarAvalPosteriorCertificado(user, { id, institucionId, convenioI
     }
     const crm = String(row.Origen || '').toUpperCase() === 'CRM'
       || !!String(row.CRMOfferType || row.CRMEnrollmentID || '').trim();
-    const upgrade = validarUpgradeAvalVerificadoParaInscripcion_(row);
+    const compraCrm = crm && tieneCompraComercialCrmParaAval_(row, sheetToObjects(getSheet('CRMCompras')));
+    const upgrade = compraCrm ? validarUpgradeAvalVerificadoParaInscripcion_(row) : null;
     let ingresoAval = null;
     let cobroNuevo = null;
     const justificacion = String(motivo || '').trim();
-    if (crm) {
+    if (compraCrm) {
       if (!esVerdadero(row.RequiereAvalExterno)) {
         return { success: false, error: 'Esta inscripción no tiene un aval posterior pendiente de configuración.' };
       }
@@ -6292,17 +6322,17 @@ function configurarAvalPosteriorCertificado(user, { id, institucionId, convenioI
           normalDocumentId: normalCertificate.ID,
           normalCertificateCode: normalCertificate.CodigoCertificado,
           normalVersion: normalCertificate.CertificateVersion,
-          origenAvalPosterior: crm ? 'crm_upgrade' : 'finance_manual',
-          upgradeCrmOrderId: crm ? upgrade.data.upgrade.CRMOrderID : '',
-          parentCrmOrderId: crm ? upgrade.data.parent.CRMOrderID : '',
+          origenAvalPosterior: compraCrm ? 'crm_upgrade' : crm ? 'finance_legacy_crm' : 'finance_manual',
+          upgradeCrmOrderId: compraCrm ? upgrade.data.upgrade.CRMOrderID : '',
+          parentCrmOrderId: compraCrm ? upgrade.data.parent.CRMOrderID : '',
           ingresoAvalId: ingresoAval ? ingresoAval.ID : createdIncomeId,
           cobroRegistradoEnEsteTramite: Boolean(createdIncomeId),
           montoCobrado: createdIncomeId ? cobroNuevo.monto : '',
-          sinCobroAutorizado: !crm && sinCobroAutorizado === true,
+          sinCobroAutorizado: !compraCrm && sinCobroAutorizado === true,
           institutionId: institution.ID,
           agreementId: agreementResult.data.convenio.ID,
         },
-        motivo: crm ? '' : justificacion,
+        motivo: compraCrm ? '' : justificacion,
       });
     } catch (error) {
       const current = sheetToObjects(sheet).find(function(item) { return String(item.ID || '') === idInscripcion; });
