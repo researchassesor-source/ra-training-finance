@@ -8,6 +8,7 @@ import { sha256Hex } from '../../services/certificateArtifactStore'
 import { certificatePdfRepository } from '../../services/certificatePdfRepository'
 import { downloadCertificateWithAudit, openCertificatePreviewWindow } from '../../services/certificateDownloadFlow'
 import { blobToBase64 } from '../../utils/blob'
+import { METODOS_PAGO } from '../../utils/formatters'
 import { saveAs } from 'file-saver'
 import Modal from '../UI/Modal'
 import Spinner from '../UI/Spinner'
@@ -16,6 +17,10 @@ import { ShieldCheck, Clock, ExternalLink, Download, FileText, History, Pencil, 
 const AVAL_TEMPLATE_VERSION = 'ra-institutional-aval-2026'
 const AVAL_V2_TEMPLATE_VERSION = 'ra-institutional-aval-2026-v2'
 const LEGACY_AVAL_TEMPLATE_VERSION = 'ra-itsal-security-2026-v1'
+const localDateInput = () => {
+  const date = new Date()
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
 
 export default function CertificadosAvalView() {
   const { isAdmin } = useAuth()
@@ -67,6 +72,11 @@ export default function CertificadosAvalView() {
   const [commercialMode, setCommercialMode] = useState('')
   const [incomeOptions, setIncomeOptions] = useState([])
   const [selectedIncomeId, setSelectedIncomeId] = useState('')
+  const [incomeEntryMode, setIncomeEntryMode] = useState('nuevo')
+  const [newIncome, setNewIncome] = useState({ fecha: localDateInput(), monto: '', metodoPago: '', referencia: '' })
+  const [incomeReceivedConfirmed, setIncomeReceivedConfirmed] = useState(false)
+  const newIncomeReady = Boolean(newIncome.fecha && Number(newIncome.monto) > 0 && newIncome.metodoPago
+    && (newIncome.metodoPago === 'Efectivo' || newIncome.referencia.trim()) && incomeReceivedConfirmed)
 
   const load = useCallback(() => {
     setLoading(true)
@@ -324,6 +334,9 @@ export default function CertificadosAvalView() {
     setCommercialMode('')
     setSelectedIncomeId('')
     setIncomeOptions([])
+    setIncomeEntryMode('nuevo')
+    setNewIncome({ fecha: localDateInput(), monto: '', metodoPago: '', referencia: '' })
+    setIncomeReceivedConfirmed(false)
     setConfigurationLoading(true)
     try {
       const [institutions, incomes] = await Promise.all([
@@ -333,10 +346,12 @@ export default function CertificadosAvalView() {
       setInstitutionOptions(institutions.data || [])
       if (item.OrigenCRM === false) {
         const normalize = value => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
-        setIncomeOptions((incomes.data || []).filter(income =>
+        const availableIncomes = (incomes.data || []).filter(income =>
           income.Estado === 'confirmado' && Number(income.Monto) > 0
           && normalize(income.Cliente) === normalize(item.ClienteNombre)
-          && normalize(income.Concepto).includes('aval')))
+          && normalize(income.Concepto).includes('aval'))
+        setIncomeOptions(availableIncomes)
+        setIncomeEntryMode(availableIncomes.length ? 'existente' : 'nuevo')
       }
     } catch (err) {
       setError(err.message || 'No se pudo cargar la lista de instituciones.')
@@ -384,7 +399,8 @@ export default function CertificadosAvalView() {
     e.preventDefault()
     if (!configurationTarget || !selectedInstitutionId || !selectedAgreementId) return
     if (configurationTarget.OrigenCRM === false && (configurationReason.trim().length < 20
-      || !commercialMode || (commercialMode === 'ingreso' && !selectedIncomeId))) return
+      || !commercialMode || (commercialMode === 'ingreso' && (incomeEntryMode === 'existente'
+        ? !selectedIncomeId : !newIncomeReady)))) return
     setSaving(true)
     setError('')
     setNotice('')
@@ -395,7 +411,16 @@ export default function CertificadosAvalView() {
       }
       if (configurationTarget.OrigenCRM === false) {
         configuration.motivo = configurationReason.trim()
-        configuration.ingresoAvalId = commercialMode === 'ingreso' ? selectedIncomeId : ''
+        configuration.ingresoAvalId = commercialMode === 'ingreso' && incomeEntryMode === 'existente' ? selectedIncomeId : ''
+        if (commercialMode === 'ingreso' && incomeEntryMode === 'nuevo') {
+          configuration.nuevoIngresoAval = {
+            fecha: newIncome.fecha,
+            monto: Number(newIncome.monto),
+            metodoPago: newIncome.metodoPago,
+            referencia: newIncome.referencia.trim(),
+            cobroConfirmado: incomeReceivedConfirmed,
+          }
+        }
         configuration.sinCobroAutorizado = commercialMode === 'sin_cobro'
       }
       const result = await api.configurarAvalPosteriorCertificado(configurationTarget.ID, configuration)
@@ -404,7 +429,7 @@ export default function CertificadosAvalView() {
       setPostIssueResults([])
       setNotice(result.alreadyConfigured
         ? 'La institución y el convenio ya estaban vinculados; no se duplicó ni se cambió el aval.'
-        : `Aval posterior configurado con ${result.data?.institutionName || 'la institución seleccionada'}. El certificado normal permanece intacto.`)
+        : `${result.data?.incomeId ? `Cobro de ${fmt.usd(newIncome.monto)} registrado en Ingresos. ` : ''}Aval posterior configurado con ${result.data?.institutionName || 'la institución seleccionada'}. El certificado normal permanece intacto.`)
       load()
     } catch (err) {
       setError(err.message || 'No se pudo configurar el aval posterior.')
@@ -821,16 +846,42 @@ export default function CertificadosAvalView() {
           </div>
           {configurationTarget.OrigenCRM === false && <div className="space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm">
             <p className="font-semibold text-amber-950">Autorización comercial del aval posterior</p>
-            <p className="text-xs text-amber-900">El pago del curso original debe estar verificado. Si se cobró el aval aparte, seleccione un ingreso confirmado para este participante y con concepto de aval; si gerencia lo autorizó sin cobro, deje constancia del motivo.</p>
-            <label className="flex items-center gap-2"><input type="radio" name="aval-post-issue-mode" checked={commercialMode === 'ingreso'} onChange={() => setCommercialMode('ingreso')} /> Pago adicional registrado</label>
+            <p className="text-xs text-amber-900">El pago del curso original debe estar verificado. Si ya recibió el cobro del aval, puede registrarlo aquí o vincular uno existente. Si gerencia autorizó el aval sin cobro, deje constancia del motivo.</p>
+            <label className="flex items-center gap-2"><input type="radio" name="aval-post-issue-mode" checked={commercialMode === 'ingreso'} onChange={() => setCommercialMode('ingreso')} /> Aval con cobro adicional</label>
             <label className="flex items-center gap-2"><input type="radio" name="aval-post-issue-mode" checked={commercialMode === 'sin_cobro'} onChange={() => { setCommercialMode('sin_cobro'); setSelectedIncomeId('') }} /> Autorizado sin cobro adicional</label>
-            {commercialMode === 'ingreso' && <div>
-              <label className="label" htmlFor="post-issue-income">Ingreso confirmado del aval</label>
-              <select id="post-issue-income" className="input" value={selectedIncomeId} onChange={event => setSelectedIncomeId(event.target.value)} required>
-                <option value="">Seleccione un ingreso…</option>
-                {incomeOptions.map(income => <option key={income.ID} value={income.ID}>{income.Concepto} · {fmt.usd(income.Monto)} · {income.Fecha}</option>)}
-              </select>
-              {incomeOptions.length === 0 && !configurationLoading && <p className="mt-1 text-xs text-amber-800">No hay un ingreso de aval confirmado para este participante. Regístrelo y confírmelo en Ingresos antes de continuar.</p>}
+            {commercialMode === 'ingreso' && <div className="space-y-3 border-t border-amber-200 pt-3">
+              {incomeOptions.length > 0 && <label className="flex items-center gap-2"><input type="radio" name="aval-income-source" checked={incomeEntryMode === 'existente'} onChange={() => setIncomeEntryMode('existente')} /> Vincular ingreso ya registrado</label>}
+              <label className="flex items-center gap-2"><input type="radio" name="aval-income-source" checked={incomeEntryMode === 'nuevo'} onChange={() => setIncomeEntryMode('nuevo')} /> Registrar cobro aquí</label>
+              {incomeEntryMode === 'existente' && <div>
+                <label className="label" htmlFor="post-issue-income">Ingreso confirmado del aval</label>
+                <select id="post-issue-income" className="input" value={selectedIncomeId} onChange={event => setSelectedIncomeId(event.target.value)} required>
+                  <option value="">Seleccione un ingreso…</option>
+                  {incomeOptions.map(income => <option key={income.ID} value={income.ID}>{income.Concepto} · {fmt.usd(income.Monto)} · {fmt.date(income.Fecha)}</option>)}
+                </select>
+              </div>}
+              {incomeEntryMode === 'nuevo' && <div className="space-y-3 rounded-lg border border-amber-200 bg-white p-3">
+                <p className="text-xs text-slate-600">Se registrará un ingreso confirmado con el participante y el certificado vinculados automáticamente.</p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div><label className="label" htmlFor="post-issue-payment-date">Fecha del cobro</label>
+                    <input id="post-issue-payment-date" className="input" type="date" required value={newIncome.fecha}
+                      onChange={event => setNewIncome(value => ({ ...value, fecha: event.target.value }))} /></div>
+                  <div><label className="label" htmlFor="post-issue-payment-amount">Monto cobrado (USD)</label>
+                    <input id="post-issue-payment-amount" className="input" type="number" min="0.01" step="0.01" required value={newIncome.monto}
+                      onChange={event => setNewIncome(value => ({ ...value, monto: event.target.value }))} placeholder="0.00" /></div>
+                  <div><label className="label" htmlFor="post-issue-payment-method">Método de pago</label>
+                    <select id="post-issue-payment-method" className="input" required value={newIncome.metodoPago}
+                      onChange={event => setNewIncome(value => ({ ...value, metodoPago: event.target.value }))}>
+                      <option value="">Seleccione…</option>
+                      {METODOS_PAGO.map(method => <option key={method} value={method}>{method}</option>)}
+                    </select></div>
+                  <div><label className="label" htmlFor="post-issue-payment-reference">Referencia{newIncome.metodoPago === 'Efectivo' ? ' (opcional)' : ''}</label>
+                    <input id="post-issue-payment-reference" className="input" maxLength={120}
+                      required={newIncome.metodoPago !== 'Efectivo'} value={newIncome.referencia}
+                      onChange={event => setNewIncome(value => ({ ...value, referencia: event.target.value }))} placeholder="Número de transferencia o comprobante" /></div>
+                </div>
+                <label className="flex items-start gap-2 text-xs text-slate-700"><input type="checkbox" className="mt-0.5" checked={incomeReceivedConfirmed}
+                  onChange={event => setIncomeReceivedConfirmed(event.target.checked)} /> Confirmo que este monto ya fue recibido y debe quedar registrado en Ingresos.</label>
+              </div>}
             </div>}
             <div>
               <label className="label" htmlFor="post-issue-reason">Motivo y autorización (mínimo 20 caracteres)</label>
@@ -848,8 +899,8 @@ export default function CertificadosAvalView() {
             <button type="button" className="btn-secondary" onClick={() => setConfigurationTarget(null)}>Cancelar</button>
             <button type="submit" className="btn-primary" disabled={saving || configurationLoading || !selectedInstitutionId || !selectedAgreementId || !configurationConfirmed
               || (configurationTarget.OrigenCRM === false && (configurationReason.trim().length < 20 || !commercialMode
-                || (commercialMode === 'ingreso' && !selectedIncomeId)))}>
-              {saving ? 'Configurando…' : 'Continuar con el aval'}
+                || (commercialMode === 'ingreso' && (incomeEntryMode === 'existente' ? !selectedIncomeId : !newIncomeReady))))}>
+              {saving ? 'Configurando…' : commercialMode === 'ingreso' && incomeEntryMode === 'nuevo' ? 'Registrar cobro y continuar' : 'Continuar con el aval'}
             </button>
           </div>
         </form>}

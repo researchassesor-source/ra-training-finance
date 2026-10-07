@@ -6128,7 +6128,7 @@ function getCertificadosAval(user, { filtros = {} } = {}) {
  * código, firma, estado ni snapshot del documento normal.
  */
 function configurarAvalPosteriorCertificado(user, { id, institucionId, convenioId, confirmacion,
-  motivo, ingresoAvalId, sinCobroAutorizado } = {}) {
+  motivo, ingresoAvalId, nuevoIngresoAval, sinCobroAutorizado } = {}) {
   requireCertificateAdmin(user, 'POST_ISSUE_AVAL_CONFIGURED', { inscripcionId: id, canal: 'panel_aval' });
   if (confirmacion !== 'CONFIGURAR_AVAL_POSTERIOR') {
     return { success: false, error: 'Confirme explícitamente la configuración del aval posterior.' };
@@ -6145,6 +6145,7 @@ function configurarAvalPosteriorCertificado(user, { id, institucionId, convenioI
       || !!String(row.CRMOfferType || row.CRMEnrollmentID || '').trim();
     const upgrade = validarUpgradeAvalVerificadoParaInscripcion_(row);
     let ingresoAval = null;
+    let cobroNuevo = null;
     const justificacion = String(motivo || '').trim();
     if (crm) {
       if (!esVerdadero(row.RequiereAvalExterno)) {
@@ -6159,8 +6160,28 @@ function configurarAvalPosteriorCertificado(user, { id, institucionId, convenioI
         return { success: false, error: 'Explique la autorización del aval posterior (20 a 500 caracteres).' };
       }
       const ingresoId = String(ingresoAvalId || '').trim();
-      if (!!ingresoId === (sinCobroAutorizado === true)) {
-        return { success: false, error: 'Seleccione un ingreso adicional confirmado o autorice expresamente el aval sin cobro.' };
+      const modosComerciales = Number(Boolean(ingresoId)) + Number(Boolean(nuevoIngresoAval))
+        + Number(sinCobroAutorizado === true);
+      if (modosComerciales !== 1) {
+        return { success: false, error: 'Seleccione un ingreso confirmado, registre un cobro recibido o autorice expresamente el aval sin cobro.' };
+      }
+      if (nuevoIngresoAval) {
+        const fecha = String(nuevoIngresoAval.fecha || '').trim();
+        const monto = Number(nuevoIngresoAval.monto);
+        const metodoPago = String(nuevoIngresoAval.metodoPago || '').trim();
+        const referencia = String(nuevoIngresoAval.referencia || '').trim();
+        const fechaValida = /^\d{4}-\d{2}-\d{2}$/.test(fecha)
+          && !isNaN(new Date(fecha + 'T12:00:00Z').getTime())
+          && new Date(fecha + 'T12:00:00Z').toISOString().slice(0, 10) === fecha;
+        if (!fechaValida || !isFinite(monto) || monto <= 0 || monto > 1000000
+            || Math.abs(monto * 100 - Math.round(monto * 100)) > 0.000001
+            || ['Transferencia', 'Tarjeta', 'Efectivo', 'Cheque', 'Otro'].indexOf(metodoPago) === -1
+            || referencia.length > 120 || /[\x00-\x1f\x7f]/.test(referencia)
+            || (metodoPago !== 'Efectivo' && !referencia)
+            || nuevoIngresoAval.cobroConfirmado !== true) {
+          return { success: false, error: 'Complete fecha, monto positivo en USD, método, referencia cuando corresponda y confirme que el cobro fue recibido.' };
+        }
+        cobroNuevo = { fecha: fecha, monto: monto, metodoPago: metodoPago, referencia: referencia };
       }
       if (ingresoId) {
         ingresoAval = sheetToObjects(getSheet('Ingresos')).find(function(item) { return String(item.ID || '') === ingresoId; });
@@ -6223,7 +6244,7 @@ function configurarAvalPosteriorCertificado(user, { id, institucionId, convenioI
       && String(row.InstitucionAval || '') === String(fields.InstitucionAval)
       && String(row.AvalIngresoID || '') === String(fields.AvalIngresoID)
       && esVerdadero(row.RequiereAvalExterno) && row.EstadoAval === 'pendiente';
-    if (sameConfiguration) return { success: true, alreadyConfigured: true, data: { institutionName: fields.InstitucionAval } };
+    if (sameConfiguration && !cobroNuevo) return { success: true, alreadyConfigured: true, data: { institutionName: fields.InstitucionAval } };
     if (String(row.InstitucionID || '').trim() || String(row.ConvenioID || '').trim()) {
       return { success: false, error: 'El aval ya tiene una institución/convenio asignado. No se cambió su configuración.' };
     }
@@ -6232,13 +6253,31 @@ function configurarAvalPosteriorCertificado(user, { id, institucionId, convenioI
     Object.keys(fields).forEach(function(field) {
       before[field] = row._raw && tienePropiedad(row._raw, field) ? row._raw[field] : row[field];
     });
-    updateRow(sheet, row, fields);
-    const updated = sheetToObjects(sheet).find(function(item) { return String(item.ID || '') === idInscripcion; });
-    if (!updated || !camposPersistidosCoinciden(updated, fields)) {
-      updateRow(sheet, updated || row, before);
-      return { success: false, error: 'No se pudo verificar el vínculo de institución y convenio. Se restauraron los datos anteriores.' };
-    }
+    let createdIncomeId = '';
     try {
+      if (cobroNuevo) {
+        const created = addIngreso(user, { ingreso: {
+          fecha: cobroNuevo.fecha,
+          tipo: 'Certificación',
+          modalidad: String(row.Modalidad || 'N/A'),
+          concepto: 'Aval posterior · ' + String(normalCertificate.CodigoCertificado || row.ID),
+          cliente: String(row.ClienteNombre || '').trim(),
+          clienteTelefono: String(row.ClienteTelefono || '').trim(),
+          monto: cobroNuevo.monto,
+          metodoPago: cobroNuevo.metodoPago,
+          estado: 'confirmado',
+          referencia: cobroNuevo.referencia,
+          notas: 'Cobro de aval posterior para inscripción ' + idInscripcion,
+        } });
+        if (!created.success || !created.id) throw new Error('No se pudo registrar el cobro del aval.');
+        createdIncomeId = created.id;
+        fields.AvalIngresoID = createdIncomeId;
+      }
+      updateRow(sheet, row, fields);
+      const updated = sheetToObjects(sheet).find(function(item) { return String(item.ID || '') === idInscripcion; });
+      if (!updated || !camposPersistidosCoinciden(updated, fields)) {
+        throw new Error('No se pudo verificar el vínculo de institución, convenio e ingreso.');
+      }
       registrarAuditoriaCertificado({
         certificadoId: normalCertificate.CodigoCertificado,
         inscripcionId: idInscripcion,
@@ -6256,7 +6295,9 @@ function configurarAvalPosteriorCertificado(user, { id, institucionId, convenioI
           origenAvalPosterior: crm ? 'crm_upgrade' : 'finance_manual',
           upgradeCrmOrderId: crm ? upgrade.data.upgrade.CRMOrderID : '',
           parentCrmOrderId: crm ? upgrade.data.parent.CRMOrderID : '',
-          ingresoAvalId: ingresoAval ? ingresoAval.ID : '',
+          ingresoAvalId: ingresoAval ? ingresoAval.ID : createdIncomeId,
+          cobroRegistradoEnEsteTramite: Boolean(createdIncomeId),
+          montoCobrado: createdIncomeId ? cobroNuevo.monto : '',
           sinCobroAutorizado: !crm && sinCobroAutorizado === true,
           institutionId: institution.ID,
           agreementId: agreementResult.data.convenio.ID,
@@ -6264,10 +6305,14 @@ function configurarAvalPosteriorCertificado(user, { id, institucionId, convenioI
         motivo: crm ? '' : justificacion,
       });
     } catch (error) {
-      updateRow(sheet, updated, before);
+      const current = sheetToObjects(sheet).find(function(item) { return String(item.ID || '') === idInscripcion; });
+      updateRow(sheet, current || row, before);
+      if (createdIncomeId) eliminarFilaCreadaPorId(getSheet('Ingresos'), createdIncomeId);
       throw error;
     }
-    return { success: true, alreadyConfigured: false, data: { institutionName: fields.InstitucionAval } };
+    return { success: true, alreadyConfigured: false, data: {
+      institutionName: fields.InstitucionAval, incomeId: createdIncomeId,
+    } };
   });
 }
 

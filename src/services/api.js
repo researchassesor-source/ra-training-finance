@@ -264,10 +264,10 @@ export const api = {
     call('buscarCertificadosParaAvalPosterior', { q }, getToken()),
   getConveniosParaAval: (institucionId, convenioActualId = '') =>
     call('getConveniosParaAval', { institucionId, convenioActualId }, getToken()),
-  configurarAvalPosteriorCertificado: (id, { institucionId, convenioId, motivo, ingresoAvalId, sinCobroAutorizado }) => {
-    bust('getInscripciones', 'getDashboard', 'getCertificadosAval')
+  configurarAvalPosteriorCertificado: (id, { institucionId, convenioId, motivo, ingresoAvalId, nuevoIngresoAval, sinCobroAutorizado }) => {
+    bust('getInscripciones', 'getDashboard', 'getCertificadosAval', 'getIngresos')
     return call('configurarAvalPosteriorCertificado', {
-      id, institucionId, convenioId, motivo, ingresoAvalId, sinCobroAutorizado,
+      id, institucionId, convenioId, motivo, ingresoAvalId, nuevoIngresoAval, sinCobroAutorizado,
       confirmacion: 'CONFIGURAR_AVAL_POSTERIOR',
     }, getToken())
   },

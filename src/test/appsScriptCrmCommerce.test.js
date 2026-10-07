@@ -570,6 +570,49 @@ describe('marcarAval + entregable avalado', () => {
     expect(porId(harness, secondEnrollment.id).RequiereAvalExterno).toBe(false)
   })
 
+  it('registra el cobro del aval en Ingresos y lo vincula una sola vez al certificado normal', () => {
+    const harness = seededHarness()
+    const request = harness.context.processRequest
+    const setup = certificadoNormalManualSinAval(harness)
+    const original = harness.objects('Certificados').find(item => item.InscripcionID === setup.id)
+    const incomeCountBefore = harness.objects('Ingresos').length
+    const args = { action: 'configurarAvalPosteriorCertificado', token: 'admin-token', id: setup.id,
+      institucionId: setup.institutionId, convenioId: setup.agreementId,
+      confirmacion: 'CONFIGURAR_AVAL_POSTERIOR',
+      motivo: 'Administración verificó el cobro adicional solicitado para avalar el certificado.',
+      nuevoIngresoAval: { fecha: '2026-10-06', monto: 8.5, metodoPago: 'Transferencia',
+        referencia: 'BANCO-AVAL-100', cobroConfirmado: true } }
+    expect(request({ ...args, nuevoIngresoAval: { ...args.nuevoIngresoAval, cobroConfirmado: false } }).success).toBe(false)
+    expect(request({ ...args, nuevoIngresoAval: { ...args.nuevoIngresoAval, monto: -1 } }).success).toBe(false)
+    expect(harness.objects('Ingresos')).toHaveLength(incomeCountBefore)
+
+    const auditSheet = harness.sheets.AuditoriaCertificados
+    const appendAudit = auditSheet.appendRow.bind(auditSheet)
+    auditSheet.appendRow = () => { throw new Error('Auditoría temporalmente no disponible') }
+    expect(request(args).success).toBe(false)
+    auditSheet.appendRow = appendAudit
+    expect(harness.objects('Ingresos')).toHaveLength(incomeCountBefore)
+    expect(porId(harness, setup.id).AvalIngresoID).toBe('')
+    expect(porId(harness, setup.id).InstitucionID).toBe('')
+
+    const configured = request(args)
+    expect(configured).toMatchObject({ success: true, alreadyConfigured: false,
+      data: { institutionName: 'Instituto Aval Manual' } })
+    const incomes = harness.objects('Ingresos')
+    expect(incomes).toHaveLength(incomeCountBefore + 1)
+    const income = incomes.find(item => item.ID === configured.data.incomeId)
+    expect(income).toMatchObject({ ID: configured.data.incomeId, Cliente: 'Ana Pérez',
+      Estado: 'confirmado', Monto: 8.5, MetodoPago: 'Transferencia', Referencia: 'BANCO-AVAL-100' })
+    expect(income.Concepto).toContain(original.CodigoCertificado)
+    expect(porId(harness, setup.id).AvalIngresoID).toBe(income.ID)
+    expect(harness.objects('Certificados').find(item => item.InscripcionID === setup.id)).toEqual(original)
+    expect(request(args).success).toBe(false)
+    expect(harness.objects('Ingresos')).toHaveLength(incomeCountBefore + 1)
+    const audit = harness.objects('AuditoriaCertificados').find(item => item.Accion === 'POST_ISSUE_AVAL_CONFIGURED')
+    expect(JSON.parse(audit.Metadatos)).toMatchObject({ ingresoAvalId: income.ID,
+      cobroRegistradoEnEsteTramite: true, montoCobrado: 8.5 })
+  })
+
   it('Bloque 7: normal V2 y avalado V2 versionan de forma independiente sobre una sola raíz', () => {
     const harness = seededHarness()
     const request = harness.context.processRequest

@@ -198,6 +198,47 @@ describe('entregable institucional ITSAL', () => {
     })
   })
 
+  it('permite registrar el cobro desde la ventana y enviarlo junto con el aval posterior', async () => {
+    mock.getCertificadosAval.mockResolvedValue({ data: [] })
+    mock.buscarCertificadosParaAvalPosterior.mockResolvedValue({ data: [{
+      ID: 'INS-MANUAL-1', ClienteNombre: 'Ana Pérez', ServicioNombre: 'Curso de Prueba',
+      CertificadoNormal: normalCertificate, OrigenCRM: false, PuedeConfigurarAvalPosterior: true,
+    }] })
+    mock.getOpcionesInstitucionesMaestras.mockResolvedValue({ data: [{ ID: 'INST-1', Nombre: 'Instituto de Prueba' }] })
+    mock.getConveniosParaAval.mockResolvedValue({ data: [{ ID: 'CONV-1', Objeto: 'Convenio vigente', DisponibleParaAval: true }] })
+    mock.getIngresos.mockResolvedValue({ data: [] })
+    mock.configurarAvalPosteriorCertificado.mockResolvedValue({ data: { institutionName: 'Instituto de Prueba', incomeId: 'ING-1' } })
+    render(<CertificadosAvalView />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Añadir aval a certificado ya emitido' }))
+    fireEvent.change(screen.getByLabelText('Buscar certificado emitido'), { target: { value: 'RA-NORMAL-001' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Buscar' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Preparar aval posterior' }))
+    expect(await screen.findByRole('option', { name: 'Instituto de Prueba' })).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('Institución avaladora'), { target: { value: 'INST-1' } })
+    expect(await screen.findByRole('option', { name: /Convenio vigente/ })).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('Convenio vigente y regla económica'), { target: { value: 'CONV-1' } })
+    fireEvent.click(screen.getByLabelText('Aval con cobro adicional'))
+    const submit = screen.getByRole('button', { name: 'Registrar cobro y continuar' })
+    expect(submit).toBeDisabled()
+    fireEvent.change(screen.getByLabelText('Fecha del cobro'), { target: { value: '2026-10-06' } })
+    fireEvent.change(screen.getByLabelText('Monto cobrado (USD)'), { target: { value: '8.50' } })
+    fireEvent.change(screen.getByLabelText('Método de pago'), { target: { value: 'Transferencia' } })
+    fireEvent.change(screen.getByLabelText('Referencia'), { target: { value: 'BANCO-AVAL-100' } })
+    fireEvent.change(screen.getByLabelText(/Motivo y autorización/), { target: { value: 'Cobro adicional confirmado y aval solicitado por administración.' } })
+    fireEvent.click(screen.getByLabelText(/Confirmo que este monto ya fue recibido/))
+    fireEvent.click(screen.getByLabelText(/Confirmo que la selección corresponde al aval solicitado/))
+    expect(submit).toBeEnabled()
+    fireEvent.click(submit)
+    expect(mock.configurarAvalPosteriorCertificado).toHaveBeenCalledWith('INS-MANUAL-1', {
+      institucionId: 'INST-1', convenioId: 'CONV-1',
+      motivo: 'Cobro adicional confirmado y aval solicitado por administración.',
+      ingresoAvalId: '', sinCobroAutorizado: false,
+      nuevoIngresoAval: { fecha: '2026-10-06', monto: 8.5, metodoPago: 'Transferencia',
+        referencia: 'BANCO-AVAL-100', cobroConfirmado: true },
+    })
+    expect(await screen.findByText(/Cobro de .* registrado en Ingresos/)).toBeTruthy()
+  })
+
   it('muestra el historial normal aislado y descarga la versión archivada desde su propio vínculo', async () => {
     mock.getCertificadosAval.mockResolvedValue({ data: [{
       ...row,
