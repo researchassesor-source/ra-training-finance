@@ -108,6 +108,7 @@ function processRequest(data) {
     marcarAval:          () => marcarAval(user, params),
     corregirAvalConfirmado: () => corregirAvalConfirmado(user, params),
     corregirIdentificacionAvalConfirmado: () => corregirIdentificacionAvalConfirmado(user, params),
+    corregirNombreAvalConfirmado: () => corregirNombreAvalConfirmado(user, params),
     emitirEntregableAval: () => emitirEntregableAval(user, params),
     anularEntregableAval: () => anularEntregableAval(user, params),
     reemitirEntregableAval: () => reemitirEntregableAval(user, params),
@@ -348,6 +349,16 @@ function identificacionDocumentalDifiere_(documento, inscripcion, tipoSnapshot) 
     String(participante.ClienteID || '') !== String(inscripcion.ClienteID || '')
     || String(participante.ClienteTipoIdentificacion || '') !== String(inscripcion.ClienteTipoIdentificacion || '')
   ));
+}
+
+function nombreDocumentalDifiere_(documento, inscripcion, tipoSnapshot) {
+  const snapshot = leerSnapshotDocumentalCertificado_(documento);
+  // Un snapshot presente pero sin integridad verificable no puede habilitar el envío.
+  if (!snapshot && String(documento && documento.DocumentSnapshot || '').trim()) return true;
+  if (!snapshot || snapshot.tipo !== tipoSnapshot) return false;
+  const participante = tipoSnapshot === 'aval_institucional' ? snapshot.datos.participante : snapshot.datos;
+  return Boolean(participante && String(participante.ClienteNombre || '').trim()
+    !== String(inscripcion.ClienteNombre || '').trim());
 }
 
 function huellasFirmasOficialesCertificado_() {
@@ -5193,6 +5204,9 @@ function enviarCertificadoEmail(user, { id, email } = {}) {
   if (identificacionDocumentalDifiere_(certificate, row, 'participante')) {
     return { success: false, error: 'La identificación fue corregida después de emitir este PDF. Reemita y archive una versión normal nueva antes de enviarla.' };
   }
+  if (nombreDocumentalDifiere_(certificate, row, 'participante')) {
+    return { success: false, error: 'El nombre fue corregido después de emitir este PDF. Reemita y archive una versión normal nueva antes de enviarla.' };
+  }
   const certificateStatus = estadoNormalizadoCertificado(certificate);
   if (['emitido', 'enviado'].indexOf(certificateStatus) === -1) {
     return { success: false, error: 'Solo se puede reenviar la versión vigente del certificado.' };
@@ -6135,6 +6149,7 @@ function getCertificadosAval(user, { filtros = {} } = {}) {
         CertificateVersion: Number(entrega.CertificateVersion) || 1,
         TemplateVersion: entrega.TemplateVersion || '',
         RequiereReemisionIdentificacion: identificacionDocumentalDifiere_(entrega, i, 'aval_institucional'),
+        RequiereReemisionNombre: nombreDocumentalDifiere_(entrega, i, 'aval_institucional'),
         VersionHistory: isAdmin(user) ? entregables.filter(function(item) { return item.InscripcionID === i.ID; })
           .sort(function(a, b) { return (Number(b.CertificateVersion) || 0) - (Number(a.CertificateVersion) || 0); })
           .map(function(item) { return { id: item.ID, version: Number(item.CertificateVersion) || 1,
@@ -6555,6 +6570,65 @@ function corregirIdentificacionAvalConfirmado(user, { id, identificacionAnterior
     return { success: true, data: { identificacion: nextId, tipoIdentificacion: nextType,
       requiereReemisionNormal: Boolean(normal), requiereReemisionAval: true,
       advertencia: 'Los PDFs y las facturas previas no cambian. Reemita las versiones necesarias antes de enviarlas.' } };
+  });
+}
+
+/** Corrige únicamente el nombre fuente para una nueva versión avalada; deja intactos PDF, facturas y versión anterior. */
+function corregirNombreAvalConfirmado(user, { id, nombreAnterior, nombreNuevo, motivo, confirmacion } = {}) {
+  requireCertificateAdmin(user, 'AVAL_PARTICIPANT_NAME_CORRECTION', { inscripcionId: id, canal: 'api' });
+  if (confirmacion !== 'CORREGIR_NOMBRE_AVAL') {
+    return { success: false, error: 'Confirme explícitamente la corrección del nombre.' };
+  }
+  const reason = String(motivo || '').trim();
+  if (reason.length < 10) return { success: false, error: 'Explique el motivo de la corrección (mínimo 10 caracteres).' };
+  if (typeof nombreAnterior !== 'string' || typeof nombreNuevo !== 'string') {
+    return { success: false, error: 'El nombre anterior y el nuevo deben enviarse como texto.' };
+  }
+  const nextName = nombreNuevo.trim().replace(/\s+/g, ' ');
+  if (nextName.length < 5 || nextName.length > 160 || /[\u0000-\u001f\u007f]/.test(nextName)) {
+    return { success: false, error: 'Ingrese el nombre completo (entre 5 y 160 caracteres).' };
+  }
+  return conBloqueoCertificados(function() {
+    const sheet = getSheet('Inscripciones');
+    const row = sheetToObjects(sheet).find(function(item) { return item.ID === id; });
+    if (!row) return { success: false, error: 'Inscripción no encontrada.' };
+    if (row.EstadoAval !== 'avalado') return { success: false, error: 'Esta corrección excepcional requiere un aval confirmado.' };
+    if (String(row.ClienteNombre || '') !== nombreAnterior) {
+      return { success: false, error: 'El nombre cambió desde que abrió el formulario. Actualice la lista antes de continuar.' };
+    }
+    const actual = entregableAvalActual_(id);
+    if (!actual || !['emitido', 'anulado'].includes(estadoNormalizadoCertificado(actual))
+        || !/^[a-f0-9]{64}$/i.test(String(actual.PdfHash || ''))
+        || !String(actual.PdfStorageReference || '').startsWith('certificate-drive:')) {
+      return { success: false, error: 'Primero debe existir una versión avalada oficial e íntegra; no se modificará un PDF pendiente.' };
+    }
+    const normal = sheetToObjects(getSheet('Certificados')).filter(function(item) { return item.InscripcionID === id; })
+      .sort(function(a, b) { return (Number(b.CertificateVersion) || 1) - (Number(a.CertificateVersion) || 1); })[0];
+    if (normal && estadoNormalizadoCertificado(normal) === 'pendiente_pdf') {
+      return { success: false, error: 'Complete o revise la versión normal pendiente antes de corregir el nombre.' };
+    }
+    if (nextName === String(row.ClienteNombre || '')) return { success: false, error: 'El nombre no cambió.' };
+
+    const before = { ClienteNombre: row.ClienteNombre || '' };
+    const after = { ClienteNombre: nextName };
+    updateRow(sheet, row, after);
+    const persisted = sheetToObjects(sheet).find(function(item) { return item.ID === id; });
+    if (!persisted || !camposPersistidosCoinciden(persisted, after)) {
+      updateRow(sheet, persisted || row, before);
+      return { success: false, error: 'No se pudo verificar la corrección. Se restauró el nombre anterior.' };
+    }
+    try {
+      registrarAuditoriaCertificado({ certificadoId: actual.CodigoCertificado, inscripcionId: id,
+        usuario: user.Username, rol: user.Rol, accion: 'AVAL_PARTICIPANT_NAME_CORRECTED',
+        estadoAnterior: before.ClienteNombre, estadoNuevo: nextName, canal: 'admin_correction',
+        resultado: 'ok', motivo: reason, metadatos: { avalVersionId: actual.ID,
+          normalVersionId: normal ? normal.ID : '', invoicesAndOldPdfUnchanged: true } });
+    } catch (error) {
+      updateRow(sheet, persisted, before);
+      throw error;
+    }
+    return { success: true, data: { nombre: nextName, requiereReemisionAval: true,
+      advertencia: 'La versión anterior y las facturas permanecen intactas. Cree y archive una nueva versión antes de enviarla.' } };
   });
 }
 
@@ -7064,6 +7138,8 @@ function datosEntregableAval_(entregable, inscripcion) {
   const servicio = servicioParaCertificado_(inscripcion);
   const snapshot = leerSnapshotDocumentalCertificado_(entregable);
   const participant = snapshot && snapshot.tipo === 'aval_institucional' ? snapshot.datos.participante || {} : {};
+  const hasSnapshotReference = Boolean(snapshot && snapshot.tipo === 'aval_institucional'
+    && Object.prototype.hasOwnProperty.call(snapshot.datos, 'avalReferencia'));
   const dato = function(key, fallback) {
     return Object.prototype.hasOwnProperty.call(participant, key) ? participant[key] : fallback;
   };
@@ -7080,7 +7156,8 @@ function datosEntregableAval_(entregable, inscripcion) {
     Lugar: dato('Lugar', (servicio && (servicio.LugarEvento || servicio.Lugar)) || ''),
     EstadoPago: inscripcion.EstadoPago, EstadoAval: inscripcion.EstadoAval,
     InstitucionAval: inscripcion.InstitucionAval,
-    AvalReferencia: entregable.ReferenciaExterna || '',
+    AvalReferencia: hasSnapshotReference ? String(snapshot.datos.avalReferencia || '')
+      : String(entregable.ReferenciaExterna || inscripcion.AvalReferencia || ''),
     AvalEnlaceExterno: entregable.EnlaceExterno || '',
     AvalCodigoExterno: entregable.CodigoExterno || '',
     CertificateType: dato('CertificateType', servicio ? tipoCertificadoServicio_(servicio.TipoCertificado) : 'aprobacion'),
@@ -7300,6 +7377,7 @@ function emitirEntregableAval(user, { id } = {}) {
         CertificateType: tipoCertificadoServicio_((servicioParaCertificado_(inscripcion) || {}).TipoCertificado),
       }),
       institutionData: datosInstitucionalesCertificadoAval_(Object.assign({}, entregable, preparedFields)),
+      avalReferencia: String(entregable.ReferenciaExterna || inscripcion.AvalReferencia || ''),
       codigoExterno: entregable.CodigoExterno || '', certificateVersion: 1,
       templateVersion: avalTemplate, preparedAt: now,
       managerName: managerName, managerTitle: managerTitle,
@@ -7418,6 +7496,7 @@ function reemitirEntregableAval(user, { id, motivo, confirmacion } = {}) {
         CertificateType: rendered.CertificateType,
       }),
       certificateType: rendered.CertificateType,
+      avalReferencia: String(next.ReferenciaExterna || inscripcion.AvalReferencia || ''),
       codigoExterno: next.CodigoExterno || '',
       institutionData: datosInstitucionalesCertificadoAval_(next),
       originalCertificateId: next.OriginalCertificateId,
@@ -7558,6 +7637,9 @@ function enviarEntregableAvalEmail(user, { id, email } = {}) {
   if (!row) return { success: false, error: 'Inscripción no encontrada.' };
   if (identificacionDocumentalDifiere_(entregable, row, 'aval_institucional')) {
     return { success: false, error: 'La identificación fue corregida después de emitir este PDF. Reemita y archive una versión avalada nueva antes de enviarla.' };
+  }
+  if (nombreDocumentalDifiere_(entregable, row, 'aval_institucional')) {
+    return { success: false, error: 'El nombre fue corregido después de emitir este PDF. Reemita y archive una versión avalada nueva antes de enviarla.' };
   }
   const destinatario = String(email || row.ClienteEmail || '').trim();
   if (!emailValido(destinatario)) return { success: false, error: 'La inscripción no tiene un correo electrónico válido.' };

@@ -1092,6 +1092,60 @@ describe('marcarAval + entregable avalado', () => {
     expect(harness.objects('Certificados').find(row => row.ID === normalV1.ID).DocumentSnapshot).toBe(normalV1.DocumentSnapshot)
   })
 
+  it('corrige el apellido con tilde, preserva la versión anterior y reemite con la referencia institucional correcta', () => {
+    const harness = seededHarness()
+    const request = harness.context.processRequest
+    const id = facturaFullLista(harness)
+    const reference = 'Nro. ITSAL-EDUC-2026-0001-C'
+    const resolution = 'RPC-SO-22-No.364-2024'
+    expect(request({ action: 'marcarAval', token: 'aval-token', id,
+      avalReferencia: reference, avalCodigoExterno: resolution }).success).toBe(true)
+    const { issued, hash } = issueAndArchiveAval(harness, id)
+    const old = harness.objects('EntregablesAval').find(row => row.ID === issued.data.ID)
+    const oldSnapshot = old.DocumentSnapshot
+    expect(JSON.parse(oldSnapshot).datos.avalReferencia).toBe(reference)
+    const originalName = porId(harness, id).ClienteNombre
+
+    const auditSheet = harness.ensureSheet('AuditoriaCertificados')
+    const appendAudit = auditSheet.appendRow.bind(auditSheet)
+    auditSheet.appendRow = () => { throw new Error('Auditoría temporalmente no disponible') }
+    expect(request({ action: 'corregirNombreAvalConfirmado', token: 'admin-token', id,
+      nombreAnterior: originalName, nombreNuevo: 'Jonathan Eduardo López Poveda',
+      motivo: 'Apellido cotejado con identificación original', confirmacion: 'CORREGIR_NOMBRE_AVAL' }).success).toBe(false)
+    expect(porId(harness, id).ClienteNombre).toBe(originalName)
+    auditSheet.appendRow = appendAudit
+
+    const correction = request({ action: 'corregirNombreAvalConfirmado', token: 'admin-token', id,
+      nombreAnterior: originalName, nombreNuevo: 'Jonathan Eduardo López Poveda',
+      motivo: 'Apellido cotejado con identificación original', confirmacion: 'CORREGIR_NOMBRE_AVAL' })
+    expect(correction).toMatchObject({ success: true, data: { nombre: 'Jonathan Eduardo López Poveda', requiereReemisionAval: true } })
+    expect(porId(harness, id).ClienteNombre).toBe('Jonathan Eduardo López Poveda')
+    expect(request({ action: 'getCertificadosAval', token: 'admin-token' }).data.find(row => row.ID === id)
+      .EntregableAval.RequiereReemisionNombre).toBe(true)
+    expect(request({ action: 'enviarEntregableAvalEmail', token: 'admin-token', id }).error).toMatch(/nombre fue corregido.*Reemita y archive/i)
+    expect(request({ action: 'enviarCertificadoEmail', token: 'admin-token', id }).error).toMatch(/nombre fue corregido.*Reemita y archive/i)
+
+    const next = request({ action: 'reemitirEntregableAval', token: 'admin-token', id,
+      motivo: 'Corrección del apellido verificada en documento', confirmacion: 'REEMITIR' })
+    expect(next).toMatchObject({ success: true, data: { ClienteNombre: 'Jonathan Eduardo López Poveda',
+      AvalReferencia: reference, AvalCodigoExterno: resolution, CertificateVersion: 2 } })
+    const nextRecord = harness.objects('EntregablesAval').find(row => row.ID === next.data.ID)
+    expect(JSON.parse(nextRecord.DocumentSnapshot).datos).toMatchObject({
+      participante: { ClienteNombre: 'Jonathan Eduardo López Poveda' }, avalReferencia: reference,
+    })
+    expect(harness.objects('EntregablesAval').find(row => row.ID === old.ID)).toMatchObject({
+      PdfHash: hash, DocumentSnapshot: oldSnapshot, CertificateStatus: 'emitido',
+    })
+
+    const bytes = Buffer.from('%PDF-1.4 version dos con nombre corregido y referencia ITSAL')
+    const nextHash = crypto.createHash('sha256').update(bytes).digest('hex')
+    expect(request({ action: 'guardarPdfEntregableAvalPrivado', token: 'admin-token', id,
+      pdfBase64: bytes.toString('base64'), pdfHash: nextHash, templateVersion: next.data.TemplateVersion }).success).toBe(true)
+    expect(request({ action: 'getCertificadosAval', token: 'admin-token' }).data.find(row => row.ID === id)
+      .EntregableAval.RequiereReemisionNombre).toBe(false)
+    expect(request({ action: 'enviarEntregableAvalEmail', token: 'admin-token', id }).success).toBe(true)
+  })
+
   it('revierte la preparación si no se puede registrar su auditoría obligatoria', () => {
     const harness = seededHarness()
     const id = facturaFullLista(harness)

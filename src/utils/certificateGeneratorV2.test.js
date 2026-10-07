@@ -5,7 +5,8 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { PNG } from 'pngjs'
 import { sha256Hex } from '../services/certificateArtifactStore'
 import { buildCertificatePdf } from './certificateGenerator'
-import { CERTIFICATE_INSTITUTIONAL_AVAL_TEMPLATE, CERTIFICATE_INSTITUTIONAL_AVAL_V2_TEMPLATE, CERTIFICATE_V2_ISSUER } from './certificateGeneratorV2'
+import { CERTIFICATE_INSTITUTIONAL_AVAL_TEMPLATE, CERTIFICATE_INSTITUTIONAL_AVAL_V2_TEMPLATE,
+  CERTIFICATE_V2_ISSUER, institutionalAvalQrReferenceLayout } from './certificateGeneratorV2'
 
 const root = path.join(process.cwd(), 'src/assets/certificate')
 const dataUrl = (file, mimeType) => `data:${mimeType};base64,${fs.readFileSync(path.join(root, file)).toString('base64')}`
@@ -238,6 +239,7 @@ describe('nueva plantilla de seguridad v2', () => {
       TemplateVersion: CERTIFICATE_INSTITUTIONAL_AVAL_V2_TEMPLATE,
       CertificateSubject: 'institutional_aval', CertificateStatus: 'emitido',
       EstadoAval: 'avalado', AvalCodigoExterno: 'ITSA-1231243',
+      AvalReferencia: 'Nro. ITSAL-EDUC-2026-0001-C',
       InstitutionData: { institutionId: 'INS-ITSAL', agreementId: 'CVN-ITSAL', name: 'ITSAL',
         legalName: 'Instituto Superior Tecnológico Internacional San Luis', siglas: 'ITSAL',
         authorityId: 'AUT-ITSAL', authorityName: 'Luis Hernán Coloma Gaibor', authorityRole: 'Rector',
@@ -250,6 +252,10 @@ describe('nueva plantilla de seguridad v2', () => {
       institutionAssets: { authoritySignature: visibleSignature,
         logo: dataUrl('itsal-official-logo.png', 'image/png') },
     })
+    expect(institutionalAvalQrReferenceLayout(avalado)).toEqual({
+      text: 'Código de aval: Nro. ITSAL-EDUC-2026-0001-C',
+      x: 285.5, y: 155.3, width: 43, height: 7, fontSize: 7, minFontSize: 5.4, style: 'bold',
+    })
     expect(result).toMatchObject({ templateVersion: CERTIFICATE_INSTITUTIONAL_AVAL_V2_TEMPLATE })
     expect(result.blob.size).toBeGreaterThan(100_000)
     if (process.env.CERTIFICATE_PREVIEW_INSTITUTIONAL_AVAL_V2_FILE) {
@@ -261,6 +267,12 @@ describe('nueva plantilla de seguridad v2', () => {
       })
       fs.writeFileSync(process.env.CERTIFICATE_PREVIEW_INSTITUTIONAL_AVAL_V2_FILE, Buffer.from(bytes))
     }
+    await expect(buildCertificatePdf({ ...avalado, AvalReferencia: '' }, { ...options,
+      signatures: { manager: visibleSignature },
+      signers: { manager: { name: 'Mgs. Alexandra Villagómez', title: 'Gerente General' } },
+      institutionAssets: { authoritySignature: visibleSignature,
+        logo: dataUrl('itsal-official-logo.png', 'image/png') },
+    })).rejects.toThrow('Falta la referencia de aval institucional')
   }, 30_000)
 
   it('rechaza el certificado avalado si falta snapshot o la firma de la autoridad externa', async () => {

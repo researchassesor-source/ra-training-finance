@@ -11,6 +11,7 @@ const mock = vi.hoisted(() => ({
   getConveniosParaAval: vi.fn(),
   configurarAvalPosteriorCertificado: vi.fn(),
   corregirIdentificacionAvalConfirmado: vi.fn(),
+  corregirNombreAvalConfirmado: vi.fn(),
   getHistorialCertificados: vi.fn(),
 }))
 
@@ -22,6 +23,7 @@ vi.mock('../../services/api', () => ({ api: {
   getConveniosParaAval: mock.getConveniosParaAval,
   configurarAvalPosteriorCertificado: mock.configurarAvalPosteriorCertificado,
   corregirIdentificacionAvalConfirmado: mock.corregirIdentificacionAvalConfirmado,
+  corregirNombreAvalConfirmado: mock.corregirNombreAvalConfirmado,
   getHistorialCertificados: mock.getHistorialCertificados,
 } }))
 vi.mock('../../context/AuthContext', () => ({ useAuth: () => ({ isAdmin: mock.admin }) }))
@@ -61,6 +63,7 @@ describe('entregable institucional ITSAL', () => {
     expect(screen.getByRole('button', { name: 'Enviar por correo' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Crear nueva versión' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Corregir identificación' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Corregir nombre' })).toBeTruthy()
   })
 
   it('muestra la emisión para instituciones distintas de ITSAL y no ofrece versionado fuera de alcance', async () => {
@@ -99,6 +102,34 @@ describe('entregable institucional ITSAL', () => {
     expect(mock.corregirIdentificacionAvalConfirmado).toHaveBeenCalledWith('INS-ITSAL-1', {
       identificacionAnterior: '0100000001', identificacionNueva: '0601234560',
       tipoIdentificacion: 'CEDULA_EC', motivo: 'Cédula cotejada con documento original',
+    })
+  })
+
+  it('corrige el nombre con tilde bajo auditoría y bloquea enviar el PDF con el nombre anterior', async () => {
+    mock.getCertificadosAval.mockResolvedValue({ data: [{
+      ...row,
+      ClienteNombre: 'Jonathan Eduardo Lopez Poveda',
+      EntregableAval: { ...row.EntregableAval, RequiereReemisionNombre: true },
+    }] })
+    mock.corregirNombreAvalConfirmado.mockResolvedValue({ success: true })
+    render(<CertificadosAvalView />)
+    expect(await screen.findByText(/El nombre actual difiere del PDF archivado/)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Enviar por correo' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Corregir nombre' }))
+    fireEvent.change(screen.getByLabelText('Nombre completo corregido'), {
+      target: { value: 'Jonathan Eduardo López Poveda' },
+    })
+    fireEvent.change(screen.getByLabelText('Motivo y respaldo de la corrección'), {
+      target: { value: 'Apellido verificado con tilde en documento original' },
+    })
+    const save = screen.getByRole('button', { name: 'Guardar corrección' })
+    expect(save).toBeDisabled()
+    fireEvent.click(screen.getByRole('checkbox'))
+    fireEvent.click(save)
+    expect(mock.corregirNombreAvalConfirmado).toHaveBeenCalledWith('INS-ITSAL-1', {
+      nombreAnterior: 'Jonathan Eduardo Lopez Poveda',
+      nombreNuevo: 'Jonathan Eduardo López Poveda',
+      motivo: 'Apellido verificado con tilde en documento original',
     })
   })
 

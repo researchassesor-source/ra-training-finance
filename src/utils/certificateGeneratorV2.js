@@ -176,6 +176,13 @@ function drawApprovedFooter(pdf, certificate, issuerRuc, issuerFile) {
   pdf.text('ra-training.com', 160, 178, { align: 'center' })
 }
 
+export function institutionalAvalQrReferenceLayout(certificate) {
+  return {
+    text: `Código de aval: ${String(certificate?.AvalReferencia || '').trim()}`,
+    x: 285.5, y: 155.3, width: 43, height: 7, fontSize: 7, minFontSize: 5.4, style: 'bold',
+  }
+}
+
 function renderApprovedInstitutionalAval(pdf, data) {
   const { certificate, institution, manager, qr, verificationUrl, background, logo, mark,
     goldSeal, institutionLogo, authoritySignature, managerSignature, issuerRuc, issuerFile, type } = data
@@ -245,7 +252,9 @@ function renderApprovedInstitutionalAval(pdf, data) {
   pdf.addImage(qr, 'PNG', 270.5, 116, 30, 30)
   pdf.link(270.5, 116, 30, 30, { url: verificationUrl })
   fittedText(pdf, certificate.CodigoCertificado, 285.5, 151.5, 43, 8, 6.5, 'bold')
-  fittedText(pdf, `Código de aval: ${certificate.AvalCodigoExterno}`, 285.5, 155.3, 43, 7, 5.4, 'bold')
+  const avalReference = institutionalAvalQrReferenceLayout(certificate)
+  fittedText(pdf, avalReference.text, avalReference.x, avalReference.y, avalReference.width,
+    avalReference.height, avalReference.minFontSize, avalReference.style)
   fittedText(pdf, 'Documento digital con trazabilidad', 285.5, 159, 43, 5.9, 4.4)
   fittedText(pdf, 'ra-training.com/verificar', 285.5, 162.4, 43, 6, 4.5)
 
@@ -325,6 +334,10 @@ async function buildInstitutionalAvalPdf(record, options) {
   if (certificate.CertificateSubject !== 'institutional_aval' || certificate.EstadoAval !== 'avalado'
     || !String(certificate.AvalCodigoExterno || '').trim()) {
     throw new Error('El certificado necesita un aval confirmado y su código institucional registrado.')
+  }
+  if (certificate.TemplateVersion === CERTIFICATE_INSTITUTIONAL_AVAL_V2_TEMPLATE
+    && !String(certificate.AvalReferencia || '').trim()) {
+    throw new Error('Falta la referencia de aval institucional que debe aparecer debajo del QR.')
   }
   const institution = record?.InstitutionData
   if (!institution?.institutionId || !institution?.agreementId || !String(institution?.name || '').trim()

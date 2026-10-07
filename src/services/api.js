@@ -285,6 +285,12 @@ export const api = {
       id, ...datos, confirmacion: 'CORREGIR_IDENTIFICACION_AVAL',
     }, getToken())
   },
+  corregirNombreAvalConfirmado: (id, datos = {}) => {
+    bust('getInscripciones', 'getCertificadosAval', 'getHistorialCertificados')
+    return call('corregirNombreAvalConfirmado', {
+      id, ...datos, confirmacion: 'CORREGIR_NOMBRE_AVAL',
+    }, getToken())
+  },
   emitirEntregableAval: (id) => call('emitirEntregableAval', { id }, getToken()),
   anularEntregableAval: (id, motivo) => call('anularEntregableAval', { id, motivo, confirmacion: 'ANULAR' }, getToken()),
   reemitirEntregableAval: (id, motivo) => call('reemitirEntregableAval', { id, motivo, confirmacion: 'REEMITIR' }, getToken()),
