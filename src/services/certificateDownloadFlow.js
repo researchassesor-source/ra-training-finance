@@ -56,7 +56,7 @@ function renderPreviewState(popup, { title, heading, message, tone = 'loading', 
       document,
       'div',
       { class: 'help' },
-      'El certificado histórico no será modificado automáticamente. Regrese al sistema y use la recuperación controlada para crear una nueva versión conservando el historial.',
+      'No se generó otro PDF ni se cambiaron el código o la versión. Regrese al sistema: si conserva el PDF original, un administrador puede archivarlo verificando su huella; si no existe una copia, la reemisión controlada requiere autorización.',
     ))
   }
   if (tone === 'error') {
@@ -299,7 +299,7 @@ export async function downloadCertificateWithAudit({
     const historicalRecoveryWarning = prepared.historicalRecovered
       ? 'Se recuperó el artefacto del certificado histórico con la plantilla vigente. Se conservaron su código, datos, estado y QR.'
       : ''
-    return { ...prepared, certificate, previewWarning, historicalRecoveryWarning }
+    return { ...prepared, certificate, previewWarning, archiveWarning: prepared.archiveWarning || '', historicalRecoveryWarning }
   } catch (error) {
     const flowError = attachFlowContext(error, { deliveryStarted, requestId, certificate })
     if (requestId && !deliveryStarted) {

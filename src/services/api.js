@@ -5,36 +5,160 @@ function rejectApiError(message, token) {
   throw new Error(message)
 }
 
-async function call(action, params = {}, token = null) {
+async function call(action, params = {}, token = null, { timeoutMs = 0 } = {}) {
   const body = { action, ...params }
   if (token) body.token = token
-
-  // Todas las acciones pasan por POST para que el token y los datos sensibles
-  // no queden expuestos en la URL, el historial o los registros del proxy.
-  const res = await fetch('/api/proxy', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-
-  if (!res.ok) throw new Error(`Error HTTP ${res.status}`)
-  let data
-  try { data = await res.json() }
-  catch { throw new Error('El servidor devolvió una respuesta inválida.') }
-  if (!data.success) {
-    const backendMessage = String(data.error || 'Error desconocido')
-    if (backendMessage === 'Acción no reconocida.' || backendMessage === 'Acción no reconocida') {
-      const error = new Error(
-        `El backend activo no reconoce la acción "${action}". `
-        + 'Actualice la versión desplegada de Apps Script antes de reactivar esta interfaz.',
-      )
-      error.code = 'BACKEND_ACTION_UNSUPPORTED'
-      error.action = action
+  const controller = timeoutMs && typeof AbortController !== 'undefined' ? new AbortController() : null
+  let timeout = null
+  try {
+    if (controller) timeout = setTimeout(() => controller.abort(), timeoutMs)
+    // Todas las acciones pasan por POST para que el token y los datos sensibles
+    // no queden expuestos en la URL, el historial o los registros del proxy.
+    const res = await fetch('/api/proxy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      ...(controller ? { signal: controller.signal } : {}),
+    })
+    if (!res.ok) {
+      const error = new Error(`Error HTTP ${res.status}`)
+      error.status = res.status
       throw error
     }
-    rejectApiError(backendMessage, token)
+    let data
+    try { data = await res.json() }
+    catch { throw new Error('El servidor devolvió una respuesta inválida.') }
+    if (!data.success) {
+      const backendMessage = String(data.error || 'Error desconocido')
+      if (backendMessage === 'Acción no reconocida.' || backendMessage === 'Acción no reconocida') {
+        const error = new Error(
+          `El backend activo no reconoce la acción "${action}". `
+          + 'Actualice la versión desplegada de Apps Script antes de reactivar esta interfaz.',
+        )
+        error.code = 'BACKEND_ACTION_UNSUPPORTED'
+        error.action = action
+        throw error
+      }
+      rejectApiError(backendMessage, token)
+    }
+    return data
+  } catch (error) {
+    if (controller && error?.name === 'AbortError') {
+      const timeoutError = new Error('La solicitud agotó el tiempo de espera. Puede haberse completado en el servidor; verifique el estado antes de iniciar una operación distinta.')
+      timeoutError.code = 'API_REQUEST_TIMEOUT'
+      throw timeoutError
+    }
+    throw error
+  } finally {
+    if (timeout) clearTimeout(timeout)
   }
-  return data
+}
+
+const PDF_TRANSFER_CHUNK_BASE64 = 2097152
+const PDF_TRANSFER_MAX_BASE64 = 16000000
+const PDF_TRANSFER_DIRECT_SAFE_BASE64 = 3000000
+const PDF_TRANSFER_TIMEOUT_MS = 60000
+
+function newPdfUploadId() {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID()
+  const bytes = new Uint8Array(16)
+  globalThis.crypto.getRandomValues(bytes)
+  bytes[6] = (bytes[6] & 0x0f) | 0x40
+  bytes[8] = (bytes[8] & 0x3f) | 0x80
+  const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+}
+
+function pdfTooLargeForProxy(error) {
+  return error?.status === 413 || /HTTP 413/.test(String(error?.message || ''))
+}
+
+async function uploadPdfBase64InChunks(kind, id, artifact, token, legacyAction) {
+  const content = String(artifact?.pdfBase64 || '')
+  if (!content || content.length > PDF_TRANSFER_MAX_BASE64 || content.length % 4 !== 0
+    || !/^[A-Za-z0-9+/]+={0,2}$/.test(content)) {
+    throw new Error('El PDF no está en Base64 válido o supera el máximo permitido de 12 MB.')
+  }
+  const uploadId = newPdfUploadId()
+  const chunkCount = Math.ceil(content.length / PDF_TRANSFER_CHUNK_BASE64)
+  const session = { kind, id, uploadId, chunkCount, versionId: artifact.versionId || artifact.certificateId || '' }
+  try {
+    for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex += 1) {
+      const chunkBase64 = content.slice(chunkIndex * PDF_TRANSFER_CHUNK_BASE64, (chunkIndex + 1) * PDF_TRANSFER_CHUNK_BASE64)
+      await call('guardarPdfPrivadoChunk', { ...session, chunkIndex, chunkBase64 }, token, { timeoutMs: PDF_TRANSFER_TIMEOUT_MS })
+    }
+    const finalizeParams = {
+      ...session,
+      pdfHash: artifact.pdfHash,
+      templateVersion: artifact.templateVersion,
+      certificateVersion: artifact.certificateVersion,
+    }
+    if (kind === 'certificate-migration') {
+      finalizeParams.certificateId = artifact.certificateId
+      finalizeParams.motivo = artifact.motivo
+      finalizeParams.confirmacion = artifact.confirmacion
+    }
+    return await call('finalizarPdfPrivadoChunk', finalizeParams, token, { timeoutMs: PDF_TRANSFER_TIMEOUT_MS })
+  } catch (error) {
+    try {
+      await call('cancelarPdfPrivadoChunk', session, token, { timeoutMs: 15000 })
+    } catch { /* Si el backend aún no tiene las acciones nuevas, no hay sesión que limpiar. */ }
+    if (error?.code === 'BACKEND_ACTION_UNSUPPORTED') {
+      if (content.length <= PDF_TRANSFER_DIRECT_SAFE_BASE64) return call(legacyAction, { id, ...artifact }, token)
+      const required = new Error('El PDF es demasiado grande para enviarlo de una vez y el backend Apps Script aún no tiene activa la transferencia segura por fragmentos; no se confirmó ningún cambio al certificado.')
+      required.code = 'PDF_CHUNK_BACKEND_REQUIRED'
+      throw required
+    }
+    throw error
+  }
+}
+
+async function savePrivatePdf(kind, id, artifact, token, legacyAction) {
+  const content = String(artifact?.pdfBase64 || '')
+  if (content.length > PDF_TRANSFER_DIRECT_SAFE_BASE64) {
+    return uploadPdfBase64InChunks(kind, id, artifact, token, legacyAction)
+  }
+  try {
+    return await call(legacyAction, { id, ...artifact }, token)
+  } catch (error) {
+    if (!pdfTooLargeForProxy(error)) throw error
+    return uploadPdfBase64InChunks(kind, id, artifact, token, legacyAction)
+  }
+}
+
+async function readPrivatePdfInChunks(kind, params, token) {
+  const first = await call('leerPdfPrivadoChunk', { kind, ...params, chunkIndex: 0 }, token, { timeoutMs: PDF_TRANSFER_TIMEOUT_MS })
+  const totalBytes = Number(first.totalBytes)
+  const totalChunks = Number(first.totalChunks)
+  if (!Number.isSafeInteger(totalBytes) || totalBytes < 1 || totalBytes > 12000000
+    || !Number.isInteger(totalChunks) || totalChunks < 1 || totalChunks > 8
+    || first.chunkBytes !== 1572864 || totalChunks !== Math.ceil(totalBytes / first.chunkBytes)) {
+    throw new Error('El backend devolvió metadatos incompletos o fuera de los límites para el PDF.')
+  }
+  const parts = [String(first.contentBase64 || '')]
+  for (let chunkIndex = 1; chunkIndex < totalChunks; chunkIndex += 1) {
+    const part = await call('leerPdfPrivadoChunk', { kind, ...params, chunkIndex }, token, { timeoutMs: PDF_TRANSFER_TIMEOUT_MS })
+    if (part.chunkIndex !== chunkIndex || part.totalBytes !== totalBytes || part.totalChunks !== totalChunks
+      || part.hash !== first.hash || part.reference !== first.reference || part.filename !== first.filename) {
+      throw new Error('Los fragmentos recuperados no pertenecen a una misma versión del PDF.')
+    }
+    parts.push(String(part.contentBase64 || ''))
+  }
+  const contentBase64 = parts.join('')
+  if (contentBase64.length !== Math.ceil(totalBytes / 3) * 4 || contentBase64.length > PDF_TRANSFER_MAX_BASE64) {
+    throw new Error('La transferencia por fragmentos quedó incompleta; el PDF no se descargó.')
+  }
+  return { success: true, reference: first.reference, hash: first.hash, filename: first.filename, contentBase64 }
+}
+
+async function readPrivatePdf(legacyAction, legacyParams, kind, chunkParams) {
+  const token = getToken()
+  try {
+    return await call(legacyAction, legacyParams, token)
+  } catch (error) {
+    if (!pdfTooLargeForProxy(error)) throw error
+    return readPrivatePdfInChunks(kind, chunkParams, token)
+  }
 }
 
 async function callPost(action, params = {}, token = null) {
@@ -294,8 +418,10 @@ export const api = {
   emitirEntregableAval: (id) => call('emitirEntregableAval', { id }, getToken()),
   anularEntregableAval: (id, motivo) => call('anularEntregableAval', { id, motivo, confirmacion: 'ANULAR' }, getToken()),
   reemitirEntregableAval: (id, motivo) => call('reemitirEntregableAval', { id, motivo, confirmacion: 'REEMITIR' }, getToken()),
-  guardarPdfEntregableAvalPrivado: (id, pdf) => call('guardarPdfEntregableAvalPrivado', { id, ...pdf }, getToken()),
-  leerPdfEntregableAvalPrivado: (id, versionId = '') => call('leerPdfEntregableAvalPrivado', { id, versionId }, getToken()),
+  guardarPdfEntregableAvalPrivado: (id, pdf) => savePrivatePdf('aval', id, pdf, getToken(), 'guardarPdfEntregableAvalPrivado'),
+  leerPdfEntregableAvalPrivado: (id, versionId = '') => readPrivatePdf(
+    'leerPdfEntregableAvalPrivado', { id, versionId }, 'aval', { id, versionId },
+  ),
   enviarEntregableAvalEmail: (id, email) => call('enviarEntregableAvalEmail', { id, email }, getToken()),
   resolverEnvioEntregableAval: (id, resultado, motivo) =>
     call('resolverEnvioEntregableAval', { id, resultado, motivo, confirmacion: 'RECONCILIAR_ENVIO_AVAL' }, getToken()),
@@ -354,6 +480,10 @@ export const api = {
     bust('getInscripciones', 'getDashboard', 'getCertificadosAval')
     return call('addInscripcion', { inscripcion }, getToken())
   },
+  importarInscripcionesMasivo: ({ batchId, servicioId, participantes }) => {
+    bust('getInscripciones', 'getIngresos', 'getDashboard', 'getCertificadosAval')
+    return call('importarInscripcionesMasivo', { batchId, servicioId, participantes }, getToken())
+  },
   updateInscripcion: (id, inscripcion, historicalKey = '') => {
     bust('getInscripciones', 'getIngresos', 'getDashboard', 'getCertificadosAval')
     return call('updateInscripcion', { id, historicalKey, inscripcion }, getToken())
@@ -380,6 +510,8 @@ export const api = {
     call('getCertificadoParaDescarga', { id, certificateId }, getToken()),
   getHistorialCertificados: (id) =>
     call('getHistorialCertificados', { id }, getToken()),
+  getCertificadoPendienteParaCompletar: (inscripcionId, certificateId) =>
+    call('getCertificadoPendienteParaCompletar', { inscripcionId, certificateId }, getToken()),
   getCertificadoVersionParaDescarga: (inscripcionId, certificateId) =>
     call('getCertificadoVersionParaDescarga', { inscripcionId, certificateId }, getToken()),
   registrarArtefactoCertificado: (id, artifact) => {
@@ -388,10 +520,15 @@ export const api = {
   },
   guardarPdfCertificadoPrivado: (id, artifact) => {
     bust('getInscripciones')
-    return call('guardarPdfCertificadoPrivado', { id, ...artifact }, getToken())
+    return savePrivatePdf('certificate', id, artifact, getToken(), 'guardarPdfCertificadoPrivado')
   },
-  leerPdfCertificadoPrivado: (id) =>
-    call('leerPdfCertificadoPrivado', { id, certificateId: id }, getToken()),
+  migrarPdfCertificadoPrivado: (id, artifact) => {
+    bust('getInscripciones')
+    return savePrivatePdf('certificate-migration', id, artifact, getToken(), 'migrarPdfCertificadoPrivado')
+  },
+  leerPdfCertificadoPrivado: (id) => readPrivatePdf(
+    'leerPdfCertificadoPrivado', { id, certificateId: id }, 'certificate', { id, certificateId: id },
+  ),
   solicitarDescargaCertificado: (id, artifact) =>
     call('solicitarDescargaCertificado', { id, ...artifact }, getToken()),
   confirmarDescargaCertificado: (solicitudId, resultado, motivo = '') => {

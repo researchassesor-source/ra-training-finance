@@ -1,8 +1,8 @@
-# Contrato futuro: CRM y certificados
+# Integración CRM y certificados
 
-Estado: **documentado, no conectado**. Finance continúa siendo la única fuente de emisión oficial.
+Finance continúa siendo la única autoridad de pago y emisión oficial. El repositorio contiene un servicio interno Apps Script para importar compras y consultar/verificar su estado mediante `CRM_SERVICE_TOKEN`; eso no demuestra por sí solo que la versión esté desplegada ni que el CRM de producción esté conectado. Las rutas REST `/v1` descritas abajo siguen siendo una propuesta futura y no deben presentarse como endpoints disponibles.
 
-## Operaciones propuestas para `/v1`
+## Rutas REST propuestas para una futura versión `/v1` (no implementadas)
 
 ### `GET /integrations/certificates/:verificationId`
 

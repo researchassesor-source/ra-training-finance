@@ -16,3 +16,4 @@ output/
 *.pem
 *.key
 .ra-training-secrets/
+.env*

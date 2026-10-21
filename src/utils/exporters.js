@@ -2,7 +2,7 @@ import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { Document, Packer, Paragraph, Table, TableRow, TableCell, TextRun, HeadingLevel, AlignmentType, WidthType, BorderStyle } from 'docx'
 import { saveAs } from 'file-saver'
-import { fmt, MESES } from './formatters'
+import { fmt, formatHours, MESES } from './formatters'
 
 const BRAND_COLOR = [55, 48, 163] // brand-800
 
@@ -255,7 +255,7 @@ export function exportFlujosTrabajoPDF({ usuarioLabel, desde, hasta, flujos }) {
   doc.setFontSize(9)
   doc.setTextColor(70, 70, 70)
   doc.text(
-    `Flujos: ${flujos.length}  |  Actividades: ${actividades.length}  |  Completadas: ${completadas}  |  Aprobadas: ${aprobadas}  |  Horas plan: ${totalPlan}  |  Horas reales: ${totalReal}  |  Horas aprobadas: ${totalAprobado}`,
+    `Flujos: ${flujos.length}  |  Actividades: ${actividades.length}  |  Completadas: ${completadas}  |  Aprobadas: ${aprobadas}  |  Horas plan: ${formatHours(totalPlan)}  |  Horas reales: ${formatHours(totalReal)}  |  Horas aprobadas: ${formatHours(totalAprobado)}`,
     14,
     y,
   )
@@ -269,12 +269,12 @@ export function exportFlujosTrabajoPDF({ usuarioLabel, desde, hasta, flujos }) {
       a.DiaSemana || '—',
       `${a.Titulo || '—'}${a.Descripcion ? `\n${a.Descripcion}` : ''}`,
       a.Estado || '—',
-      String(a.HorasEstimadas || 0),
-      String(a.HorasReales || 0),
-      String(String(a.EstadoRevision || '') === 'aprobado' ? (Number(a.HorasAprobadas) || 0) : 0),
+      formatHours(a.HorasEstimadas || 0),
+      formatHours(a.HorasReales || 0),
+      formatHours(String(a.EstadoRevision || '') === 'aprobado' ? (Number(a.HorasAprobadas) || 0) : 0),
       [a.EstadoRevision || 'pendiente_revision', a.FeedbackRevision, a.Evidencia || a.Notas].filter(Boolean).join(' · ') || '—',
     ]),
-    foot: [['', '', '', '', 'TOTALES', String(totalEst), String(totalReal), String(totalAprobado), `Plan semanal acumulado: ${totalPlan}h`]],
+    foot: [['', '', '', '', 'TOTALES', formatHours(totalEst), formatHours(totalReal), formatHours(totalAprobado), `Plan semanal acumulado: ${formatHours(totalPlan)}h`]],
     headStyles: { fillColor: BRAND_COLOR, fontSize: 7 },
     footStyles: { fillColor: [240, 240, 255], fontStyle: 'bold', fontSize: 8 },
     bodyStyles: { fontSize: 7, overflow: 'linebreak' },

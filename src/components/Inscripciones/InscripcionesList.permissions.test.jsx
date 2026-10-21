@@ -23,7 +23,10 @@ const apiMock = vi.hoisted(() => ({
   getOpcionesInstitucionesMaestras: vi.fn(async () => ({ data: [] })),
   getConfigPagos: vi.fn(async () => ({ data: [] })),
   emitirCertificado: vi.fn(async () => ({ data: state.rows[0] })),
+  reemitirCertificado: vi.fn(async () => ({ success: true, data: { ...state.rows[0], ID: 'CRT-REISSUED', CertificateVersion: 2, TemplateVersion: 'ra-security-2026-v3' } })),
   getCertificadoParaDescarga: vi.fn(async () => ({ data: state.rows[0] })),
+  getCertificadoVersionParaDescarga: vi.fn(async () => ({ success: true, data: state.rows[0] })),
+  getCertificadoPendienteParaCompletar: vi.fn(async () => ({ success: true, data: state.rows[0] })),
   getHistorialCertificados: vi.fn(async () => ({ success: true, data: [
     { id: 'CRT-OLD', codigo: 'RA-2026-OLD', version: 1, estado: 'reemitido', fecha: '2026-07-02T12:00:00.000Z', actor: 'admin.demo', motivo: 'Corrección documentada', plantilla: 'test-v1', pdfArchivado: true, snapshotVerificado: true },
     { id: 'CRT-CURRENT', codigo: 'RA-2026-CURRENT', version: 2, estado: 'emitido', fecha: '2026-07-03T12:00:00.000Z', actor: 'admin.demo', plantilla: 'test-v2', pdfArchivado: true, snapshotVerificado: true },
@@ -172,6 +175,85 @@ describe('acciones visibles en inscripciones', () => {
     expect(screen.getByText('Corrección documentada')).toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: 'Descargar PDF original' })).toHaveLength(2)
     expect(apiMock.getHistorialCertificados).toHaveBeenCalledWith('INS-DEMO-001')
+  })
+
+  it('completa la reemisión pendiente desde el snapshot y descarga la versión ya archivada', async () => {
+    state.user = { rol: 'admin', username: 'admin.demo', nombre: 'Admin Demo' }
+    apiMock.getHistorialCertificados.mockResolvedValueOnce({ success: true, data: [
+      { id: 'CRT-OLDER-PENDING', codigo: 'RA-2026-OLDER', version: 3, estado: 'pendiente_pdf',
+        plantilla: 'ra-security-2026-v3', pdfArchivado: false, snapshotVerificado: true, puedeCompletarPdf: false },
+      { id: 'CRT-PENDING', codigo: 'RA-2026-PENDING', version: 2, estado: 'pendiente',
+        plantilla: 'ra-security-2026-v3', pdfArchivado: false, snapshotVerificado: true, puedeCompletarPdf: true },
+      { id: 'CRT-ORIGINAL', codigo: 'RA-2026-ORIGINAL', version: 1, estado: 'emitido',
+        plantilla: 'ra-canva-2026-v1', pdfArchivado: true, snapshotVerificado: true },
+    ] })
+    apiMock.getCertificadoPendienteParaCompletar.mockResolvedValueOnce({ success: true, data: {
+      ...emittedRow,
+      ID: 'CRT-PENDING',
+      InscripcionID: 'INS-DEMO-001',
+      CertificatePublicId: 'CRT-PENDING',
+      CertificateVersion: 2,
+      TemplateVersion: 'ra-security-2026-v3',
+      CertificateType: 'aprobacion',
+      CertificateStatus: 'pendiente_pdf',
+    } })
+    certificateMocks.prepare.mockResolvedValueOnce({
+      blob: new Blob(['pdf-final'], { type: 'application/pdf' }),
+      filename: 'certificado_v2.pdf',
+      hash: 'c'.repeat(64),
+      reference: 'certificate-drive:DRIVE-FILE-2',
+      templateVersion: 'ra-security-2026-v3',
+      certificateVersion: 2,
+    })
+    renderList()
+    await screen.findByText('Participante Demo')
+    fireEvent.click(screen.getByRole('button', { name: 'Ver historial de versiones del certificado' }))
+    expect(await screen.findAllByRole('button', { name: 'Completar PDF y descargar' })).toHaveLength(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Completar PDF y descargar' }))
+
+    await waitFor(() => expect(apiMock.getCertificadoPendienteParaCompletar)
+      .toHaveBeenCalledWith('INS-DEMO-001', 'CRT-PENDING'))
+    await waitFor(() => expect(apiMock.registrarArtefactoCertificado).toHaveBeenCalledWith('CRT-PENDING', expect.objectContaining({
+      pdfHash: 'c'.repeat(64),
+      pdfStorageReference: 'certificate-drive:DRIVE-FILE-2',
+      templateVersion: 'ra-security-2026-v3',
+      certificateVersion: 2,
+    })))
+    expect(certificateMocks.prepare).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      ID: 'CRT-PENDING',
+      CertificateStatus: 'emitido',
+      CertificateVersion: 2,
+    }))
+    await waitFor(() => expect(apiMock.getCertificadoVersionParaDescarga)
+      .toHaveBeenCalledWith('INS-DEMO-001', 'CRT-PENDING'))
+    await waitFor(() => expect(apiMock.confirmarDescargaCertificado).toHaveBeenCalledWith('DLC-1', 'completado'))
+    expect(certificateMocks.saveAs).toHaveBeenCalledWith(expect.any(Blob), 'certificado_demo.pdf')
+  })
+
+  it('no marca vigente una reemisión hasta registrar primero el PDF central', async () => {
+    state.user = { rol: 'admin', username: 'admin.demo', nombre: 'Admin Demo' }
+    certificateMocks.prepare.mockResolvedValueOnce({
+      blob: new Blob(['pdf-reemitido'], { type: 'application/pdf' }),
+      filename: 'certificado_reemitido.pdf',
+      hash: 'd'.repeat(64),
+      reference: 'certificate-drive:DRIVE-REISSUED',
+      templateVersion: 'ra-security-2026-v3',
+      certificateVersion: 2,
+    })
+    renderList()
+    await screen.findByText('Participante Demo')
+    fireEvent.click(screen.getByRole('button', { name: 'Reemitir certificado' }))
+    fireEvent.change(screen.getByLabelText('Motivo obligatorio'), { target: { value: 'Corrección institucional aprobada' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: /Confirmo expresamente que deseo reemitir/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Reemitir', exact: true }))
+
+    await waitFor(() => expect(apiMock.reemitirCertificado).toHaveBeenCalledWith('INS-DEMO-001', 'Corrección institucional aprobada'))
+    await waitFor(() => expect(apiMock.registrarArtefactoCertificado).toHaveBeenCalledWith('CRT-REISSUED', expect.objectContaining({
+      pdfHash: 'd'.repeat(64),
+      pdfStorageReference: 'certificate-drive:DRIVE-REISSUED',
+      certificateVersion: 2,
+    })))
+    expect(certificateMocks.saveAs).toHaveBeenCalledWith(expect.any(Blob), 'certificado_reemitido.pdf')
   })
 
   it('oculta las acciones oficiales al vendedor y conserva el estado', async () => {

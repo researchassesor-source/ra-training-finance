@@ -28,8 +28,31 @@ export const PARTICIPANT_CERTIFICATE_TYPES = Object.freeze({
   }),
 })
 
+const PARTICIPANT_CERTIFICATE_TYPE_ALIASES = Object.freeze({
+  'de aprobacion': 'aprobacion',
+  'certificado de aprobacion': 'aprobacion',
+  'de asistencia': 'asistencia',
+  'certificado de asistencia': 'asistencia',
+  'de participacion': 'participacion',
+  'participacion academica': 'participacion',
+  'certificado de participacion': 'participacion',
+  'de capacitacion': 'capacitacion',
+  'certificado de capacitacion': 'capacitacion',
+})
+
 export function participantCertificateType(value) {
-  const type = PARTICIPANT_CERTIFICATE_TYPES[String(value || 'aprobacion').trim().toLowerCase()]
-  if (!type) throw new Error('El tipo de certificado no está configurado para esta plantilla.')
-  return type
+  const normalized = String(value || 'aprobacion')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase()
+    .replace(/[._-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+  const key = Object.hasOwn(PARTICIPANT_CERTIFICATE_TYPE_ALIASES, normalized)
+    ? PARTICIPANT_CERTIFICATE_TYPE_ALIASES[normalized]
+    : normalized
+  if (!Object.hasOwn(PARTICIPANT_CERTIFICATE_TYPES, key)) {
+    throw new Error('El tipo de certificado no está configurado para esta plantilla.')
+  }
+  return PARTICIPANT_CERTIFICATE_TYPES[key]
 }

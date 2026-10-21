@@ -3,6 +3,16 @@
 // o ya como YYYY-MM-DD, al formato que exige <input type="date">. Sin esto, un
 // input type=date required recibe un valor que no puede parsear, lo deja vacío
 // silenciosamente y el navegador bloquea el submit sin mostrar ningún error.
+export function roundToTwoDecimals(value) {
+  const number = Number(value)
+  if (!Number.isFinite(number)) return 0
+  return Math.round((number + Number.EPSILON) * 100) / 100
+}
+
+export function formatHours(value) {
+  return String(roundToTwoDecimals(value))
+}
+
 export function toDateInput(val) {
   if (!val) return ''
   if (val instanceof Date && !Number.isNaN(val.getTime())) {

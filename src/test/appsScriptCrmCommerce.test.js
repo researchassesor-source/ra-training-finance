@@ -129,6 +129,29 @@ describe('3. importCrmPurchase usa CRMOrderID y no interfiere con el legacy', ()
     expect(result.success).toBe(true)
     expect(inscripciones(harness)).toHaveLength(2)
   })
+
+  it('un retry repara una importación interrumpida sin duplicar ingreso ni inscripción', () => {
+    const harness = seededHarness()
+    const sheet = harness.ensureSheet('CRMCompras')
+    const appendRow = sheet.appendRow.bind(sheet)
+    let failOnce = true
+    sheet.appendRow = row => {
+      if (failOnce) { failOnce = false; throw new Error('write interrupted') }
+      appendRow(row)
+    }
+    const first = crmCall(harness, 'importCrmPurchase', basePurchase())
+    expect(first.success).toBe(false)
+    expect(inscripciones(harness)).toHaveLength(1)
+    expect(harness.objects('Ingresos')).toHaveLength(1)
+    expect(compras(harness)).toHaveLength(0)
+
+    sheet.appendRow = appendRow
+    const retry = crmCall(harness, 'importCrmPurchase', basePurchase())
+    expect(retry.success).toBe(true)
+    expect(inscripciones(harness)).toHaveLength(1)
+    expect(harness.objects('Ingresos')).toHaveLength(1)
+    expect(compras(harness)).toHaveLength(1)
+  })
 })
 
 describe('4. compra vinculada a un Enrollment que YA tiene Inscripción legacy la reutiliza (no duplica)', () => {
@@ -157,6 +180,27 @@ describe('5. FULL', () => {
     expect(segundo.idempotent).toBe(true)
     expect(segundo.data.financeInscripcionId).toBe(primero.data.financeInscripcionId)
     expect(compras(harness)).toHaveLength(1)
+    expect(harness.objects('Ingresos')).toHaveLength(1)
+  })
+
+  it('rechaza reutilizar crmOrderId con monto u oferta diferentes', () => {
+    const harness = seededHarness()
+    crmCall(harness, 'importCrmPurchase', basePurchase())
+    const conflict = crmCall(harness, 'importCrmPurchase', basePurchase({ amount: 25 }))
+    expect(conflict.success).toBe(false)
+    expect(conflict.error).toMatch(/datos distintos/)
+    expect(compras(harness)).toHaveLength(1)
+    expect(harness.objects('Ingresos')).toHaveLength(1)
+  })
+
+  it('normaliza espacios externos de los identificadores para que no nazcan órdenes duplicadas', () => {
+    const harness = seededHarness()
+    const first = crmCall(harness, 'importCrmPurchase', basePurchase({ crmOrderId: '  ORD-1  ' }))
+    const retry = crmCall(harness, 'importCrmPurchase', basePurchase({ crmOrderId: 'ORD-1' }))
+    expect(first.success).toBe(true)
+    expect(retry).toMatchObject({ success: true, idempotent: true })
+    expect(compras(harness)).toHaveLength(1)
+    expect(harness.objects('Ingresos')).toHaveLength(1)
   })
 })
 
@@ -324,6 +368,44 @@ describe('marcarAval + entregable avalado', () => {
     request({ action: 'emitirCertificado', token: 'admin-token', id: full.data.financeInscripcionId })
     return full.data.financeInscripcionId
   }
+
+  it('sube y descarga un PDF avalado en partes pequeñas, con integridad e idempotencia', () => {
+    const harness = seededHarness()
+    const request = harness.context.processRequest
+    const id = facturaFullLista(harness)
+    expect(request({ action: 'marcarAval', token: 'admin-token', id, avalCodigoExterno: 'ITSAL-2026-123' }).success).toBe(true)
+    activateCertificateSignatures(harness)
+    const issued = request({ action: 'emitirEntregableAval', token: 'admin-token', id })
+    expect(issued.success).toBe(true)
+
+    const bytes = Buffer.alloc(1572864 + 17, 0x61)
+    Buffer.from('%PDF-').copy(bytes, 0)
+    const hash = crypto.createHash('sha256').update(bytes).digest('hex')
+    const uploadId = crypto.randomUUID()
+    const chunks = [bytes.subarray(0, 1572864), bytes.subarray(1572864)]
+    chunks.forEach((chunk, chunkIndex) => {
+      const result = request({ action: 'guardarPdfPrivadoChunk', token: 'admin-token', kind: 'aval', id,
+        uploadId, chunkIndex, chunkCount: chunks.length, chunkBase64: chunk.toString('base64') })
+      expect(result).toMatchObject({ success: true, chunkIndex })
+    })
+    const duplicate = request({ action: 'guardarPdfPrivadoChunk', token: 'admin-token', kind: 'aval', id,
+      uploadId, chunkIndex: 0, chunkCount: chunks.length, chunkBase64: chunks[0].toString('base64') })
+    expect(duplicate.idempotent).toBe(true)
+
+    const archived = request({ action: 'finalizarPdfPrivadoChunk', token: 'admin-token', kind: 'aval', id,
+      uploadId, chunkCount: chunks.length, pdfHash: hash, templateVersion: issued.data.TemplateVersion })
+    expect(archived).toMatchObject({ success: true, hash })
+    const first = request({ action: 'leerPdfPrivadoChunk', token: 'admin-token', kind: 'aval', id, chunkIndex: 0 })
+    const last = request({ action: 'leerPdfPrivadoChunk', token: 'admin-token', kind: 'aval', id, chunkIndex: 1 })
+    expect(first).toMatchObject({ success: true, totalBytes: bytes.length, totalChunks: 2, hash })
+    expect(Buffer.from(first.contentBase64 + last.contentBase64, 'base64').equals(bytes)).toBe(true)
+    expect([...harness.driveFiles.values()].filter(file => /^UPLOAD_/.test(file.getName()))).toHaveLength(0)
+
+    // La respuesta del primer finalize pudo perderse: volver a finalizar el mismo upload es seguro.
+    expect(request({ action: 'finalizarPdfPrivadoChunk', token: 'admin-token', kind: 'aval', id,
+      uploadId, chunkCount: chunks.length, pdfHash: hash, templateVersion: issued.data.TemplateVersion }))
+      .toMatchObject({ success: true, idempotent: true, hash })
+  }, 15000)
 
   it('no prepara un certificado con aval antes de la fecha de fin académica', () => {
     const harness = seededHarness()
@@ -1258,6 +1340,64 @@ describe('17. retries idempotentes (completion sync)', () => {
     expect(segundo.alreadyVerified).toBe(true)
     expect(segundo.data.paymentVerifiedAt).toBe(primero.data.paymentVerifiedAt)
   })
+
+  it('un retry repara la sincronización de pago después de un fallo parcial', () => {
+    const harness = seededHarness()
+    const purchase = crmCall(harness, 'importCrmPurchase', basePurchase({ offerType: 'INSTITUTIONAL', amount: 10 }))
+    const inscriptionSheet = harness.sheets.Inscripciones
+    const updateRow = harness.context.updateRow
+    let failOnce = true
+    harness.context.updateRow = (sheet, row, fields) => {
+      if (sheet === inscriptionSheet && fields.EstadoPago === 'verificado' && failOnce) {
+        failOnce = false
+        throw new Error('inscription sync interrupted')
+      }
+      return updateRow(sheet, row, fields)
+    }
+    const first = crmCall(harness, 'verificarPagoCompraCrm', { crmOrderId: 'ORD-1', numeroComprobante: 'C-1', fechaPago: '2026-09-01' })
+    expect(first.success).toBe(false)
+    expect(compras(harness)[0].PaymentStatus).toBe('verificado')
+    expect(porId(harness, purchase.data.financeInscripcionId).EstadoPago).not.toBe('verificado')
+
+    const retry = crmCall(harness, 'verificarPagoCompraCrm', { crmOrderId: 'ORD-1', numeroComprobante: 'C-1', fechaPago: '2026-09-01' })
+    expect(retry.success).toBe(true)
+    expect(retry.alreadyVerified).toBe(true)
+    expect(porId(harness, purchase.data.financeInscripcionId).EstadoPago).toBe('verificado')
+    expect(harness.objects('AuditoriaCertificados').filter(row => row.Accion === 'PAYMENT_VERIFIED')).toHaveLength(1)
+  })
+
+  it('un retry completa la auditoría si falló después de marcar el pago', () => {
+    const harness = seededHarness()
+    const purchase = crmCall(harness, 'importCrmPurchase', basePurchase({ offerType: 'INSTITUTIONAL', amount: 10 }))
+    const sheet = harness.ensureSheet('AuditoriaCertificados')
+    const appendRow = sheet.appendRow.bind(sheet)
+    let failOnce = true
+    sheet.appendRow = row => {
+      if (row[5] === 'PAYMENT_VERIFIED' && failOnce) { failOnce = false; throw new Error('audit unavailable') }
+      appendRow(row)
+    }
+    const first = crmCall(harness, 'verificarPagoCompraCrm', { crmOrderId: 'ORD-1', numeroComprobante: 'C-1', fechaPago: '2026-09-01' })
+    expect(first.success).toBe(false)
+    expect(porId(harness, purchase.data.financeInscripcionId).EstadoPago).toBe('verificado')
+    sheet.appendRow = appendRow
+
+    const retry = crmCall(harness, 'verificarPagoCompraCrm', { crmOrderId: 'ORD-1', numeroComprobante: 'C-1', fechaPago: '2026-09-01' })
+    expect(retry.success).toBe(true)
+    expect(retry.alreadyVerified).toBe(true)
+    expect(harness.objects('AuditoriaCertificados').filter(row => row.Accion === 'PAYMENT_VERIFIED')).toHaveLength(1)
+  })
+
+  it('no reactiva una compra cancelada al intentar verificar su pago', () => {
+    const harness = seededHarness()
+    const purchase = crmCall(harness, 'importCrmPurchase', basePurchase({ offerType: 'INSTITUTIONAL', amount: 10 }))
+    const headers = harness.sheets.CRMCompras.rows[0]
+    harness.sheets.CRMCompras.rows[1][headers.indexOf('PaymentStatus')] = 'cancelado'
+    const result = crmCall(harness, 'verificarPagoCompraCrm', { crmOrderId: 'ORD-1', numeroComprobante: 'C-1' })
+    expect(result.success).toBe(false)
+    expect(result.error).toMatch(/está cancelada/)
+    expect(compras(harness)[0].PaymentStatus).toBe('cancelado')
+    expect(porId(harness, purchase.data.financeInscripcionId).EstadoPago).not.toBe('verificado')
+  })
 })
 
 describe('18. batch status respeta límite y rechaza lista vacía', () => {
@@ -1265,6 +1405,15 @@ describe('18. batch status respeta límite y rechaza lista vacía', () => {
     const harness = seededHarness()
     const result = crmCall(harness, 'getCrmPurchaseStatuses', { crmOrderIds: [] })
     expect(result.success).toBe(false)
+  })
+
+  it('rechaza un lote mayor de 50 en vez de devolver una respuesta parcial silenciosa', () => {
+    const harness = seededHarness()
+    const result = crmCall(harness, 'getCrmPurchaseStatuses', {
+      crmOrderIds: Array.from({ length: 51 }, (_, index) => `ORD-${index}`),
+    })
+    expect(result.success).toBe(false)
+    expect(result.error).toMatch(/no se truncó/)
   })
 })
 

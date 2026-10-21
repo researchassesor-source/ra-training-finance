@@ -125,6 +125,22 @@ describe('ciclo de vida de certificados en Apps Script', () => {
       .toMatchObject({ success: true, alreadyPrepared: true, data: { ID: reissued.data.ID } })
     expect(processRequest({ action: 'reemitirCertificado', token: 'admin-token', id: 'INS-REISSUE', motivo: 'Otro motivo diferente', confirmacion: 'REEMITIR' }).success).toBe(false)
 
+    const certificateSheet = harness.ensureSheet('Certificados')
+    const headers = certificateSheet.rows[0]
+    const pendingRow = certificateSheet.rows.find(row => row[headers.indexOf('ID')] === reissued.data.ID)
+    pendingRow[headers.indexOf('CertificateStatus')] = 'pendiente'
+
+    const resumable = processRequest({ action: 'getCertificadoPendienteParaCompletar', token: 'admin-token',
+      inscripcionId: 'INS-REISSUE', certificateId: reissued.data.ID })
+    expect(resumable).toMatchObject({ success: true, data: {
+      ID: reissued.data.ID, CertificateVersion: 2, CertificateStatus: 'pendiente',
+      CertificatePublicId: reissued.data.ID,
+    } })
+    const resumableHistory = processRequest({ action: 'getHistorialCertificados', token: 'admin-token', id: 'INS-REISSUE' })
+    expect(resumableHistory.data).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: reissued.data.ID, estado: 'pendiente', puedeCompletarPdf: true, snapshotVerificado: true }),
+    ]))
+
     const original = processRequest({ action: 'verificarCertificado', id: 'INS-REISSUE' })
     expect(original).toMatchObject({ valido: true, data: { estado: 'vigente', version: 1 } })
     const current = processRequest({ action: 'verificarCertificado', id: reissued.data.ID })
@@ -133,7 +149,7 @@ describe('ciclo de vida de certificados en Apps Script', () => {
     const records = harness.objects('Certificados')
     expect(records).toHaveLength(2)
     expect(records.find(item => item.ID === 'INS-REISSUE')).toMatchObject({ CertificateStatus: 'emitido', ReissuedCertificateId: '' })
-    expect(records.find(item => item.ID === reissued.data.ID)).toMatchObject({ OriginalCertificateId: 'INS-REISSUE', ReplacesCertificateId: 'INS-REISSUE', CertificateStatus: 'pendiente_pdf' })
+    expect(records.find(item => item.ID === reissued.data.ID)).toMatchObject({ OriginalCertificateId: 'INS-REISSUE', ReplacesCertificateId: 'INS-REISSUE', CertificateStatus: 'pendiente' })
 
     const archived = processRequest({ action: 'registrarArtefactoCertificado', token: 'admin-token', id: reissued.data.ID,
       pdfHash: 'e'.repeat(64), pdfStorageReference: `test-memory:${reissued.data.ID}:v2`,
@@ -158,7 +174,54 @@ describe('ciclo de vida de certificados en Apps Script', () => {
       .toMatchObject({ success: true, data: { ID: reissued.data.ID, CertificateVersion: 2, CodigoCertificado: reissued.data.CodigoCertificado } })
     expect(processRequest({ action: 'getCertificadoVersionParaDescarga', token: 'admin-token',
       inscripcionId: 'INS-VOID', certificateId: reissued.data.ID }).success).toBe(false)
-    expect(harness.locks).toEqual({ waits: 4, releases: 4 })
+    expect(harness.locks).toEqual({ waits: 5, releases: 5 })
+  })
+
+  it('recupera una reemisión antigua escrita con columnas desplazadas y archiva solo la versión más reciente', () => {
+    const harness = seededHarness()
+    const certificateSheet = harness.ensureSheet('Certificados')
+    const canonicalHeaders = harness.sourceHeaders('Certificados')
+    const legacyHeaders = canonicalHeaders.filter(header => header !== 'ReplacesCertificateId')
+    legacyHeaders.splice(legacyHeaders.indexOf('CertificatePreparedAt'), 0, 'ReplacesCertificateId')
+    certificateSheet.rows[0] = legacyHeaders
+    const { processRequest } = harness.context
+    const prepared = processRequest({ action: 'reemitirCertificado', token: 'admin-token', id: 'INS-REISSUE',
+      motivo: 'Corrección autorizada del certificado', confirmacion: 'REEMITIR' })
+    expect(prepared.success).toBe(true)
+
+    const pending = harness.objects('Certificados').find(item => item.ID === prepared.data.ID)
+    const pendingRowIndex = certificateSheet.rows.findIndex(row => row[legacyHeaders.indexOf('ID')] === prepared.data.ID)
+    expect(pending).toMatchObject({
+      ReplacesCertificateId: 'INS-REISSUE', CertificateStatus: 'pendiente_pdf', ReissueReason: 'Corrección autorizada del certificado',
+      CertificateType: 'aprobacion',
+    })
+    expect(harness.objects('Certificados').find(item => item.ID === 'INS-REISSUE')).toMatchObject({
+      CertificateStatus: 'emitido', CodigoCertificado: 'RA-2026-ORIGINAL',
+    })
+    certificateSheet.rows[pendingRowIndex] = canonicalHeaders.map(header => pending[header] ?? '')
+
+    const history = processRequest({ action: 'getHistorialCertificados', token: 'admin-token', id: 'INS-REISSUE' })
+    expect(history.data).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: prepared.data.ID, estado: 'pendiente_pdf', puedeCompletarPdf: true, snapshotVerificado: true }),
+    ]))
+
+    const resumable = processRequest({ action: 'getCertificadoPendienteParaCompletar', token: 'admin-token',
+      inscripcionId: 'INS-REISSUE', certificateId: prepared.data.ID })
+    expect(resumable).toMatchObject({ success: true, data: { ID: prepared.data.ID, CertificateStatus: 'pendiente_pdf' } })
+    expect(harness.objects('Certificados').find(item => item.ID === prepared.data.ID)).toMatchObject({
+      ReplacesCertificateId: 'INS-REISSUE', ReissuedCertificateId: '', CertificateStatus: 'pendiente_pdf',
+      IssuedAt: '', IssuedBy: 'admin.test', ReissueReason: 'Corrección autorizada del certificado',
+      CreatedAt: expect.any(String), CertificateType: 'aprobacion',
+    })
+    expect(harness.objects('AuditoriaCertificados').map(item => item.Accion)).toContain('CERTIFICATE_REISSUE_SCHEMA_RECOVERED')
+
+    const archived = processRequest({ action: 'registrarArtefactoCertificado', token: 'admin-token', id: prepared.data.ID,
+      pdfHash: 'd'.repeat(64), pdfStorageReference: `test-memory:${prepared.data.ID}:v2`,
+      templateVersion: prepared.data.TemplateVersion, certificateVersion: 2 })
+    expect(archived.success).toBe(true)
+    expect(processRequest({ action: 'verificarCertificado', id: 'INS-REISSUE' })).toMatchObject({
+      valido: true, data: { estado: 'reemitido', certificadoVigenteId: prepared.data.ID },
+    })
   })
 
   it('si falla la auditoría al archivar la reemisión, restaura el PDF y el certificado anterior sigue vigente', () => {

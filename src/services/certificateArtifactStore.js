@@ -330,7 +330,7 @@ export class CertificatePdfRepository {
     if (expectedHash && !historicalRecoveryAllowed) {
       throw new CertificateArtifactError(
         CERTIFICATE_ARTIFACT_ERROR_CODES.ARTIFACT_NOT_LOCAL,
-        'El PDF oficial existe, pero no está disponible en este navegador o dispositivo. No se regeneró ni sustituyó automáticamente.',
+        'El registro conserva la huella del PDF oficial, pero este navegador no tiene el archivo original. No se regeneró ni sustituyó el certificado.',
       )
     }
     if (historicalArtifact && !historicalRecoveryAllowed) {

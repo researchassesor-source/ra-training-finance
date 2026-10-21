@@ -307,7 +307,7 @@ describe('flujos de trabajo enriquecidos', () => {
       id: 'ACT-REV-1',
       actividad: {
         estadoRevision: 'aprobado',
-        horasAprobadas: 4,
+        horasAprobadas: 4.287,
         feedbackRevision: 'Actividad cumplida correctamente. Horas aprobadas.',
         evidenciaRevision: 'Captura revisada por administración.',
         imagenesRevision: JSON.stringify([{ id: 'img-admin-1', name: 'revision.jpg', type: 'image/jpeg', dataUrl: 'data:image/jpeg;base64,admin', createdAt: '2026-08-27T11:00:00.000Z' }]),
@@ -317,12 +317,75 @@ describe('flujos de trabajo enriquecidos', () => {
 
     expect(updated.success).toBe(true)
     expect(row.EstadoRevision).toBe('aprobado')
-    expect(row.HorasAprobadas).toBe(4)
+    expect(row.HorasAprobadas).toBe(4.29)
     expect(row.FeedbackRevision).toBe('Actividad cumplida correctamente. Horas aprobadas.')
     expect(row.EvidenciaRevision).toBe('Captura revisada por administración.')
     expect(JSON.parse(row.ImagenesRevision)[0].name).toBe('revision.jpg')
     expect(row.RevisadoPor).toBe('admin')
     expect(row.RevisadoEn).toBeTruthy()
+  })
+
+  it('permite corregir horas reportadas de una actividad completada pendiente sin aprobarla', () => {
+    const harness = createHarness()
+    harness.seed('ActividadesFlujo', [{
+      ID: 'ACT-HOURS-PENDING',
+      FlujoID: 'FLJ-1',
+      Username: 'angel',
+      Titulo: 'Validar asistencia',
+      DiaSemana: 'Martes',
+      HorasEstimadas: 4,
+      Estado: 'completado',
+      HorasReales: 0,
+      EstadoRevision: 'pendiente_revision',
+      HorasAprobadas: 0,
+      Evidencia: 'https://drive.google.com/evidencia',
+    }])
+
+    const updated = harness.context.processRequest({
+      action: 'updateActividadFlujo',
+      token: 'angel-token',
+      id: 'ACT-HOURS-PENDING',
+      actividad: { horasReales: 4 + 20 / 60, notas: 'Duración contrastada con asistencia.' },
+    })
+    const row = harness.objects('ActividadesFlujo')[0]
+
+    expect(updated.success).toBe(true)
+    expect(row.HorasReales).toBe(4.33)
+    expect(row.Estado).toBe('completado')
+    expect(row.EstadoRevision).toBe('pendiente_revision')
+    expect(row.HorasAprobadas).toBe(0)
+    expect(row.Evidencia).toBe('https://drive.google.com/evidencia')
+    expect(row.Notas).toBe('Duración contrastada con asistencia.')
+  })
+
+  it('impide modificar horas reportadas cuando la actividad ya fue aprobada', () => {
+    const harness = createHarness()
+    harness.seed('ActividadesFlujo', [{
+      ID: 'ACT-HOURS-APPROVED',
+      FlujoID: 'FLJ-1',
+      Username: 'angel',
+      Titulo: 'Actividad aprobada',
+      DiaSemana: 'Martes',
+      HorasEstimadas: 4,
+      Estado: 'completado',
+      HorasReales: 4,
+      EstadoRevision: 'aprobado',
+      HorasAprobadas: 4,
+    }])
+
+    const updated = harness.context.processRequest({
+      action: 'updateActividadFlujo',
+      token: 'angel-token',
+      id: 'ACT-HOURS-APPROVED',
+      actividad: { horasReales: 5 },
+    })
+    const row = harness.objects('ActividadesFlujo')[0]
+
+    expect(updated.success).toBe(false)
+    expect(updated.error).toContain('después de su aprobación')
+    expect(row.HorasReales).toBe(4)
+    expect(row.HorasAprobadas).toBe(4)
+    expect(row.EstadoRevision).toBe('aprobado')
   })
 
   it('bloquea al vendedor para aprobar horas administrativas', () => {

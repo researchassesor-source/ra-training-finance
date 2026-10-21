@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   prepare: vi.fn(),
   store: vi.fn(),
+  migrate: vi.fn(),
   read: vi.fn(),
   signing: vi.fn(),
 }))
@@ -16,6 +17,7 @@ vi.mock('./certificateArtifactStore', async importOriginal => ({
 }))
 vi.mock('./api', () => ({ api: {
   guardarPdfCertificadoPrivado: mocks.store,
+  migrarPdfCertificadoPrivado: mocks.migrate,
   leerPdfCertificadoPrivado: mocks.read,
   getFirmasOficialesCertificado: mocks.signing,
 } }))
@@ -47,6 +49,44 @@ describe('repositorio de PDF oficiales', () => {
     expect(result.filename).toBe('certificado.pdf')
     expect(result.reused).toBe(true)
     expect(mocks.prepare).not.toHaveBeenCalled()
+  })
+
+  it('migra automáticamente al almacenamiento central solo la copia local que coincide con la huella oficial', async () => {
+    const existing = { ...certificate, InscripcionID: 'INS-1', PdfHash: hash, PdfStorageReference: 'browser-indexeddb:CERT-1:v1' }
+    mocks.prepare.mockResolvedValue({ blob: new Blob([bytes], { type: 'application/pdf' }), hash,
+      reference: existing.PdfStorageReference, templateVersion: existing.TemplateVersion,
+      certificateVersion: 1, reused: true })
+    mocks.migrate.mockResolvedValue({ success: true, reference: 'certificate-drive:drive-migrated', hash })
+
+    const result = await certificatePdfRepository.prepare(existing)
+
+    expect(mocks.migrate).toHaveBeenCalledWith('INS-1', expect.objectContaining({
+      certificateId: 'CERT-1', pdfHash: hash, certificateVersion: 1,
+      confirmacion: 'MIGRAR_PDF_ORIGINAL',
+    }))
+    expect(result).toMatchObject({ reference: 'certificate-drive:drive-migrated', hash, reused: true })
+  })
+
+  it('si falla la centralización, conserva la descarga de la copia local verificada y avisa que falta migrar', async () => {
+    const existing = { ...certificate, InscripcionID: 'INS-1', PdfHash: hash, PdfStorageReference: 'browser-indexeddb:CERT-1:v1' }
+    mocks.prepare.mockResolvedValue({ blob: new Blob([bytes], { type: 'application/pdf' }), hash,
+      reference: existing.PdfStorageReference, templateVersion: existing.TemplateVersion,
+      certificateVersion: 1, reused: true })
+    mocks.migrate.mockRejectedValue(new Error('Backend aún no actualizado'))
+
+    const result = await certificatePdfRepository.prepare(existing)
+
+    expect(result).toMatchObject({ reference: existing.PdfStorageReference, hash, archiveWarning: 'Backend aún no actualizado' })
+    expect(mocks.store).not.toHaveBeenCalled()
+  })
+
+  it('no intenta migrar si falla la lectura local ni cambia el hash del certificado', async () => {
+    const existing = { ...certificate, PdfHash: hash, PdfStorageReference: 'browser-indexeddb:CERT-1:v1' }
+    mocks.prepare.mockRejectedValue(Object.assign(new Error('No está en IndexedDB'), { code: 'CERTIFICATE_ARTIFACT_NOT_LOCAL' }))
+
+    await expect(certificatePdfRepository.prepare(existing)).rejects.toMatchObject({ code: 'CERTIFICATE_ARTIFACT_NOT_LOCAL' })
+    expect(mocks.migrate).not.toHaveBeenCalled()
+    expect(mocks.store).not.toHaveBeenCalled()
   })
 
   it('rechaza contenido corrupto y no sustituye documentos históricos', async () => {

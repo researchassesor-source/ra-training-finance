@@ -47,7 +47,37 @@ export const certificatePdfRepository = {
       ? { ...options, signatures: (await api.getFirmasOficialesCertificado({ templateVersion: certificate.TemplateVersion })).signatures }
       : options
     const prepared = await browserRepository.prepare(certificate, generationOptions)
-    if (certificate.PdfHash || certificate.PdfStorageReference || prepared.historicalArtifact) return prepared
+    if (certificate.PdfHash || certificate.PdfStorageReference || prepared.historicalArtifact) {
+      const canMoveOfficialLocalCopy = Boolean(
+        prepared.reused
+        && certificate.PdfHash
+        && (!reference || reference.startsWith('browser-indexeddb:'))
+        && prepared.blob,
+      )
+      if (!canMoveOfficialLocalCopy) return prepared
+
+      const officialHash = String(certificate.PdfHash).trim().toLowerCase()
+      const localHash = await sha256Hex(prepared.blob)
+      if (localHash !== officialHash) throw new Error('El PDF local no coincide con la huella oficial; no se descargó ni migró.')
+      try {
+        const archived = await api.migrarPdfCertificadoPrivado(certificate.InscripcionID || certificate.ID, {
+          certificateId: certificate.CertificatePublicId || certificate.ID,
+          pdfBase64: await blobToBase64(prepared.blob),
+          pdfHash: officialHash,
+          templateVersion: prepared.templateVersion || certificate.TemplateVersion || 'legacy-v1',
+          certificateVersion: Number(prepared.certificateVersion || certificate.CertificateVersion) || 1,
+          motivo: 'Migración del PDF original idéntico a la huella oficial para archivarlo de forma central.',
+          confirmacion: 'MIGRAR_PDF_ORIGINAL',
+        })
+        if (!archived.reference?.startsWith('certificate-drive:') || archived.hash !== officialHash) {
+          throw new Error('El servidor no confirmó el archivo central del PDF original.')
+        }
+        return { ...prepared, reference: archived.reference, hash: officialHash }
+      } catch (error) {
+        // Una falla al centralizar no impide entregar el PDF original verificado que sí existe localmente.
+        return { ...prepared, archiveWarning: error.message || 'No se pudo centralizar el PDF original.' }
+      }
+    }
 
     const archived = await api.guardarPdfCertificadoPrivado(certificate.CertificatePublicId || certificate.ID, {
       pdfBase64: await blobToBase64(prepared.blob),

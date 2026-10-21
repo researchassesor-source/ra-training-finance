@@ -55,6 +55,149 @@ describe('archivo privado de certificados', () => {
     expect(harness.objects('AuditoriaCertificados').map(row => row.Accion)).toContain('CERTIFICATE_ARTIFACT_REGISTERED')
   })
 
+  it('archiva y recupera certificados normales por fragmentos, validando cada lectura y la huella completa', () => {
+    const harness = setup()
+    const request = harness.context.processRequest
+    const bytes = Buffer.alloc(1572864 + 17, 0x62)
+    Buffer.from('%PDF-').copy(bytes, 0)
+    const hash = crypto.createHash('sha256').update(bytes).digest('hex')
+    const uploadId = crypto.randomUUID()
+    const chunks = [bytes.subarray(0, 1572864), bytes.subarray(1572864)]
+
+    chunks.forEach((chunk, chunkIndex) => {
+      expect(request({ action: 'guardarPdfPrivadoChunk', token: 'admin-token', kind: 'certificate', id: 'CERT-1',
+        uploadId, chunkIndex, chunkCount: chunks.length, chunkBase64: chunk.toString('base64') })).toMatchObject({ success: true })
+    })
+    const archived = request({ action: 'finalizarPdfPrivadoChunk', token: 'admin-token', kind: 'certificate', id: 'CERT-1',
+      uploadId, chunkCount: chunks.length, pdfHash: hash, templateVersion: 'ra-canva-2026-v1', certificateVersion: 1 })
+    expect(archived).toMatchObject({ success: true, hash, idempotent: false })
+
+    const first = request({ action: 'leerPdfPrivadoChunk', token: 'admin-token', kind: 'certificate',
+      id: 'CERT-1', certificateId: 'CERT-1', chunkIndex: 0 })
+    const last = request({ action: 'leerPdfPrivadoChunk', token: 'admin-token', kind: 'certificate',
+      id: 'CERT-1', certificateId: 'CERT-1', chunkIndex: 1 })
+    expect(first).toMatchObject({ success: true, totalBytes: bytes.length, totalChunks: 2, hash })
+    expect(Buffer.from(first.contentBase64 + last.contentBase64, 'base64').equals(bytes)).toBe(true)
+
+    const fileId = archived.reference.slice('certificate-drive:'.length)
+    harness.driveFiles.get(fileId).blob.bytes[20] ^= 1
+    const corrupt = request({ action: 'leerPdfPrivadoChunk', token: 'admin-token', kind: 'certificate',
+      id: 'CERT-1', certificateId: 'CERT-1', chunkIndex: 0 })
+    expect(corrupt.success).toBe(false)
+    expect(corrupt.error).toMatch(/SHA-256/)
+  })
+
+  it('migra el PDF original al Drive privado sin cambiar código, versión, plantilla o estado', () => {
+    const harness = setup()
+    for (const name of ['Certificados', 'Inscripciones']) {
+      const sheet = harness.sheets[name]
+      const headers = sheet.rows[0]
+      const row = sheet.rows[1]
+      row[headers.indexOf('PdfHash')] = pdfHash
+      row[headers.indexOf('PdfStorageReference')] = 'browser-indexeddb:CERT-1:v1'
+    }
+    const request = harness.context.processRequest
+    const payload = {
+      action: 'migrarPdfCertificadoPrivado', token: 'admin-token', id: 'INS-1', inscripcionId: 'INS-1',
+      certificateId: 'CERT-1', pdfBase64: pdfBytes.toString('base64'), pdfHash,
+      templateVersion: 'ra-canva-2026-v1', certificateVersion: 1,
+      motivo: 'Centralizar la copia original firmada.', confirmacion: 'MIGRAR_PDF_ORIGINAL',
+    }
+
+    const first = request(payload)
+    expect(first).toMatchObject({ success: true, hash: pdfHash, idempotent: false, migrated: true })
+    expect(first.reference).toMatch(/^certificate-drive:drive-/)
+    expect(harness.objects('Certificados')[0]).toMatchObject({
+      PdfHash: pdfHash, PdfStorageReference: first.reference, CertificateVersion: 1,
+      TemplateVersion: 'ra-canva-2026-v1', CertificateStatus: 'emitido', CodigoCertificado: 'RA-2026-1',
+    })
+    expect(harness.objects('Inscripciones')[0].PdfStorageReference).toBe(first.reference)
+    expect(harness.driveFiles.size).toBe(1)
+    expect(harness.objects('AuditoriaCertificados').map(row => row.Accion)).toContain('CERTIFICATE_ARTIFACT_MIGRATED_TO_DRIVE')
+
+    const again = request(payload)
+    expect(again).toMatchObject({ success: true, reference: first.reference, hash: pdfHash, idempotent: true })
+    expect(harness.driveFiles.size).toBe(1)
+    expect(harness.objects('AuditoriaCertificados').filter(row => row.Accion === 'CERTIFICATE_ARTIFACT_MIGRATED_TO_DRIVE')).toHaveLength(1)
+  })
+
+  it('rechaza archivo, huella, confirmación o rol incorrectos sin tocar la referencia oficial', () => {
+    const harness = setup()
+    const sheet = harness.sheets.Certificados
+    const headers = sheet.rows[0]
+    sheet.rows[1][headers.indexOf('PdfHash')] = pdfHash
+    sheet.rows[1][headers.indexOf('PdfStorageReference')] = 'browser-indexeddb:CERT-1:v1'
+    const payload = {
+      action: 'migrarPdfCertificadoPrivado', token: 'admin-token', id: 'INS-1', inscripcionId: 'INS-1',
+      certificateId: 'CERT-1', pdfBase64: pdfBytes.toString('base64'), pdfHash,
+      templateVersion: 'ra-canva-2026-v1', certificateVersion: 1,
+      motivo: 'Centralizar la copia original firmada.', confirmacion: 'MIGRAR_PDF_ORIGINAL',
+    }
+    const request = harness.context.processRequest
+
+    expect(request({ ...payload, pdfHash: '0'.repeat(64) }).success).toBe(false)
+    expect(request({ ...payload, confirmacion: '' }).success).toBe(false)
+    expect(request({ ...payload, token: 'seller-token' }).success).toBe(false)
+    expect(request({ ...payload, pdfBase64: Buffer.from('%PDF-different').toString('base64') }).success).toBe(false)
+    expect(harness.objects('Certificados')[0].PdfStorageReference).toBe('browser-indexeddb:CERT-1:v1')
+    expect(harness.driveFiles.size).toBe(0)
+  })
+
+  it('migra una versión histórica sin cambiar la referencia de la versión vigente de la inscripción', () => {
+    const harness = setup()
+    const certificateSheet = harness.sheets.Certificados
+    const enrollmentSheet = harness.sheets.Inscripciones
+    const set = (sheet, rowNumber, key, value) => { sheet.rows[rowNumber - 1][sheet.rows[0].indexOf(key)] = value }
+    set(certificateSheet, 2, 'CertificateStatus', 'reemitido')
+    set(certificateSheet, 2, 'PdfHash', pdfHash)
+    set(certificateSheet, 2, 'PdfStorageReference', 'browser-indexeddb:CERT-1:v1')
+    set(enrollmentSheet, 2, 'CertificateVersion', 2)
+    set(enrollmentSheet, 2, 'CodigoCertificado', 'RA-2026-2')
+    set(enrollmentSheet, 2, 'ReissuedCertificateId', 'CERT-2')
+    set(enrollmentSheet, 2, 'PdfHash', 'b'.repeat(64))
+    set(enrollmentSheet, 2, 'PdfStorageReference', 'certificate-drive:current')
+    harness.seed('Certificados', [{ ID: 'CERT-2', InscripcionID: 'INS-1', CodigoCertificado: 'RA-2026-2',
+      CertificateVersion: 2, TemplateVersion: 'ra-canva-2026-v2', CertificateStatus: 'emitido',
+      PdfHash: 'b'.repeat(64), PdfStorageReference: 'certificate-drive:current' }])
+
+    const migrated = harness.context.processRequest({
+      action: 'migrarPdfCertificadoPrivado', token: 'admin-token', id: 'INS-1', inscripcionId: 'INS-1',
+      certificateId: 'CERT-1', pdfBase64: pdfBytes.toString('base64'), pdfHash,
+      templateVersion: 'ra-canva-2026-v1', certificateVersion: 1,
+      motivo: 'Centralizar la copia original histórica.', confirmacion: 'MIGRAR_PDF_ORIGINAL',
+    })
+
+    expect(migrated.success).toBe(true)
+    expect(harness.objects('Certificados').find(row => row.ID === 'CERT-1').PdfStorageReference).toBe(migrated.reference)
+    expect(harness.objects('Certificados').find(row => row.ID === 'CERT-2').PdfStorageReference).toBe('certificate-drive:current')
+    expect(harness.objects('Inscripciones')[0]).toMatchObject({
+      CertificateVersion: 2, CodigoCertificado: 'RA-2026-2', PdfHash: 'b'.repeat(64),
+      PdfStorageReference: 'certificate-drive:current', ReissuedCertificateId: 'CERT-2',
+    })
+  })
+
+  it('revierte la referencia y elimina el archivo central si no se puede auditar la migración', () => {
+    const harness = setup()
+    for (const name of ['Certificados', 'Inscripciones']) {
+      const sheet = harness.sheets[name]
+      const headers = sheet.rows[0]
+      sheet.rows[1][headers.indexOf('PdfHash')] = pdfHash
+      sheet.rows[1][headers.indexOf('PdfStorageReference')] = 'browser-indexeddb:CERT-1:v1'
+    }
+    harness.sheets.AuditoriaCertificados.appendRow = () => { throw new Error('auditoría no disponible') }
+    const result = harness.context.processRequest({
+      action: 'migrarPdfCertificadoPrivado', token: 'admin-token', id: 'INS-1', inscripcionId: 'INS-1',
+      certificateId: 'CERT-1', pdfBase64: pdfBytes.toString('base64'), pdfHash,
+      templateVersion: 'ra-canva-2026-v1', certificateVersion: 1,
+      motivo: 'Centralizar la copia original firmada.', confirmacion: 'MIGRAR_PDF_ORIGINAL',
+    })
+
+    expect(result.success).toBe(false)
+    expect(harness.driveFiles.size).toBe(0)
+    expect(harness.objects('Certificados')[0].PdfStorageReference).toBe('browser-indexeddb:CERT-1:v1')
+    expect(harness.objects('Inscripciones')[0].PdfStorageReference).toBe('browser-indexeddb:CERT-1:v1')
+  })
+
   it('niega lectura a usuarios no administrativos y bloquea sobrescrituras o hashes falsos', () => {
     const harness = setup()
     expect(store(harness, { pdfHash: '0'.repeat(64) }).success).toBe(false)

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { saveAs } from 'file-saver'
 import {
-  Award, Ban, CheckCircle, DollarSign, Download, FileText, GraduationCap, History, MailCheck, MessageCircle,
+  Award, Ban, CheckCircle, DollarSign, Download, FileSpreadsheet, FileText, GraduationCap, History, MailCheck, MessageCircle,
   Pencil, Plus, QrCode, Receipt, RefreshCw, Search, ShoppingBag, Trash2, X,
 } from 'lucide-react'
 import { api } from '../../services/api'
@@ -11,7 +11,9 @@ import { certificatePublicConfigurationNotice, certificatePublicUrlStatus } from
 import { certificateAvalVisualStatus } from '../../config/certificate'
 import {
   isControlledCertificateRecoveryAvailable,
+  sha256Hex,
 } from '../../services/certificateArtifactStore'
+import { blobToBase64 } from '../../utils/blob'
 import { certificatePdfRepository } from '../../services/certificatePdfRepository'
 import {
   downloadCertificateWithAudit,
@@ -41,9 +43,16 @@ import EntregaCertificadoModal from './EntregaCertificadoModal'
 import EnvioMasivoCertificadosModal from './EnvioMasivoCertificadosModal'
 import AuditoriaCertificadosModal from './AuditoriaCertificadosModal'
 import MoodleCredentialsModal from './MoodleCredentialsModal'
+import ImportarInscripcionesMasivoModal from './ImportarInscripcionesMasivoModal'
 
 const EMPTY_FILTERS = {
   q: '', servicioId: '', vendedor: '', estadoPago: '', estadoCertificado: '', tipoAval: '', desde: '', hasta: '',
+}
+
+function isPendingCertificatePdfCompletionEligible(version) {
+  return version?.puedeCompletarPdf === true
+    && Boolean(version.snapshotVerificado)
+    && !version.pdfArchivado
 }
 
 /** Bucket de estado de factura para la fila de Inscripciones (6 casos pedidos).
@@ -140,8 +149,13 @@ export default function InscripcionesList() {
   const [historyRows, setHistoryRows] = useState([])
   const [historyLoading, setHistoryLoading] = useState(false)
   const [historyError, setHistoryError] = useState('')
+  const [pendingPdfBusy, setPendingPdfBusy] = useState('')
   const [auditRetry, setAuditRetry] = useState(null)
   const [artifactRecovery, setArtifactRecovery] = useState(null)
+  const [artifactRecoveryFile, setArtifactRecoveryFile] = useState(null)
+  const [artifactRecoveryConfirmed, setArtifactRecoveryConfirmed] = useState(false)
+  const [artifactRecoveryBusy, setArtifactRecoveryBusy] = useState(false)
+  const [artifactRecoveryError, setArtifactRecoveryError] = useState('')
   const [certificateNotice, setCertificateNotice] = useState('')
   const [fiscalNotice, setFiscalNotice] = useState(null)
   const [moodleIns, setMoodleIns] = useState(null)
@@ -355,6 +369,13 @@ export default function InscripcionesList() {
       if (lifecycle.type === 'reissue') {
         setLifecycleError('Versión creada. Generando y archivando su PDF…')
         const prepared = await certificatePdfRepository.prepare({ ...result.data, CertificateStatus: 'emitido' })
+        const archived = await api.registrarArtefactoCertificado(result.data.ID, {
+          pdfHash: prepared.hash,
+          pdfStorageReference: prepared.reference,
+          templateVersion: prepared.templateVersion,
+          certificateVersion: prepared.certificateVersion,
+        })
+        if (!archived?.success) throw new Error(archived?.error || 'El PDF se generó, pero no se pudo registrar como versión vigente.')
         saveAs(prepared.blob, prepared.filename)
       }
       setLifecycle(null)
@@ -440,6 +461,7 @@ export default function InscripcionesList() {
       })
       if (result.previewWarning) setError(result.previewWarning)
       if (result.historicalRecoveryWarning) setCertificateNotice(result.historicalRecoveryWarning)
+      if (result.archiveWarning) setCertificateNotice(`El PDF original se entregó, pero no se pudo centralizar: ${result.archiveWarning}`)
       load()
     } catch (err) {
       if (isAdmin && /duraci/i.test(err.message || '')) openDurationEditor(item)
@@ -449,13 +471,94 @@ export default function InscripcionesList() {
           setError('La descarga se inició, pero su confirmación de auditoría quedó pendiente. Use “Reintentar auditoría”.')
         } else {
           const recoveryAvailable = isControlledCertificateRecoveryAvailable(err)
-          if (recoveryAvailable) setArtifactRecovery({ item: err.certificate || item, message: err.message })
+          if (recoveryAvailable) {
+            setArtifactRecovery({
+              item: err.certificate || item,
+              inscriptionItem: item,
+              certificate: err.certificate || null,
+              certificateVersionId,
+              errorCode: err.code || '',
+              message: err.message,
+            })
+            setArtifactRecoveryFile(null)
+            setArtifactRecoveryConfirmed(false)
+            setArtifactRecoveryError('')
+          }
           else if (!err.deliveryStarted) setAuditRetry(current => current || { kind: 'download', item })
           setError(err.message)
         }
       }
     }
     finally { setProcessing('') }
+  }
+
+  async function archiveOriginalCertificate() {
+    const recovery = artifactRecovery
+    const file = artifactRecoveryFile
+    if (!recovery || !file) {
+      setArtifactRecoveryError('Seleccione el PDF original para continuar.')
+      return
+    }
+    if (!artifactRecoveryConfirmed) {
+      setArtifactRecoveryError('Confirme que desea archivar el PDF original sin cambiar su código ni versión.')
+      return
+    }
+    if (file.size > 12_000_000) {
+      setArtifactRecoveryError('El PDF supera el máximo de 12 MB.')
+      return
+    }
+    setArtifactRecoveryBusy(true)
+    setArtifactRecoveryError('')
+    try {
+      let official = recovery.certificate
+      if (!official?.PdfHash) {
+        const enrollmentId = recovery.inscriptionItem?.ID || recovery.item?.InscripcionID
+        const response = recovery.certificateVersionId
+          ? await api.getCertificadoVersionParaDescarga(enrollmentId, recovery.certificateVersionId)
+          : await api.getCertificadoParaDescarga(enrollmentId)
+        if (!response?.data) throw new Error(response?.error || 'No se pudo volver a consultar la versión oficial del certificado.')
+        official = response.data
+      }
+      const officialHash = String(official.PdfHash || '').trim().toLowerCase()
+      const currentReference = String(official.PdfStorageReference || '').trim()
+      if (!/^[a-f0-9]{64}$/.test(officialHash)) throw new Error('El registro no tiene una huella oficial; no es seguro archivar este archivo como original.')
+      if (currentReference && !currentReference.startsWith('browser-indexeddb:')) {
+        throw new Error('La referencia registrada no corresponde a una copia local migrable. No se modificó el certificado.')
+      }
+      const signature = new TextDecoder().decode(await file.slice(0, 5).arrayBuffer())
+      if (signature !== '%PDF-') throw new Error('El archivo seleccionado no tiene una cabecera PDF válida.')
+      const selectedHash = await sha256Hex(file)
+      if (selectedHash !== officialHash) throw new Error('Este PDF no es idéntico al original registrado (SHA-256 distinto). No se archivó ni cambió el certificado.')
+      const enrollmentId = official.InscripcionID || recovery.inscriptionItem?.ID
+      const certificateId = official.CertificatePublicId || official.ID
+      if (!enrollmentId || !certificateId) throw new Error('No se pudo resolver el identificador exacto de la inscripción y versión.')
+
+      const result = await api.migrarPdfCertificadoPrivado(enrollmentId, {
+        certificateId,
+        pdfBase64: await blobToBase64(file),
+        pdfHash: selectedHash,
+        templateVersion: official.TemplateVersion || 'legacy-v1',
+        certificateVersion: Number(official.CertificateVersion) || 1,
+        motivo: 'Migración del PDF original idéntico a la huella oficial para archivarlo de forma central.',
+        confirmacion: 'MIGRAR_PDF_ORIGINAL',
+      })
+      if (!result?.reference?.startsWith('certificate-drive:') || result.hash !== officialHash) {
+        throw new Error('El servidor no confirmó la migración central del PDF original.')
+      }
+
+      const inscriptionItem = recovery.inscriptionItem || recovery.item
+      const versionId = recovery.certificateVersionId || ''
+      setArtifactRecovery(null)
+      setArtifactRecoveryFile(null)
+      setArtifactRecoveryConfirmed(false)
+      setArtifactRecoveryError('')
+      load()
+      await downloadCertificate(inscriptionItem, versionId)
+    } catch (error) {
+      setArtifactRecoveryError(error.message || 'No se pudo archivar el PDF original. No se reemitió el certificado.')
+    } finally {
+      setArtifactRecoveryBusy(false)
+    }
   }
 
   async function openCertificateHistory(item) {
@@ -471,6 +574,37 @@ export default function InscripcionesList() {
       setHistoryError(err.message || 'No se pudo consultar el historial de versiones.')
     } finally {
       setHistoryLoading(false)
+    }
+  }
+
+  async function completePendingCertificatePdf(version) {
+    const latestPendingPdf = historyRows
+      .filter(isPendingCertificatePdfCompletionEligible)
+      .sort((a, b) => (Number(b.version) || 0) - (Number(a.version) || 0))[0]
+    const isLatestPendingWithSnapshot = version === latestPendingPdf && Boolean(version.snapshotVerificado)
+    if (!canManage || !historyTarget || !version?.id || !isLatestPendingWithSnapshot) return
+    const target = historyTarget
+    setPendingPdfBusy(version.id)
+    setHistoryError('')
+    try {
+      const result = await api.getCertificadoPendienteParaCompletar(target.ID, version.id)
+      if (!result?.success || !result.data) throw new Error(result?.error || 'No se pudo leer el snapshot verificado de la reemisión.')
+      const certificate = { ...result.data, CertificateStatus: 'emitido' }
+      const prepared = await certificatePdfRepository.prepare(certificate)
+      const archived = await api.registrarArtefactoCertificado(version.id, {
+        pdfHash: prepared.hash,
+        pdfStorageReference: prepared.reference,
+        templateVersion: prepared.templateVersion,
+        certificateVersion: prepared.certificateVersion,
+      })
+      if (!archived?.success) throw new Error(archived?.error || 'El PDF se generó, pero no se pudo completar la reemisión.')
+      setHistoryTarget(null)
+      load()
+      await downloadCertificate(target, version.id)
+    } catch (err) {
+      setHistoryError(err.message || 'No se pudo completar el PDF pendiente.')
+    } finally {
+      setPendingPdfBusy('')
     }
   }
 
@@ -615,6 +749,9 @@ export default function InscripcionesList() {
               <button onClick={() => setModal('batch-delivery')} className="btn-primary text-sm"
                 disabled={selectedCertificates.length === 0} title="Enviar por correo los certificados seleccionados">
                 <MailCheck size={15} /> Enviar certificados ({selectedCertificates.length})
+              </button>
+              <button onClick={() => setModal('bulk-import')} className="btn-secondary text-sm" title="Cargar varios participantes desde Excel">
+                <FileSpreadsheet size={15} /> Carga masiva Excel
               </button>
               <button onClick={() => { setModal('sales'); setSelected(null) }} className="btn-secondary text-sm"><ShoppingBag size={15} /> Ventas por vendedor</button>
               <button onClick={() => exportInscripcionesCSV(data)} className="btn-secondary text-sm" disabled={!data.length}><Download size={15} /> CSV</button>
@@ -838,6 +975,13 @@ export default function InscripcionesList() {
         }} onCancel={() => setModal(null)} />
       </Modal>
       <Modal open={modal === 'sales'} onClose={() => setModal(null)} title="Reporte de ventas por vendedor" size="xl"><VentasVendedorModal vendedores={vendedores} /></Modal>
+      <Modal open={modal === 'bulk-import'} onClose={() => setModal(null)} title="Carga masiva de participantes" size="xl">
+        {modal === 'bulk-import' && <ImportarInscripcionesMasivoModal
+          servicios={servicios}
+          onClose={() => setModal(null)}
+          onImported={load}
+        />}
+      </Modal>
       <Modal open={modal === 'delivery'} onClose={() => setModal(null)} title="Entregar certificado" size="lg">
         {selected && <EntregaCertificadoModal inscripcion={selected} isAdmin={isAdmin} onClose={() => setModal(null)} onUpdated={load} />}
       </Modal>
@@ -868,13 +1012,18 @@ export default function InscripcionesList() {
               Este registro todavía no tiene versiones de certificado archivadas.
             </div>
           ) : <>
-            {historyRows.some(version => version.estado === 'pendiente_pdf') && <p role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Hay una reemisión pendiente de archivo. La versión anterior mantiene la vigencia hasta confirmar el PDF.</p>}
-            <ol className="relative space-y-3 before:absolute before:bottom-4 before:left-[15px] before:top-4 before:w-px before:bg-slate-200">
+            {historyRows.some(isPendingCertificatePdfCompletionEligible) && <p role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Hay una reemisión pendiente de archivo. La versión anterior mantiene la vigencia hasta confirmar el PDF.</p>}
+            {(() => {
+              const latestPendingPdf = historyRows
+                .filter(isPendingCertificatePdfCompletionEligible)
+                .sort((a, b) => (Number(b.version) || 0) - (Number(a.version) || 0))[0]
+              return <ol className="relative space-y-3 before:absolute before:bottom-4 before:left-[15px] before:top-4 before:w-px before:bg-slate-200">
             {historyRows.map(version => {
               const current = ['emitido', 'enviado'].includes(String(version.estado || '').toLowerCase())
               const statusClass = current
                 ? 'bg-emerald-100 text-emerald-800'
-                : version.estado === 'pendiente_pdf' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-700'
+                : isPendingCertificatePdfCompletionEligible(version) || version.estado === 'pendiente_pdf' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-700'
+              const isLatestPendingWithSnapshot = version === latestPendingPdf && Boolean(version.snapshotVerificado)
               return <li key={version.id || `${version.codigo}-${version.version}`} className="relative pl-10">
                 <span className={`absolute left-1 top-4 h-5 w-5 rounded-full border-4 border-white ${current ? 'bg-emerald-500' : 'bg-slate-400'}`} aria-hidden="true" />
                 <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -893,17 +1042,24 @@ export default function InscripcionesList() {
                       onClick={() => downloadCertificate(historyTarget, version.id)}>
                       <Download size={14} /> {version.pdfArchivado ? 'Descargar PDF original' : 'PDF no archivado'}
                     </button>
+                    {isLatestPendingWithSnapshot && <button type="button" className="btn-primary shrink-0 text-xs"
+                      disabled={Boolean(pendingPdfBusy || processing)} onClick={() => completePendingCertificatePdf(version)}>
+                      <RefreshCw size={14} className={pendingPdfBusy === version.id ? 'animate-spin' : ''} />
+                      {pendingPdfBusy === version.id ? 'Generando y archivando…' : 'Completar PDF y descargar'}
+                    </button>}
                   </div>
                   <dl className="mt-3 grid gap-x-4 gap-y-2 border-t border-slate-100 pt-3 text-xs sm:grid-cols-2">
                     <div><dt className="text-slate-400">Plantilla</dt><dd className="mt-0.5 break-all text-slate-700">{version.plantilla || 'No registrada'}</dd></div>
                     <div><dt className="text-slate-400">Integridad documental</dt><dd className="mt-0.5 text-slate-700">{version.snapshotVerificado ? 'Snapshot verificado' : 'Sin snapshot verificado'}</dd></div>
                     {version.motivo && <div className="sm:col-span-2"><dt className="text-slate-400">Motivo registrado</dt><dd className="mt-0.5 text-slate-700">{version.motivo}</dd></div>}
-                    {!version.pdfArchivado && <div className="sm:col-span-2 text-amber-800">No se reconstruirá automáticamente con datos o plantilla actuales, para no presentarlo como el original.</div>}
+                    {!version.pdfArchivado && isLatestPendingWithSnapshot && <div className="sm:col-span-2 text-amber-800">La API verificará de nuevo que esta sea la última reemisión pendiente y que la versión anterior siga vigente antes de archivar.</div>}
+                    {!version.pdfArchivado && !isLatestPendingWithSnapshot && <div className="sm:col-span-2 text-amber-800">El PDF original de esta versión no está archivado. Solo se puede completar la reemisión pendiente más reciente con snapshot verificado.</div>}
                   </dl>
                 </div>
               </li>
             })}
-            </ol>
+              </ol>
+            })()}
           </>}
           <div className="flex justify-end border-t border-slate-100 pt-3">
             <button type="button" className="btn-secondary" disabled={historyLoading} onClick={() => setHistoryTarget(null)}>Cerrar</button>
@@ -945,23 +1101,62 @@ export default function InscripcionesList() {
         )}
       </Modal>
 
-      <Modal open={Boolean(artifactRecovery)} onClose={() => setArtifactRecovery(null)} title="Recuperación controlada del certificado" size="sm">
+      <Modal open={Boolean(artifactRecovery)} onClose={() => {
+        if (artifactRecoveryBusy) return
+        setArtifactRecovery(null)
+        setArtifactRecoveryFile(null)
+        setArtifactRecoveryConfirmed(false)
+        setArtifactRecoveryError('')
+      }} title="Recuperar PDF oficial sin reemitir" size="sm">
         {artifactRecovery && (
           <div className="space-y-4">
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
-              <p className="font-semibold">El PDF original no está disponible en este navegador.</p>
+              <p className="font-semibold">Este navegador no tiene la copia local del PDF original.</p>
               <p className="mt-2">{artifactRecovery.message}</p>
             </div>
             <p className="text-sm text-gray-600">
-              El sistema no modificó ni regeneró silenciosamente el certificado histórico. La recuperación permitida crea una nueva versión, conserva el identificador anterior y registra el motivo en la auditoría.
+              El certificado no se ha modificado. Si se encuentra la copia original, se puede archivar en el almacenamiento central solo si su SHA-256 coincide exactamente con la huella registrada. No cambia el código, la versión, el QR ni el contenido.
+            </p>
+            {artifactRecovery.errorCode === 'CERTIFICATE_ARTIFACT_NOT_LOCAL' && (
+              <div className="space-y-3 rounded-lg border border-blue-200 bg-blue-50 p-3">
+                <div>
+                  <label className="label" htmlFor="certificate-original-pdf">PDF original oficial</label>
+                  <input id="certificate-original-pdf" className="input" type="file" accept="application/pdf,.pdf"
+                    disabled={artifactRecoveryBusy}
+                    onChange={event => {
+                      setArtifactRecoveryFile(event.target.files?.[0] || null)
+                      setArtifactRecoveryConfirmed(false)
+                      setArtifactRecoveryError('')
+                    }} />
+                  <p className="mt-1 text-xs text-blue-900">Máximo 12 MB. No use una versión regenerada ni un archivo de otro código.</p>
+                </div>
+                <label className="flex items-start gap-2 text-sm text-blue-950">
+                  <input type="checkbox" className="mt-1" checked={artifactRecoveryConfirmed} disabled={artifactRecoveryBusy}
+                    onChange={event => setArtifactRecoveryConfirmed(event.target.checked)} />
+                  <span>Confirmo archivar esta copia original; el sistema solo aceptará la huella exacta del certificado.</span>
+                </label>
+                {artifactRecoveryError && <p role="alert" className="rounded-lg bg-red-50 p-2 text-sm text-red-700">{artifactRecoveryError}</p>}
+                <button type="button" className="btn-primary w-full" disabled={artifactRecoveryBusy || !artifactRecoveryFile || !artifactRecoveryConfirmed}
+                  onClick={archiveOriginalCertificate}>
+                  {artifactRecoveryBusy ? 'Verificando y archivando…' : 'Verificar y archivar PDF original'}
+                </button>
+              </div>
+            )}
+            <p className="text-xs text-gray-500">
+              Si no existe una copia del PDF original, no se puede reconstruir fielmente desde la huella. La alternativa es una reemisión controlada, que crea otro código y requiere autorización institucional.
             </p>
             <div className="flex gap-3">
-              <button type="button" className="btn-secondary flex-1" onClick={() => setArtifactRecovery(null)}>Cancelar</button>
+              <button type="button" className="btn-secondary flex-1" disabled={artifactRecoveryBusy} onClick={() => {
+                setArtifactRecovery(null)
+                setArtifactRecoveryFile(null)
+                setArtifactRecoveryConfirmed(false)
+                setArtifactRecoveryError('')
+              }}>Cerrar</button>
               <button type="button" className="btn-primary flex-1" onClick={() => {
-                const recoveryItem = artifactRecovery.item
+                const recoveryItem = artifactRecovery.inscriptionItem || artifactRecovery.item
                 setArtifactRecovery(null)
                 openLifecycle('reissue', recoveryItem)
-              }}>Iniciar reemisión controlada</button>
+              }}>Reemisión controlada</button>
             </div>
           </div>
         )}

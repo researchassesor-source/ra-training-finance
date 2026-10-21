@@ -194,10 +194,17 @@ describe('getCrmEnrollmentCommerceState', () => {
     expect(retry).toEqual(legacy)
   })
 
-  it('límite de batch: máximo 100 crmEnrollmentIds', () => {
+  it('el batch máximo de 100 funciona y uno mayor se rechaza sin truncarse', () => {
     const harness = seededHarness()
-    const muchos = Array.from({ length: 150 }, (_, i) => 'ENR-' + i)
-    const result = crmCall(harness, 'getCrmEnrollmentCommerceStates', { crmEnrollmentIds: muchos })
+    const maximo = Array.from({ length: 100 }, (_, i) => 'ENR-' + i)
+    const result = crmCall(harness, 'getCrmEnrollmentCommerceStates', { crmEnrollmentIds: maximo })
+    expect(result.success).toBe(true)
     expect(result.data).toHaveLength(100)
+
+    const excedido = crmCall(harness, 'getCrmEnrollmentCommerceStates', {
+      crmEnrollmentIds: Array.from({ length: 101 }, (_, i) => 'ENR-' + i),
+    })
+    expect(excedido.success).toBe(false)
+    expect(excedido.error).toMatch(/no se truncó/)
   })
 })

@@ -1,0 +1,13 @@
+.claude/
+apps-script/
+docs/
+fiscal-service/
+tmp/
+src/test/
+**/*.test.*
+**/*.spec.*
+node_modules/
+dist/
+.env*
+.vercel/
+.git/

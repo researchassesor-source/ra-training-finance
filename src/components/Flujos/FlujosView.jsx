@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { api } from '../../services/api'
 import { useAuth } from '../../context/AuthContext'
-import { fmt } from '../../utils/formatters'
+import { fmt, formatHours, roundToTwoDecimals } from '../../utils/formatters'
 import Modal from '../UI/Modal'
 import ConfirmDialog from '../UI/ConfirmDialog'
 import TableSkeleton from '../UI/TableSkeleton'
@@ -416,17 +416,19 @@ async function compressWorkflowImage(file) {
   }
 }
 
-function ActividadCard({ act, isAdmin, onUpdate, onDelete }) {
+export function ActividadCard({ act, isAdmin, onUpdate, onDelete }) {
   const [editHoras, setEditHoras]       = useState(false)
   const [editEvidencia, setEditEvidencia] = useState(false)
   const [editDetalle, setEditDetalle]   = useState(false)
   const [editRevision, setEditRevision] = useState(false)
   const [checklist, setChecklist]       = useState(() => normalizeChecklist(act.Checklist))
   const [imagenes, setImagenes]         = useState(() => parseJsonArray(act.Imagenes))
-  const [horas, setHoras]               = useState(act.HorasReales || 0)
+  const minutosReportadosIniciales = Math.round((Number(act.HorasReales) || 0) * 60)
+  const [horas, setHoras]               = useState(Math.floor(minutosReportadosIniciales / 60))
+  const [minutos, setMinutos]           = useState(minutosReportadosIniciales % 60)
   const [notas, setNotas]               = useState(act.Notas || '')
   const [evidencia, setEvidencia]       = useState(act.Evidencia || '')
-  const [revisionHoras, setRevisionHoras] = useState(act.HorasAprobadas || act.HorasReales || act.HorasEstimadas || 0)
+  const [revisionHoras, setRevisionHoras] = useState(roundToTwoDecimals(Number(act.HorasAprobadas) || Number(act.HorasReales) || 0))
   const [revisionFeedback, setRevisionFeedback] = useState(act.FeedbackRevision || '')
   const [revisionEvidencia, setRevisionEvidencia] = useState(act.EvidenciaRevision || '')
   const [revisionImagenes, setRevisionImagenes] = useState(() => parseJsonArray(act.ImagenesRevision))
@@ -439,6 +441,7 @@ function ActividadCard({ act, isAdmin, onUpdate, onDelete }) {
   })
   const [saving, setSaving]             = useState(false)
   const [imageError, setImageError]     = useState('')
+  const [hoursError, setHoursError]     = useState('')
   const est = ESTADO_ACT[act.Estado] || ESTADO_ACT.pendiente
   const tituloActividad = act.Titulo || 'Actividad sin título'
   const diaActividad = normalizeDiaSemana(act.DiaSemana) || act.DiaSemana || 'Sin día asignado'
@@ -447,12 +450,49 @@ function ActividadCard({ act, isAdmin, onUpdate, onDelete }) {
   const revision = REVISION_ACT[revisionEstado] || REVISION_ACT.pendiente_revision
   const RevisionIcon = revision.icon
   const horasAprobadas = getHorasAprobadas(act)
+  const puedeEditarHorasReportadas = act.Estado === 'completado' && revisionEstado === 'pendiente_revision'
+
+  function toggleEditHoras() {
+    if (!editHoras) {
+      const totalMinutos = Math.round((Number(act.HorasReales) || 0) * 60)
+      setHoras(Math.floor(totalMinutos / 60))
+      setMinutos(totalMinutos % 60)
+      setNotas(act.Notas || '')
+      setHoursError('')
+    }
+    setEditHoras(value => !value)
+    setEditEvidencia(false)
+    setEditRevision(false)
+    setEditDetalle(false)
+  }
 
   async function saveHoras() {
+    const horasNum = Number(horas)
+    const minutosNum = Number(minutos)
+    if (!Number.isInteger(horasNum) || !Number.isInteger(minutosNum)
+      || horasNum < 0 || horasNum > 24 || minutosNum < 0 || minutosNum > 59
+      || (horasNum === 24 && minutosNum > 0)) {
+      setHoursError('Ingresa horas entre 0 y 24 y minutos entre 0 y 59.')
+      return
+    }
+    if (horasNum * 60 + minutosNum === 0) {
+      setHoursError('Las horas reportadas deben ser mayores que cero.')
+      return
+    }
     setSaving(true)
-    await onUpdate(act.ID, { horasReales: Number(horas), notas })
-    setSaving(false)
-    setEditHoras(false)
+    setHoursError('')
+    try {
+      const horasReportadas = roundToTwoDecimals((horasNum * 60 + minutosNum) / 60)
+      const saved = await onUpdate(act.ID, { horasReales: horasReportadas, notas })
+      if (saved !== false) {
+        setRevisionHoras(horasReportadas)
+        setEditHoras(false)
+      }
+    } catch (error) {
+      setHoursError(error?.message || 'No se pudieron guardar las horas reportadas.')
+    } finally {
+      setSaving(false)
+    }
   }
 
   async function saveEvidencia() {
@@ -467,7 +507,7 @@ function ActividadCard({ act, isAdmin, onUpdate, onDelete }) {
     await onUpdate(act.ID, {
       titulo: detalle.titulo, descripcion: detalle.descripcion,
       descripcionFormato: 'texto_enriquecido_v1',
-      diaSemana: detalle.diaSemana, horasEstimadas: Number(detalle.horasEstimadas),
+      diaSemana: detalle.diaSemana, horasEstimadas: roundToTwoDecimals(detalle.horasEstimadas),
     })
     setSaving(false)
     setEditDetalle(false)
@@ -484,11 +524,17 @@ function ActividadCard({ act, isAdmin, onUpdate, onDelete }) {
       setRevisionError('Escribe una observación para explicar por qué no se aprueban las horas.')
       return
     }
+    const horasAprobadas = estadoRevision === 'aprobado' ? Number(revisionHoras) : 0
+    if (estadoRevision === 'aprobado'
+      && (!Number.isFinite(horasAprobadas) || horasAprobadas < 0 || horasAprobadas > 24)) {
+      setRevisionError('Las horas aprobadas deben estar entre 0 y 24, con máximo 2 decimales.')
+      return
+    }
     setRevisionError('')
     setSaving(true)
     await onUpdate(act.ID, {
       estadoRevision,
-      horasAprobadas: estadoRevision === 'aprobado' ? Number(revisionHoras) : 0,
+      horasAprobadas: estadoRevision === 'aprobado' ? roundToTwoDecimals(horasAprobadas) : 0,
       feedbackRevision: feedback,
       evidenciaRevision: revisionEvidencia,
       imagenesRevision: stringifyWorkflowArray(revisionImagenes),
@@ -591,7 +637,7 @@ function ActividadCard({ act, isAdmin, onUpdate, onDelete }) {
               onChange={e => setDetalle(d => ({ ...d, diaSemana: e.target.value }))}>
               {DIAS_SEMANA.map(d => <option key={d}>{d}</option>)}
             </select>
-            <input type="number" min="0.5" step="0.5" className="input text-sm w-28"
+            <input type="number" min="0.5" max="24" step="0.01" className="input text-sm w-28"
               value={detalle.horasEstimadas}
               onChange={e => setDetalle(d => ({ ...d, horasEstimadas: e.target.value }))} placeholder="Horas" />
           </div>
@@ -609,15 +655,15 @@ function ActividadCard({ act, isAdmin, onUpdate, onDelete }) {
           <Icon size={11} /> {est.label}
         </span>
         <span className="text-gray-400">{diaActividad}</span>
-        <span className="text-gray-400">{act.HorasEstimadas}h estimadas</span>
+          <span className="text-gray-400">{formatHours(act.HorasEstimadas)}h estimadas</span>
         {checklistTotal > 0 && (
           <span className="text-indigo-700 font-medium">{checklistDone}/{checklistTotal} verificadas</span>
         )}
         {Number(act.HorasReales) > 0 && (
-          <span className="text-emerald-700 font-medium">{act.HorasReales}h reales</span>
+          <span className="text-emerald-700 font-medium">{formatHours(act.HorasReales)}h reales</span>
         )}
         {horasAprobadas > 0 && (
-          <span className="text-brand-700 font-semibold">{horasAprobadas}h aprobadas</span>
+          <span className="text-brand-700 font-semibold">{formatHours(horasAprobadas)}h aprobadas</span>
         )}
       </div>
 
@@ -726,15 +772,21 @@ function ActividadCard({ act, isAdmin, onUpdate, onDelete }) {
         )}
         {act.Estado === 'en_proceso' && (
           <>
-            <button onClick={() => { setEditHoras(v => !v); setEditEvidencia(false); setEditRevision(false) }}
+            <button onClick={toggleEditHoras}
               className="text-xs px-2.5 py-1 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 flex items-center gap-1">
               <Clock size={12} /> Horas reales
             </button>
-            <button onClick={() => onUpdate(act.ID, { estado: 'completado', horasReales: Number(horas) })}
+            <button onClick={() => onUpdate(act.ID, { estado: 'completado', horasReales: roundToTwoDecimals((Number(horas) * 60 + Number(minutos)) / 60) })}
               className="text-xs px-2.5 py-1 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 flex items-center gap-1">
               <CheckCircle size={12} /> Completar
             </button>
           </>
+        )}
+        {puedeEditarHorasReportadas && (
+          <button type="button" onClick={toggleEditHoras}
+            className="text-xs px-2.5 py-1 rounded-lg bg-brand-50 text-brand-700 hover:bg-brand-100 flex items-center gap-1">
+            <Clock size={12} /> Editar horas reportadas
+          </button>
         )}
         {/* La administración puede adjuntar guía/evidencia desde el inicio; el usuario agrega evidencia al avanzar la actividad. */}
         {(isAdmin || act.Estado !== 'pendiente') && (
@@ -754,15 +806,35 @@ function ActividadCard({ act, isAdmin, onUpdate, onDelete }) {
       {/* Panel: Horas reales */}
       {editHoras && (
         <div className="pt-2 space-y-2">
-          <div className="flex gap-2">
-            <input type="number" step="0.5" min="0" className="input text-sm flex-1"
-              value={horas} onChange={e => setHoras(e.target.value)} placeholder="Horas trabajadas" />
-            <button onClick={saveHoras} disabled={saving} className="btn-primary text-xs px-3">
-              {saving ? '...' : 'Guardar'}
-            </button>
+          {puedeEditarHorasReportadas && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+              <p className="text-xs font-semibold text-amber-900">Corrección de horas reportadas</p>
+              <p className="mt-0.5 text-[11px] text-amber-800">
+                Se conserva la actividad y su evidencia. Al guardar, seguirá pendiente de revisión administrativa.
+              </p>
+            </div>
+          )}
+          <div className="grid grid-cols-2 gap-2">
+            <label className="text-xs text-gray-600">Horas
+              <input type="number" step="1" min="0" max="24" className="input mt-1 text-sm"
+                value={horas} onChange={e => setHoras(e.target.value)} aria-label="Horas reportadas" />
+            </label>
+            <label className="text-xs text-gray-600">Minutos
+              <input type="number" step="1" min="0" max="59" className="input mt-1 text-sm"
+                value={minutos} onChange={e => setMinutos(e.target.value)} aria-label="Minutos reportados" />
+            </label>
           </div>
           <textarea className="input text-xs" rows={2} value={notas}
             onChange={e => setNotas(e.target.value)} placeholder="Notas opcionales..." />
+          {hoursError && <p role="alert" className="text-xs text-red-600">{hoursError}</p>}
+          <div className="flex gap-2">
+            <button type="button" onClick={() => setEditHoras(false)} className="btn-secondary text-xs flex-1">
+              Cancelar
+            </button>
+            <button type="button" onClick={saveHoras} disabled={saving} className="btn-primary text-xs flex-1">
+              {saving ? 'Guardando...' : 'Guardar horas reportadas'}
+            </button>
+          </div>
         </div>
       )}
 
@@ -774,15 +846,15 @@ function ActividadCard({ act, isAdmin, onUpdate, onDelete }) {
               <ShieldCheck size={14} /> Revisión administrativa de horas
             </p>
             <p className="text-[11px] text-gray-500 mt-0.5">
-              Solo las horas aprobadas aquí cuentan para prácticas, pago y cumplimiento.
+              Solo las horas aprobadas aquí cuentan para prácticas, pago y cumplimiento. Se registran con máximo 2 decimales.
             </p>
           </div>
           <div className="grid sm:grid-cols-2 gap-2">
             <div>
               <label className="label">Horas que se aprueban</label>
-              <input type="number" step="0.5" min="0" className="input text-sm"
+              <input type="number" step="0.01" min="0" max="24" className="input text-sm"
                 value={revisionHoras} onChange={e => setRevisionHoras(e.target.value)}
-                placeholder="Ej: 4" />
+                placeholder="Ej: 4" aria-label="Horas que se aprueban" />
             </div>
             <div>
               <label className="label">Si no cumple, mover a otro día</label>
@@ -900,6 +972,7 @@ function NuevaActividadForm({ flujoId, username, onSave, onCancel, diaInicial = 
     try {
       await api.addActividadFlujo({
         ...form,
+        horasEstimadas: roundToTwoDecimals(form.horasEstimadas),
         flujoId,
         username,
         descripcionFormato: 'texto_enriquecido_v1',
@@ -926,7 +999,7 @@ function NuevaActividadForm({ flujoId, username, onSave, onCancel, diaInicial = 
         <select className="input text-sm flex-1" value={form.diaSemana} onChange={e => set('diaSemana', e.target.value)}>
           {DIAS_SEMANA.map(d => <option key={d}>{d}</option>)}
         </select>
-        <input type="number" min="0.5" step="0.5" className="input text-sm w-28"
+        <input type="number" min="0.5" max="24" step="0.01" className="input text-sm w-28"
           value={form.horasEstimadas} onChange={e => set('horasEstimadas', Number(e.target.value))}
           placeholder="Horas" />
       </div>
@@ -1003,7 +1076,7 @@ export default function FlujosView() {
   async function crearFlujo() {
     setSaving(true)
     try {
-      await api.addFlujoSemanal({ username: targetUser, semana, totalHorasPlan: horasPlan, notas: notasFlujo })
+      await api.addFlujoSemanal({ username: targetUser, semana, totalHorasPlan: roundToTwoDecimals(horasPlan), notas: notasFlujo })
       setShowNuevoFlujo(false)
       load()
     } catch (e) { setError(e.message) }
@@ -1011,8 +1084,14 @@ export default function FlujosView() {
   }
 
   async function handleUpdateAct(id, data, options = {}) {
-    try { await api.updateActividadFlujo(id, data); load({ preserveScroll: options.preserveScroll === true }) }
-    catch (e) { setError(e.message) }
+    try {
+      await api.updateActividadFlujo(id, data)
+      load({ preserveScroll: options.preserveScroll === true })
+      return true
+    } catch (e) {
+      setError(e.message)
+      return false
+    }
   }
 
   async function handleDeleteAct() {
@@ -1025,7 +1104,7 @@ export default function FlujosView() {
   async function handleEditFlujo() {
     setSaving(true)
     try {
-      await api.updateFlujoSemanal(flujoActual.ID, { totalHorasPlan: editHorasPlan, notas: editNotas })
+      await api.updateFlujoSemanal(flujoActual.ID, { totalHorasPlan: roundToTwoDecimals(editHorasPlan), notas: editNotas })
       setEditFlujo(false)
       load()
     } catch (e) { setError(e.message) }
@@ -1113,7 +1192,7 @@ export default function FlujosView() {
                   <p className="text-sm font-semibold text-gray-700">Nuevo flujo — semana del {semanaLabel}</p>
                   <div>
                     <label className="label">Horas planificadas</label>
-                    <input type="number" className="input" value={horasPlan}
+                    <input type="number" min="0" step="0.01" className="input" value={horasPlan}
                       onChange={e => setHorasPlan(Number(e.target.value))} />
                   </div>
                   <div>
@@ -1159,7 +1238,7 @@ export default function FlujosView() {
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="label">Horas planificadas</label>
-                      <input type="number" className="input" value={editHorasPlan}
+                      <input type="number" min="0" step="0.01" className="input" value={editHorasPlan}
                         onChange={e => setEditHorasPlan(Number(e.target.value))} />
                     </div>
                     <div>
@@ -1180,10 +1259,10 @@ export default function FlujosView() {
               {/* Resumen del flujo */}
               <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                 {[
-                  { label: 'Horas plan',   val: `${flujoActual.TotalHorasPlan}h`,      css: 'text-brand-700' },
-                  { label: 'H. estimadas', val: `${totalEst}h`,                         css: 'text-gray-700' },
-                  { label: 'H. reportadas', val: `${totalReal}h`,                       css: 'text-emerald-700' },
-                  { label: 'H. aprobadas', val: `${totalAprobado}h`,                    css: 'text-indigo-700' },
+                  { label: 'Horas plan',   val: `${formatHours(flujoActual.TotalHorasPlan)}h`, css: 'text-brand-700' },
+                  { label: 'H. estimadas', val: `${formatHours(totalEst)}h`,                   css: 'text-gray-700' },
+                  { label: 'H. reportadas', val: `${formatHours(totalReal)}h`,                 css: 'text-emerald-700' },
+                  { label: 'H. aprobadas', val: `${formatHours(totalAprobado)}h`,              css: 'text-indigo-700' },
                   { label: 'Progreso',     val: totalActs ? `${completadas}/${totalActs} tareas` : '0 tareas', css: 'text-amber-700' },
                 ].map(k => (
                   <div key={k.label} className="card py-3 text-center">

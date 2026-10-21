@@ -116,22 +116,35 @@ export function createAppsScriptHarness({ authSecret = 'test-only-secret-with-at
       getBytes: () => normalized,
       getName: () => name,
       getContentType: () => mimeType,
+      getDataAsString: () => Buffer.from(normalized).toString('utf8'),
     }
   }
 
-  function makeFile(blob) {
+  function makeFile(blob, folderId = '') {
     const id = `drive-${driveFiles.size + 1}`
+    const createdAt = new Date()
     const file = {
       id,
       blob,
+      folderId,
+      createdAt,
       getId: () => id,
       getName: () => blob.getName ? blob.getName() : blob.name,
       getBlob: () => blob,
+      getDateCreated: () => createdAt,
       setSharing: () => file,
       setTrashed: () => { driveFiles.delete(id); return file },
     }
     driveFiles.set(id, file)
     return file
+  }
+
+  function fileIterator(files) {
+    let index = 0
+    return {
+      hasNext: () => index < files.length,
+      next: () => files[index++],
+    }
   }
 
   function makeFolder(name) {
@@ -140,7 +153,9 @@ export function createAppsScriptHarness({ authSecret = 'test-only-secret-with-at
       id,
       name,
       getId: () => id,
-      createFile: blob => makeFile(blob),
+      createFile: blob => makeFile(blob, id),
+      getFiles: () => fileIterator([...driveFiles.values()].filter(file => file.folderId === id)),
+      getFilesByName: fileName => fileIterator([...driveFiles.values()].filter(file => file.folderId === id && file.getName() === fileName)),
       getName: () => name,
     }
     driveFolders.set(name, folder)

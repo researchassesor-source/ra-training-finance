@@ -115,6 +115,10 @@ function processRequest(data) {
     resolverEnvioEntregableAval: () => resolverEnvioEntregableAval(user, params),
     guardarPdfEntregableAvalPrivado: () => guardarPdfEntregableAvalPrivado(user, params),
     leerPdfEntregableAvalPrivado: () => leerPdfEntregableAvalPrivado(user, params),
+    guardarPdfPrivadoChunk: () => guardarPdfPrivadoChunk(user, params),
+    finalizarPdfPrivadoChunk: () => finalizarPdfPrivadoChunk(user, params),
+    cancelarPdfPrivadoChunk: () => cancelarPdfPrivadoChunk(user, params),
+    leerPdfPrivadoChunk: () => leerPdfPrivadoChunk(user, params),
     getServicios:       () => getServicios(user, params),
     addServicio:        () => addServicio(user, params),
     updateServicio:     () => updateServicio(user, params),
@@ -137,6 +141,7 @@ function processRequest(data) {
     updateMoodleCredentials: () => updateMoodleCredentials(user, params),
     registrarEnvioMoodle: () => registrarEnvioMoodle(user, params),
     addInscripcion:     () => addInscripcion(user, params),
+    importarInscripcionesMasivo: () => importarInscripcionesMasivo(user, params),
     updateInscripcion:  () => updateInscripcion(user, params),
     verificarPagoInscripcion: () => verificarPagoInscripcion(user, params),
     emitirCertificado:  () => emitirCertificado(user, params),
@@ -144,9 +149,11 @@ function processRequest(data) {
     reemitirCertificado: () => reemitirCertificado(user, params),
     getCertificadoParaDescarga: () => getCertificadoParaDescarga(user, params),
     getHistorialCertificados: () => getHistorialCertificados(user, params),
+    getCertificadoPendienteParaCompletar: () => getCertificadoPendienteParaCompletar(user, params),
     getCertificadoVersionParaDescarga: () => getCertificadoVersionParaDescarga(user, params),
     registrarArtefactoCertificado: () => registrarArtefactoCertificado(user, params),
     guardarPdfCertificadoPrivado: () => guardarPdfCertificadoPrivado(user, params),
+    migrarPdfCertificadoPrivado: () => migrarPdfCertificadoPrivado(user, params),
     leerPdfCertificadoPrivado: () => leerPdfCertificadoPrivado(user, params),
     solicitarDescargaCertificado: () => solicitarDescargaCertificado(user, params),
     confirmarDescargaCertificado: () => confirmarDescargaCertificado(user, params),
@@ -256,6 +263,7 @@ const SHEET_HEADERS = {
                      // Enlace canónico aditivo a la ficha maestra. InstitucionAval se
                      // conserva como snapshot legible para registros históricos y consumidores existentes.
                       'InstitucionID','ConvenioID','AvalInstitucionID','AvalConvenioID','AvalBaseTipoAplicado','AvalMontoBase','AvalPorcentajeAplicado','AvalMontoCalculado','AvalConfirmadoPor','AvalIngresoID',
+                      'ImportBatchID','ImportBatchRow','ImportRowHash',
                       'CRMEnrollmentID','CRMContactID','CRMCourseID','Origen'],
   Sesiones:         ['Token','Username','UserID','Rol','Nombre','Expira','Roles'],
   ConfigPagos:      ['ID','Nombre','Tipo','Detalles','Instrucciones','Activo','FechaCreacion'],
@@ -616,9 +624,10 @@ function getSheet(name) {
       const existing = lastCol > 0 ? sheet.getRange(1, 1, 1, lastCol).getValues()[0] : [];
       SHEET_HEADERS[name].forEach(function(h) {
         if (existing.indexOf(h) === -1) {
-        const avalColumnsBeforeCrm = ['InstitucionID','ConvenioID','AvalInstitucionID','AvalConvenioID',
-          'AvalBaseTipoAplicado','AvalMontoBase','AvalPorcentajeAplicado','AvalMontoCalculado','AvalConfirmadoPor','AvalIngresoID'];
-        const crmEnrollmentIndex = name === 'Inscripciones' && avalColumnsBeforeCrm.indexOf(h) !== -1
+        const columnsBeforeCrm = ['InstitucionID','ConvenioID','AvalInstitucionID','AvalConvenioID',
+          'AvalBaseTipoAplicado','AvalMontoBase','AvalPorcentajeAplicado','AvalMontoCalculado','AvalConfirmadoPor','AvalIngresoID',
+          'ImportBatchID','ImportBatchRow','ImportRowHash'];
+        const crmEnrollmentIndex = name === 'Inscripciones' && columnsBeforeCrm.indexOf(h) !== -1
           ? existing.indexOf('CRMEnrollmentID') : -1;
         const col = crmEnrollmentIndex >= 0 ? crmEnrollmentIndex + 1 : sheet.getLastColumn() + 1;
         if (crmEnrollmentIndex >= 0) sheet.insertColumnBefore(col);
@@ -989,6 +998,8 @@ const INSCRIPTION_HEADER_ALIASES = {
   CodigoCertificado: ['codigocertificado', 'codigodecertificado'],
 };
 
+const OPTIONAL_INSCRIPTION_HEADERS = ['ImportBatchID','ImportBatchRow','ImportRowHash'];
+
 function resolverEncabezadosInscripciones(headers) {
   const indices = {};
   const alternativas = {};
@@ -1008,8 +1019,9 @@ function resolverEncabezadosInscripciones(headers) {
     const candidatos = exactos.length === 1 ? exactos : equivalentes;
     alternativas[expected] = equivalentes.slice();
     if (candidatos.length === 1) indices[expected] = candidatos[0];
-    else if (candidatos.length === 0) faltantes.push(expected);
-    else ambiguos.push({ campo: expected, columnas: candidatos.map(function(index) { return index + 1; }) });
+    else if (candidatos.length === 0) {
+      if (OPTIONAL_INSCRIPTION_HEADERS.indexOf(expected) === -1) faltantes.push(expected);
+    } else ambiguos.push({ campo: expected, columnas: candidatos.map(function(index) { return index + 1; }) });
     if (equivalentes.length > 1) {
       duplicados.push({ campo: expected, columnas: equivalentes.map(function(index) { return index + 1; }) });
     }
@@ -3363,7 +3375,7 @@ function importCrmEnrollment(user, { idempotencyKey, inscripcion } = {}) {
   });
 }
 
-function addInscripcion(user, params) {
+function addInscripcion(user, params, importContext) {
   if (esSolicitudImportacionCrm(params)) return importCrmEnrollment(user, params);
   const inscripcion = params && params.inscripcion;
   if (!isVendedor(user)) throw new Error('Acceso denegado.');
@@ -3398,13 +3410,14 @@ function addInscripcion(user, params) {
   }
   const validationError = validarDatosInscripcion(requiereAval
     ? Object.assign({}, inscripcion, { institucionAval: institucionAval })
-    : inscripcion);
+    : inscripcion, { permitirMetodoPagoPendiente: !!importContext });
   if (validationError) return { success: false, error: validationError };
   const sheet    = getSheet('Inscripciones');
   const id       = generateId('INS');
   const now      = new Date().toISOString();
   const estadosPago = ['pendiente', 'pagado', 'verificado', 'cancelado'];
-  const estadoSolicitado = estadosPago.indexOf(inscripcion.estadoPago) > -1 ? inscripcion.estadoPago : 'pendiente';
+  const estadoSolicitado = importContext ? 'pendiente'
+    : (estadosPago.indexOf(inscripcion.estadoPago) > -1 ? inscripcion.estadoPago : 'pendiente');
   const estadoPago = isAdmin(user) ? estadoSolicitado : 'pendiente';
   const numeroComprobante = String(inscripcion.numeroComprobante || '').trim();
   const fechaPago = fechaSolo(inscripcion.fechaPago);
@@ -3464,10 +3477,14 @@ function addInscripcion(user, params) {
     EntregadoPor: '',
     AvalEnlaceExterno: '',
     AvalCodigoExterno: '',
+    ImportBatchID: importContext ? importContext.batchId : '',
+    ImportBatchRow: importContext ? importContext.rowNumber : '',
+    ImportRowHash: importContext ? importContext.rowHash : '',
   });
 
   // Auto-crear ingreso vinculado — columnas deben coincidir exactamente con SHEET_HEADERS.Ingresos
-  const ingresoId = generateId('ING');
+  const ingresoId = importContext && importContext.ingresoId
+    ? String(importContext.ingresoId) : generateId('ING');
   const estadoIngreso = estadoPago === 'verificado' ? 'confirmado' : 'pendiente_verificacion';
   getSheet('Ingresos').appendRow([
     ingresoId,                    // ID
@@ -3518,6 +3535,223 @@ function addInscripcion(user, params) {
   }
 
   return { success: true, id, ingresoId };
+}
+
+function completarIngresoImportacionMasiva_(inscripcion) {
+  const incomeSheet = getSheet('Ingresos');
+  const linkedId = String(inscripcion.IngresoID || '').trim();
+  if (linkedId && sheetToObjects(incomeSheet).some(function(row) { return String(row.ID || '') === linkedId; })) return;
+
+  const ingresoId = linkedId || idIngresoImportacionMasiva_(inscripcion.ImportBatchID, inscripcion.ImportBatchRow);
+  const existingIncome = sheetToObjects(incomeSheet).find(function(row) { return String(row.ID || '') === ingresoId; });
+  if (existingIncome) {
+    updateRow(getSheet('Inscripciones'), inscripcion, { IngresoID: ingresoId });
+    return;
+  }
+  if (!linkedId) updateRow(getSheet('Inscripciones'), inscripcion, { IngresoID: ingresoId });
+  appendRowPreservandoTexto_(incomeSheet, SHEET_HEADERS.Ingresos, [
+    ingresoId,
+    fechaSolo(inscripcion.FechaPago || inscripcion.FechaCreacion) || new Date().toISOString().slice(0, 10),
+    tipoIngresoPorModalidad(inscripcion.Modalidad),
+    inscripcion.Modalidad || 'N/A',
+    'Inscripción: ' + inscripcion.ClienteNombre + ' — ' + inscripcion.ServicioNombre,
+    inscripcion.ClienteNombre,
+    '',
+    Number(inscripcion.Monto) || 0,
+    inscripcion.MetodoPago || '',
+    estadoIngresoDesdePago(inscripcion.EstadoPago || 'pendiente'),
+    '',
+    inscripcion.CreadoPor || '',
+    inscripcion.FechaCreacion || new Date().toISOString(),
+    inscripcion.ClienteTelefono || '',
+    inscripcion.NumeroComprobante || '',
+  ]);
+}
+
+function idIngresoImportacionMasiva_(batchId, rowNumber) {
+  const digest = hashHexSeguro(String(batchId || '') + '|income|' + String(rowNumber || ''));
+  return 'ING-BULK-' + String(digest || '').slice(0, 32).toUpperCase();
+}
+
+function importarInscripcionesMasivo(user, params) {
+  requireAdmin(user);
+  const batchId = String(params && params.batchId || '').trim().toLowerCase();
+  const serviceId = String(params && params.servicioId || '').trim();
+  const participants = params && params.participantes;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(batchId)) {
+    return { success: false, error: 'El lote no tiene un identificador válido. Vuelva a seleccionar el archivo.' };
+  }
+  if (!Array.isArray(participants) || participants.length < 1 || participants.length > 100) {
+    return { success: false, error: 'La carga debe incluir entre 1 y 100 participantes válidos.' };
+  }
+
+  return conBloqueoCertificados(function() {
+    const service = sheetToObjects(getSheet('Servicios')).find(function(row) {
+      return String(row.ID || '') === serviceId;
+    });
+    if (!service || !esVerdadero(service.Activo)) {
+      return { success: false, error: 'El servicio no existe o está inactivo. Actualice la lista antes de importar.' };
+    }
+    const amount = Number(service.Precio);
+    if (!isFinite(amount) || amount < 0) return { success: false, error: 'El servicio tiene un precio inválido; corrija el catálogo antes de importar.' };
+
+    const sheet = getSheet('Inscripciones');
+    const existing = sheetToObjects(sheet);
+    const normalized = [];
+    const rowNumbers = {};
+    const keys = {};
+    const validationErrors = [];
+    participants.forEach(function(source, index) {
+      const rowNumber = Number(source && source.rowNumber) || index + 2;
+      if (!Number.isInteger(rowNumber) || rowNumber < 2 || rowNumber > 10000 || rowNumbers[rowNumber]) {
+        validationErrors.push('Fila ' + rowNumber + ': número de fila repetido o inválido.');
+        return;
+      }
+      rowNumbers[rowNumber] = true;
+      if (!source || typeof source.clienteID !== 'string' || typeof source.clienteNombre !== 'string'
+          || typeof source.clienteEmail !== 'string' || typeof source.clienteTelefono !== 'string') {
+        validationErrors.push('Fila ' + rowNumber + ': los campos deben enviarse como texto.');
+        return;
+      }
+      const identification = source.clienteID.trim();
+      const type = normalizarTipoIdentificacion_(source.clienteTipoIdentificacion)
+        || (/^\d{10}$/.test(identification) ? TIPOS_IDENTIFICACION.CEDULA_EC : '');
+      const enrollment = {
+        clienteNombre: source.clienteNombre.trim().replace(/\s+/g, ' '),
+        clienteID: identification,
+        clienteTipoIdentificacion: type,
+        clienteEmail: source.clienteEmail.trim().toLowerCase(),
+        clienteTelefono: source.clienteTelefono.trim(),
+        servicioId: service.ID,
+        servicioNombre: service.Nombre,
+        modalidad: service.Modalidad || 'N/A',
+        fechaInicio: fechaSolo(service.FechaInicioCurso),
+        fechaFin: fechaSolo(service.FechaFinCurso),
+        monto: amount,
+        metodoPago: '',
+        estadoPago: 'pendiente',
+        requiereAvalExterno: false,
+        notas: 'Carga masiva ' + batchId + ', fila ' + rowNumber,
+      };
+      let error = '';
+      if (!enrollment.clienteNombre || enrollment.clienteNombre.length > 160) error = 'Ingrese nombres y apellidos válidos (máximo 160 caracteres).';
+      if (!error) error = validarIdentificacion_(type, identification, { required: true });
+      if (!error && (!emailValido(enrollment.clienteEmail) || enrollment.clienteEmail.length > 254)) error = 'Ingrese un correo electrónico válido.';
+      if (!error && !/^\+?[0-9().\s-]{7,20}$/.test(enrollment.clienteTelefono)) error = 'Ingrese un celular válido.';
+      if (!error) error = validarDatosInscripcion(enrollment, { permitirMetodoPagoPendiente: true });
+      if (error) {
+        validationErrors.push('Fila ' + rowNumber + ': ' + error);
+        return;
+      }
+      const identityKey = [type, identification.toUpperCase()].join('|');
+      if (keys[identityKey]) {
+        validationErrors.push('Fila ' + rowNumber + ': identificación duplicada dentro del archivo.');
+        return;
+      }
+      keys[identityKey] = true;
+      const rowHash = hashHexSeguro(JSON.stringify([
+        service.ID, enrollment.clienteTipoIdentificacion, enrollment.clienteID,
+        enrollment.clienteNombre, enrollment.clienteEmail, enrollment.clienteTelefono,
+        enrollment.monto, enrollment.modalidad, enrollment.fechaInicio, enrollment.fechaFin,
+      ]));
+      normalized.push({ rowNumber: rowNumber, rowHash: rowHash, identityKey: identityKey, enrollment: enrollment });
+    });
+    if (validationErrors.length) {
+      return { success: false, error: 'No se importó ninguna fila. ' + validationErrors.slice(0, 8).join(' ') };
+    }
+
+    const results = [];
+    const pending = [];
+    normalized.forEach(function(item) {
+      const batchRow = existing.find(function(row) {
+        return String(row.ImportBatchID || '') === batchId && Number(row.ImportBatchRow) === item.rowNumber;
+      });
+      if (batchRow) {
+        if (String(batchRow.ImportRowHash || '') !== item.rowHash) {
+          validationErrors.push('Fila ' + item.rowNumber + ': este lote ya se usó con datos diferentes. No se modificó ningún registro.');
+          return;
+        }
+        results.push({ rowNumber: item.rowNumber, status: 'already_imported', id: batchRow.ID || '' });
+        return;
+      }
+      const duplicate = existing.find(function(row) {
+        if (String(row.ServicioID || '') !== serviceId
+            && String(row.ServicioNombre || '').trim().toLowerCase() !== String(service.Nombre || '').trim().toLowerCase()) return false;
+        if (String(row.ClienteID || '').trim().toUpperCase() !== item.enrollment.clienteID.toUpperCase()) return false;
+        const existingType = normalizarTipoIdentificacion_(row.ClienteTipoIdentificacion);
+        return !existingType || existingType === item.enrollment.clienteTipoIdentificacion;
+      });
+      if (duplicate) {
+        results.push({ rowNumber: item.rowNumber, status: 'duplicate', id: duplicate.ID || '' });
+        return;
+      }
+      pending.push(item);
+    });
+    if (validationErrors.length) return { success: false, error: validationErrors.join(' ') };
+
+    const created = [];
+    for (let i = 0; i < pending.length; i += 1) {
+      const item = pending[i];
+      try {
+        const result = addInscripcion(user, { inscripcion: item.enrollment }, {
+          batchId: batchId,
+          rowNumber: item.rowNumber,
+          rowHash: item.rowHash,
+          ingresoId: idIngresoImportacionMasiva_(batchId, item.rowNumber),
+        });
+        if (!result || result.success !== true) throw new Error(result && result.error || 'No se pudo guardar la inscripción.');
+        const row = sheetToObjects(sheet).find(function(candidate) { return candidate.ID === result.id; });
+        if (!row) throw new Error('El servidor no pudo confirmar la inscripción guardada.');
+        results.push({ rowNumber: item.rowNumber, status: 'created', id: result.id });
+        created.push(result.id);
+      } catch (error) {
+        results.push({ rowNumber: item.rowNumber, status: 'error', error: String(error && error.message || 'Error al guardar la fila.') });
+        break;
+      }
+    }
+
+    // Un corte entre inscripción e ingreso no se duplica: el metadato de lote permite
+    // retomar la operación y completar el ingreso pendiente con el mismo ID.
+    normalized.forEach(function(item) {
+      if (results.some(function(result) { return result.rowNumber === item.rowNumber && result.status === 'already_imported'; })) {
+        const row = sheetToObjects(sheet).find(function(candidate) {
+          return String(candidate.ImportBatchID || '') === batchId && Number(candidate.ImportBatchRow) === item.rowNumber;
+        });
+        if (row) completarIngresoImportacionMasiva_(row);
+      }
+    });
+
+    const summary = {
+      batchId: batchId,
+      servicioId: service.ID,
+      total: participants.length,
+      creadas: results.filter(function(row) { return row.status === 'created'; }).length,
+      yaImportadas: results.filter(function(row) { return row.status === 'already_imported'; }).length,
+      duplicadas: results.filter(function(row) { return row.status === 'duplicate'; }).length,
+      errores: results.filter(function(row) { return row.status === 'error'; }).length,
+      results: results,
+    };
+    try {
+      registrarAuditoriaCertificado({
+        usuario: user.Username,
+        rol: user.Rol,
+        accion: 'INSCRIPTIONS_BULK_IMPORTED',
+        estadoNuevo: 'INSCRIPTIONS_BULK_IMPORTED',
+        canal: 'panel',
+        resultado: summary.errores ? 'parcial' : 'ok',
+        metadatos: {
+          batchId: batchId,
+          servicioId: service.ID,
+          total: summary.total,
+          creadas: summary.creadas,
+          yaImportadas: summary.yaImportadas,
+          duplicadas: summary.duplicadas,
+          errores: summary.errores,
+        },
+      });
+    } catch (error) { /* La auditoría no expone datos de participantes y no revierte inscripciones. */ }
+    return { success: true, data: summary };
+  });
 }
 
 function tienePropiedad(object, key) {
@@ -3977,6 +4211,7 @@ function estadoNormalizadoCertificado(row) {
   var estado = String(row.CertificateStatus || row.EstadoCertificado || '').trim().toLowerCase();
   var mapa = {
     issued: 'emitido', sent: 'enviado', voided: 'anulado', reissued: 'reemitido',
+    pending_pdf: 'pendiente_pdf',
     descargado: 'emitido', compartido: 'enviado', enviado_email: 'enviado', enviado_whatsapp: 'enviado',
   };
   return mapa[estado] || estado || 'pendiente';
@@ -4021,9 +4256,7 @@ function appendCertificado(registro) {
   if (codigoCertificadoEnUso(registro.CodigoCertificado, registro.ID, registro.InscripcionID)) {
     throw new Error('El c\u00f3digo del certificado ya est\u00e1 asignado a otro registro.');
   }
-  sheet.appendRow(SHEET_HEADERS.Certificados.map(function(header) {
-    return registro[header] === undefined || registro[header] === null ? '' : registro[header];
-  }));
+  appendObjectBySheetHeaders_(sheet, registro);
   return sheetToObjects(sheet).find(function(item) { return item.ID === registro.ID; });
 }
 
@@ -4532,6 +4765,7 @@ function getHistorialCertificados(user, { id } = {}) {
   if (!inscripcion) return { success: false, error: 'Inscripción no encontrada.' };
   let versions = sheetToObjects(getSheet('Certificados')).filter(function(item) { return item.InscripcionID === inscripcion.ID; });
   if (!versions.length && certificadoProtegidoContraEliminacion(inscripcion)) versions = [certificadoHistoricoDesdeInscripcion(inscripcion)];
+  versions = versions.map(function(item) { return recuperarReemisionPendienteDesfasada_(item, inscripcion, versions) || item; });
   versions.sort(function(a, b) { return (Number(b.CertificateVersion) || 1) - (Number(a.CertificateVersion) || 1); });
   return { success: true, data: versions.map(function(item) { return {
     id: item.ID || '', codigo: item.CodigoCertificado || '', version: Number(item.CertificateVersion) || 1,
@@ -4540,7 +4774,148 @@ function getHistorialCertificados(user, { id } = {}) {
     motivo: item.ReissueReason || item.VoidReason || '',
     pdfArchivado: Boolean(item.PdfStorageReference && /^[a-f0-9]{64}$/i.test(String(item.PdfHash || ''))),
     snapshotVerificado: Boolean(leerSnapshotDocumentalCertificado_(item)),
+    puedeCompletarPdf: puedeCompletarPdfPendiente_(item, inscripcion, versions),
   }; }) };
+}
+
+function recuperarReemisionPendienteDesfasada_(certificado, inscripcion, versiones) {
+  if (!certificado || !inscripcion) return null;
+  const originalId = String(certificado.OriginalCertificateId || '').trim();
+  const original = (versiones || []).find(function(item) { return String(item.ID || '') === originalId; });
+  const tipoDesplazado = String(certificado.ReplacesCertificateId || '').trim();
+  const razonDesplazada = String(certificado.CreatedAt || '').trim();
+  const fechaCreacionDesplazada = String(certificado.CertificateType || '').trim();
+  const actorDesplazado = String(certificado.VoidedAt || '').trim();
+  const fechaPreparacion = String(certificado.CertificatePreparedAt || '').trim();
+  const fechaIso = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/;
+  const tipoEsperado = String((original && original.CertificateType) || inscripcion.CertificateType || 'aprobacion').trim();
+  const signatureMatches = original
+    && String(certificado.InscripcionID || '') === String(inscripcion.ID || '')
+    && originalId === String(original.ID || '')
+    && String(certificado.ReissuedCertificateId || '') === originalId
+    && !String(certificado.CertificateStatus || '').trim()
+    && String(certificado.IssuedAt || '') === 'pendiente_pdf'
+    && !String(certificado.IssuedBy || '').trim()
+    && !String(certificado.ReissueReason || '').trim()
+    && !String(certificado.VoidedBy || '').trim()
+    && !String(certificado.VoidReason || '').trim()
+    && razonDesplazada.length >= 5
+    && tipoDesplazado === tipoEsperado
+    && fechaIso.test(fechaCreacionDesplazada)
+    && fechaCreacionDesplazada === fechaPreparacion
+    && /^[a-z0-9._-]{2,64}$/i.test(actorDesplazado)
+    && !String(certificado.PdfHash || '').trim()
+    && !String(certificado.PdfStorageReference || '').trim()
+    && Boolean(leerSnapshotDocumentalCertificado_(certificado));
+  if (!signatureMatches) return null;
+  return Object.assign({}, certificado, {
+    ReplacesCertificateId: originalId,
+    ReissuedCertificateId: '',
+    CertificateStatus: 'pendiente_pdf',
+    IssuedAt: '',
+    IssuedBy: actorDesplazado,
+    VoidedAt: '', VoidedBy: '', VoidReason: '',
+    ReissueReason: razonDesplazada,
+    CreatedAt: fechaCreacionDesplazada,
+    CertificateType: tipoDesplazado,
+  });
+}
+
+function repararReemisionesPendientesDesfasadasBajoBloqueo_(user, inscripcion, versiones, certificateId) {
+  const normalized = versiones.map(function(item) {
+    return recuperarReemisionPendienteDesfasada_(item, inscripcion, versiones) || item;
+  });
+  const candidates = versiones.filter(function(item, index) { return normalized[index] !== item; });
+  if (!candidates.length) return { success: true, changed: false };
+  const latestPending = normalized.filter(esCertificadoPdfPendienteReemision_)
+    .sort(function(a, b) { return (Number(b.CertificateVersion) || 1) - (Number(a.CertificateVersion) || 1); })[0];
+  if (!latestPending || String(latestPending.ID || '') !== String(certificateId || '')
+      || !puedeCompletarPdfPendiente_(latestPending, inscripcion, normalized)) {
+    return { success: false, error: 'La recuperación solo puede ejecutarse sobre la reemisión pendiente más reciente y verificada.' };
+  }
+
+  const sheet = getSheet('Certificados');
+  const changes = candidates.map(function(item) {
+    const recovered = recuperarReemisionPendienteDesfasada_(item, inscripcion, versiones);
+    const fields = ['ReplacesCertificateId','ReissuedCertificateId','CertificateStatus','IssuedAt','IssuedBy',
+      'VoidedAt','VoidedBy','VoidReason','ReissueReason','CreatedAt','CertificateType'];
+    const before = {}; const after = {};
+    fields.forEach(function(field) { before[field] = item[field]; after[field] = recovered[field]; });
+    return { row: item, before: before, after: after };
+  });
+  try {
+    changes.forEach(function(change) { updateRow(sheet, change.row, change.after); });
+    registrarAuditoriaCertificado({
+      certificadoId: latestPending.CodigoCertificado,
+      inscripcionId: inscripcion.ID,
+      usuario: user.Username,
+      rol: user.Rol,
+      accion: 'CERTIFICATE_REISSUE_SCHEMA_RECOVERED',
+      estadoAnterior: 'pendiente_pdf_metadatos_desfasados',
+      estadoNuevo: 'pendiente_pdf',
+      canal: 'api',
+      resultado: 'ok',
+      motivo: 'Se restauraron los campos desplazados por el orden histórico de columnas, sin alterar snapshots ni PDFs.',
+      metadatos: { certificateIds: changes.map(function(change) { return change.row.ID; }), versions: changes.map(function(change) { return Number(change.row.CertificateVersion) || 1; }) },
+    });
+  } catch (error) {
+    changes.slice().reverse().forEach(function(change) { updateRow(sheet, change.row, change.before); });
+    throw error;
+  }
+  return { success: true, changed: true };
+}
+
+function puedeCompletarPdfPendiente_(certificado, inscripcion, versiones) {
+  if (!esCertificadoPdfPendienteReemision_(certificado)
+      || !leerSnapshotDocumentalCertificado_(certificado)) return false;
+  const replacements = (versiones || []).filter(function(item) {
+    return String(item.ReplacesCertificateId || '') === String(certificado.ReplacesCertificateId)
+      && esCertificadoPdfPendienteReemision_(item);
+  }).sort(function(a, b) {
+    return (Number(b.CertificateVersion) || 1) - (Number(a.CertificateVersion) || 1);
+  });
+  if (!replacements.length || String(replacements[0].ID) !== String(certificado.ID)) return false;
+  const replaced = (versiones || []).find(function(item) {
+    return String(item.ID || '') === String(certificado.ReplacesCertificateId);
+  });
+  const replacedStatus = estadoNormalizadoCertificado(replaced || {});
+  if (!replaced || ['emitido', 'enviado', 'anulado'].indexOf(replacedStatus) === -1) return false;
+  const expectedCurrentId = String(inscripcion.ReissuedCertificateId || '').trim() || String(inscripcion.ID || '');
+  return expectedCurrentId === String(replaced.ID)
+    || String(inscripcion.CodigoCertificado || '') === String(replaced.CodigoCertificado || '');
+}
+
+function esCertificadoPdfPendienteReemision_(certificado) {
+  if (!certificado || !String(certificado.ReplacesCertificateId || '').trim()) return false;
+  const estado = estadoNormalizadoCertificado(certificado);
+  const estadoPendiente = estado === 'pendiente_pdf'
+    || estado === 'pendiente';
+  const tieneArtefactoParcial = Boolean(String(certificado.PdfHash || '').trim()
+    || String(certificado.PdfStorageReference || '').trim());
+  return estadoPendiente && !tieneArtefactoParcial;
+}
+
+function getCertificadoPendienteParaCompletar(user, { inscripcionId, certificateId } = {}) {
+  requireCertificateAdmin(user, 'CERTIFICATE_DOWNLOAD_READ', { inscripcionId: inscripcionId, canal: 'api' });
+  return conBloqueoCertificados(function() {
+    let resolved = resolverCertificadoVersionAdministrativo_(inscripcionId, certificateId);
+    if (!resolved) return { success: false, error: 'La versión solicitada no pertenece a esta inscripción.' };
+    let versions = sheetToObjects(getSheet('Certificados')).filter(function(item) { return item.InscripcionID === resolved.inscripcion.ID; });
+    const repair = repararReemisionesPendientesDesfasadasBajoBloqueo_(user, resolved.inscripcion, versions, certificateId);
+    if (!repair.success) return repair;
+    if (repair.changed) {
+      resolved = resolverCertificadoVersionAdministrativo_(inscripcionId, certificateId);
+      versions = sheetToObjects(getSheet('Certificados')).filter(function(item) { return item.InscripcionID === resolved.inscripcion.ID; });
+    }
+    if (!puedeCompletarPdfPendiente_(resolved.certificado, resolved.inscripcion, versions)) {
+      return { success: false, error: 'Esta versión no es la reemisión pendiente más reciente o su versión anterior ya no está vigente.' };
+    }
+    const snapshot = leerSnapshotDocumentalCertificado_(resolved.certificado);
+    if (!snapshot || snapshot.tipo !== 'participante') {
+      return { success: false, error: 'La reemisión no tiene un snapshot verificado de participante; no se reconstruyó el PDF.' };
+    }
+    return { success: true, data: certificadoParaCliente(resolved.certificado, resolved.inscripcion) };
+  });
 }
 
 function getCertificadoVersionParaDescarga(user, { inscripcionId, certificateId } = {}) {
@@ -4577,6 +4952,273 @@ function carpetaCertificadosPrivados_() {
   const folder = DriveApp.createFolder('R.A. Training Finance - Certificados privados');
   properties.setProperty('CERTIFICATE_DRIVE_FOLDER_ID', folder.getId());
   return folder;
+}
+
+const PRIVATE_PDF_TRANSFER_CHUNK_BYTES = 1572864; // 1.5 MiB; Base64 response/request stays below Vercel's 4.5 MB cap.
+const PRIVATE_PDF_TRANSFER_CHUNK_BASE64 = 2097152;
+const PRIVATE_PDF_TRANSFER_MAX_BASE64 = 16000000;
+const PRIVATE_PDF_TRANSFER_TEMP_FOLDER = 'R.A. Training Finance - Cargas PDF temporales';
+const PRIVATE_PDF_TRANSFER_FOLDER_PROPERTY = 'PRIVATE_PDF_TRANSFER_FOLDER_ID';
+
+function carpetaCargasPdfPrivadas_() {
+  const properties = PropertiesService.getScriptProperties();
+  const configuredId = String(properties.getProperty(PRIVATE_PDF_TRANSFER_FOLDER_PROPERTY) || '').trim();
+  if (configuredId) {
+    try { return DriveApp.getFolderById(configuredId); } catch (err) { /* carpeta eliminada: se crea otra */ }
+  }
+  const folders = DriveApp.getFoldersByName(PRIVATE_PDF_TRANSFER_TEMP_FOLDER);
+  const folder = folders.hasNext() ? folders.next() : DriveApp.createFolder(PRIVATE_PDF_TRANSFER_TEMP_FOLDER);
+  properties.setProperty(PRIVATE_PDF_TRANSFER_FOLDER_PROPERTY, folder.getId());
+  return folder;
+}
+
+function privatePdfHexDigest_(value) {
+  return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(value || ''))
+    .map(function (byte) { return ('0' + (byte & 0xFF).toString(16)).slice(-2); }).join('');
+}
+
+function privatePdfUploadKey_(kind, id, versionId) {
+  return privatePdfHexDigest_([kind, id, versionId || ''].join('|')).slice(0, 20);
+}
+
+function privatePdfUploadFileName_(uploadId, targetKey, index) {
+  return 'UPLOAD_' + uploadId + '_' + targetKey + '_' + String(index).padStart(2, '0') + '.b64';
+}
+
+function validarPrivatePdfTransfer_(p, requireChunk) {
+  const kind = String(p.kind || '');
+  const id = String(p.id || '').trim();
+  const uploadId = String(p.uploadId || '').toLowerCase();
+  const count = Number(p.chunkCount);
+  if (['certificate', 'certificate-migration', 'aval'].indexOf(kind) === -1 || !id) return { error: 'La clase o el identificador del PDF no son válidos.' };
+  if (!/^[a-f0-9-]{36}$/.test(uploadId) || !Number.isInteger(count) || count < 1
+    || count > Math.ceil(PRIVATE_PDF_TRANSFER_MAX_BASE64 / PRIVATE_PDF_TRANSFER_CHUNK_BASE64)) {
+    return { error: 'La sesión o la cantidad de fragmentos del PDF no son válidas.' };
+  }
+  const index = Number(p.chunkIndex);
+  if (requireChunk && (!Number.isInteger(index) || index < 0 || index >= count)) {
+    return { error: 'El número de fragmento del PDF no es válido.' };
+  }
+  return { kind: kind, id: id, uploadId: uploadId, chunkCount: count, chunkIndex: index,
+    versionId: String(p.versionId || '').trim(), targetKey: privatePdfUploadKey_(kind, id, p.versionId) };
+}
+
+function privatePdfTransferAdminAction_(kind) {
+  if (kind === 'aval') return 'AVAL_CERTIFICATE_PDF_STORE';
+  if (kind === 'certificate-migration') return 'CERTIFICATE_PRIVATE_PDF_MIGRATE';
+  return 'CERTIFICATE_PRIVATE_PDF_STORE';
+}
+
+function limpiarPartesPdfPrivado_(session) {
+  const folder = carpetaCargasPdfPrivadas_();
+  for (let index = 0; index < session.chunkCount; index += 1) {
+    const files = folder.getFilesByName(privatePdfUploadFileName_(session.uploadId, session.targetKey, index));
+    while (files.hasNext()) files.next().setTrashed(true);
+  }
+}
+
+function limpiarCargasPdfPrivadasAntiguas_() {
+  const properties = PropertiesService.getScriptProperties();
+  const now = Date.now();
+  const previous = Number(properties.getProperty('PRIVATE_PDF_TRANSFER_LAST_CLEANUP') || 0);
+  if (now - previous < 24 * 60 * 60 * 1000) return;
+  const files = carpetaCargasPdfPrivadas_().getFiles();
+  const expiry = now - 24 * 60 * 60 * 1000;
+  while (files.hasNext()) {
+    const file = files.next();
+    if (String(file.getName() || '').indexOf('UPLOAD_') !== 0) continue;
+    const created = file.getDateCreated ? file.getDateCreated().getTime() : now;
+    if (created < expiry) file.setTrashed(true);
+  }
+  properties.setProperty('PRIVATE_PDF_TRANSFER_LAST_CLEANUP', String(now));
+}
+
+function guardarPdfPrivadoChunk(user, p) {
+  p = p || {};
+  const session = validarPrivatePdfTransfer_(p, true);
+  if (session.error) return { success: false, error: session.error };
+  requireCertificateAdmin(user, privatePdfTransferAdminAction_(session.kind),
+    { inscripcionId: session.id, canal: 'api' });
+  const chunk = String(p.chunkBase64 || '');
+  const isLast = session.chunkIndex === session.chunkCount - 1;
+  if (!chunk || chunk.length > PRIVATE_PDF_TRANSFER_CHUNK_BASE64 || chunk.length % 4 !== 0
+    || (!isLast && chunk.length !== PRIVATE_PDF_TRANSFER_CHUNK_BASE64)
+    || !/^[A-Za-z0-9+/]+={0,2}$/.test(chunk)) {
+    return { success: false, error: 'El contenido del fragmento no tiene un tamaño o formato válido.' };
+  }
+  limpiarCargasPdfPrivadasAntiguas_();
+  const fileName = privatePdfUploadFileName_(session.uploadId, session.targetKey, session.chunkIndex);
+  const folder = carpetaCargasPdfPrivadas_();
+  return conBloqueoCertificados(function () {
+    const existingFiles = folder.getFilesByName(fileName);
+    if (existingFiles.hasNext()) {
+      const existing = existingFiles.next();
+      if (String(existing.getBlob().getDataAsString()) !== chunk) {
+        return { success: false, error: 'La sesión ya contiene otro contenido para este fragmento; no se reemplazó.' };
+      }
+      return { success: true, idempotent: true, chunkIndex: session.chunkIndex };
+    }
+    const file = folder.createFile(Utilities.newBlob(chunk, 'text/plain', fileName));
+    try { file.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE); } catch (err) { /* Los archivos nuevos son privados por defecto. */ }
+    return { success: true, idempotent: false, chunkIndex: session.chunkIndex };
+  });
+}
+
+function pdfPrivadoYaArchivado_(user, session, hash, templateVersion, certificateVersion) {
+  let row = null;
+  if (session.kind === 'aval') {
+    const versions = sheetToObjects(getSheet('EntregablesAval')).filter(function (item) { return item.InscripcionID === session.id; });
+    row = session.versionId
+      ? versions.find(function (item) { return item.ID === session.versionId; })
+      : entregableAvalActual_(session.id, versions);
+    if (row && String(row.TemplateVersion || '') !== String(templateVersion || '')) return null;
+  } else {
+    const exactId = String(session.versionId || session.id);
+    const professional = buscarCertificadoProfesional_(exactId);
+    if (professional) row = professional;
+    else {
+      row = sheetToObjects(getSheet('Certificados')).find(function (item) { return item.ID === exactId; }) || null;
+      if (row && (Number(row.CertificateVersion) !== Number(certificateVersion)
+        || String(row.TemplateVersion || '') !== String(templateVersion || ''))) return null;
+    }
+  }
+  if (!row || String(row.PdfHash || '').toLowerCase() !== hash
+    || String(row.PdfStorageReference || '').indexOf('certificate-drive:') !== 0) return null;
+  const file = DriveApp.getFileById(String(row.PdfStorageReference).slice('certificate-drive:'.length));
+  if (sha256PdfCertificado_(file.getBlob().getBytes()) !== hash) {
+    throw new Error('El PDF oficial ya archivado no coincide con su huella SHA-256; no se confirmó la carga repetida.');
+  }
+  return row;
+}
+
+function finalizarPdfPrivadoChunk(user, p) {
+  p = p || {};
+  const session = validarPrivatePdfTransfer_(p, false);
+  if (session.error) return { success: false, error: session.error };
+  requireCertificateAdmin(user, privatePdfTransferAdminAction_(session.kind),
+    { inscripcionId: session.id, canal: 'api' });
+  const hash = String(p.pdfHash || '').trim().toLowerCase();
+  if (!/^[a-f0-9]{64}$/.test(hash)) return { success: false, error: 'La huella SHA-256 del PDF no es válida.' };
+  const alreadyArchived = pdfPrivadoYaArchivado_(user, session, hash, p.templateVersion, p.certificateVersion);
+  if (alreadyArchived) {
+    limpiarPartesPdfPrivado_(session);
+    return { success: true, reference: alreadyArchived.PdfStorageReference, hash: hash, idempotent: true };
+  }
+  const folder = carpetaCargasPdfPrivadas_();
+  let pdfBase64 = '';
+  for (let index = 0; index < session.chunkCount; index += 1) {
+    const files = folder.getFilesByName(privatePdfUploadFileName_(session.uploadId, session.targetKey, index));
+    if (!files.hasNext()) return { success: false, error: 'Falta el fragmento ' + (index + 1) + ' de ' + session.chunkCount + '; el PDF no se archivó.' };
+    const chunk = String(files.next().getBlob().getDataAsString());
+    if (!chunk || chunk.length > PRIVATE_PDF_TRANSFER_CHUNK_BASE64 || chunk.length % 4 !== 0
+      || (index < session.chunkCount - 1 && chunk.length !== PRIVATE_PDF_TRANSFER_CHUNK_BASE64)) {
+      return { success: false, error: 'El fragmento ' + (index + 1) + ' está incompleto o dañado; el PDF no se archivó.' };
+    }
+    pdfBase64 += chunk;
+    if (pdfBase64.length > PRIVATE_PDF_TRANSFER_MAX_BASE64) return { success: false, error: 'El PDF excede el tamaño máximo permitido.' };
+  }
+  if (pdfBase64.length % 4 !== 0) return { success: false, error: 'El PDF está incompleto; no se archivó.' };
+  const result = session.kind === 'aval'
+    ? guardarPdfEntregableAvalPrivado(user, { id: session.id, pdfBase64: pdfBase64, pdfHash: hash, templateVersion: p.templateVersion })
+    : session.kind === 'certificate-migration'
+      ? migrarPdfCertificadoPrivado(user, { id: session.id, inscripcionId: session.id,
+        certificateId: session.versionId || p.certificateId, pdfBase64: pdfBase64, pdfHash: hash,
+        templateVersion: p.templateVersion, certificateVersion: p.certificateVersion,
+        motivo: p.motivo, confirmacion: p.confirmacion })
+      : guardarPdfCertificadoPrivado(user, { id: session.id, pdfBase64: pdfBase64, pdfHash: hash,
+        templateVersion: p.templateVersion, certificateVersion: p.certificateVersion });
+  if (result && result.success) {
+    try { limpiarPartesPdfPrivado_(session); } catch (err) { Logger.log('No se pudieron limpiar fragmentos temporales: ' + String(err)); }
+  }
+  return result;
+}
+
+function cancelarPdfPrivadoChunk(user, p) {
+  p = p || {};
+  const session = validarPrivatePdfTransfer_(p, false);
+  if (session.error) return { success: false, error: session.error };
+  requireCertificateAdmin(user, privatePdfTransferAdminAction_(session.kind),
+    { inscripcionId: session.id, canal: 'api' });
+  limpiarPartesPdfPrivado_(session);
+  return { success: true };
+}
+
+function leerPdfPrivadoChunk(user, p) {
+  p = p || {};
+  const kind = String(p.kind || '');
+  if (kind !== 'aval' && kind !== 'certificate') return { success: false, error: 'La clase del PDF no es válida.' };
+  const index = Number(p.chunkIndex);
+  if (!Number.isInteger(index) || index < 0) return { success: false, error: 'El número de fragmento del PDF no es válido.' };
+  const resolved = kind === 'aval'
+    ? resolverPdfAvalPrivado_(user, p)
+    : resolverPdfCertificadoPrivado_(user, p);
+  if (!resolved.success) return resolved;
+  const bytes = resolved.file.getBlob().getBytes();
+  if (sha256PdfCertificado_(bytes) !== resolved.hash) return { success: false, error: 'El PDF privado no superó la verificación SHA-256.' };
+  const totalChunks = Math.ceil(bytes.length / PRIVATE_PDF_TRANSFER_CHUNK_BYTES);
+  if (index >= totalChunks) return { success: false, error: 'El fragmento solicitado está fuera del tamaño del PDF.' };
+  const start = index * PRIVATE_PDF_TRANSFER_CHUNK_BYTES;
+  const chunkBytes = bytes.slice(start, Math.min(start + PRIVATE_PDF_TRANSFER_CHUNK_BYTES, bytes.length));
+  return { success: true, reference: resolved.reference, hash: resolved.hash, filename: resolved.filename,
+    totalBytes: bytes.length, chunkBytes: PRIVATE_PDF_TRANSFER_CHUNK_BYTES, chunkIndex: index,
+    totalChunks: totalChunks, contentBase64: Utilities.base64Encode(chunkBytes) };
+}
+
+function resolverPdfCertificadoPrivado_(user, p) {
+  requireCertificateAdmin(user, 'CERTIFICATE_PRIVATE_PDF_READ', { inscripcionId: p.id, canal: 'api' });
+  const exactId = String(p.certificateId || p.versionId || p.id || '');
+  const professional = buscarCertificadoProfesional_(exactId);
+  if (professional) {
+    if (['emitido', 'enviado', 'reemitido', 'anulado'].indexOf(estadoNormalizadoCertificado(professional)) === -1) {
+      return { success: false, error: 'Esta versión profesional todavía no es descargable.' };
+    }
+    const reference = String(professional.PdfStorageReference || '').trim();
+    const hash = String(professional.PdfHash || '').trim().toLowerCase();
+    if (reference.indexOf('certificate-drive:') !== 0 || !/^[a-f0-9]{64}$/.test(hash)) {
+      return { success: false, error: 'El certificado profesional no tiene PDF privado archivado.' };
+    }
+    const file = DriveApp.getFileById(reference.slice('certificate-drive:'.length));
+    return { success: true, file: file, reference: reference, hash: hash, filename: file.getName() };
+  }
+  const exactCertificate = sheetToObjects(getSheet('Certificados')).find(function (item) { return item.ID === exactId; }) || null;
+  let resolved = null;
+  if (exactCertificate) {
+    const linked = sheetToObjects(getSheet('Inscripciones')).find(function (item) { return item.ID === exactCertificate.InscripcionID; }) || null;
+    if (!linked) return { success: false, error: 'La versión no tiene una inscripción asociada.' };
+    resolved = { certificado: exactCertificate, inscripcion: linked };
+  } else {
+    resolved = resolverCertificadoAdministrativo(p.id, user);
+  }
+  if (!resolved) return { success: false, error: 'Certificado no encontrado.' };
+  if (['emitido', 'enviado', 'reemitido', 'anulado'].indexOf(estadoNormalizadoCertificado(resolved.certificado)) === -1) {
+    return { success: false, error: 'Esta versión todavía no es descargable.' };
+  }
+  const reference = String(resolved.certificado.PdfStorageReference || '').trim();
+  const hash = String(resolved.certificado.PdfHash || '').trim().toLowerCase();
+  if (reference.indexOf('certificate-drive:') !== 0 || !/^[a-f0-9]{64}$/.test(hash)) {
+    return { success: false, error: 'Este certificado no tiene un PDF privado archivado.' };
+  }
+  const file = DriveApp.getFileById(reference.slice('certificate-drive:'.length));
+  return { success: true, file: file, reference: reference, hash: hash, filename: file.getName() };
+}
+
+function resolverPdfAvalPrivado_(user, p) {
+  requireCertificateAdmin(user, 'AVAL_CERTIFICATE_PDF_READ', { inscripcionId: p.id, canal: 'api' });
+  const versions = sheetToObjects(getSheet('EntregablesAval')).filter(function (item) { return item.InscripcionID === String(p.id || ''); });
+  const versionId = String(p.versionId || '').trim();
+  const entregable = versionId
+    ? versions.find(function (item) { return item.ID === versionId; }) || null
+    : entregableAvalActual_(String(p.id || ''), versions);
+  if (entregable && entregable.InscripcionID !== String(p.id || '')) return { success: false, error: 'La versión solicitada no pertenece a esta inscripción.' };
+  if (!entregable || ['emitido', 'reemitido', 'anulado'].indexOf(estadoNormalizadoCertificado(entregable)) === -1
+    || !/^[a-f0-9]{64}$/.test(String(entregable.PdfHash || '').toLowerCase())
+    || String(entregable.PdfStorageReference || '').indexOf('certificate-drive:') !== 0) {
+    return { success: false, error: 'Esta versión avalada no tiene un PDF oficial archivado.' };
+  }
+  const reference = String(entregable.PdfStorageReference);
+  const hash = String(entregable.PdfHash).toLowerCase();
+  const file = DriveApp.getFileById(reference.slice('certificate-drive:'.length));
+  return { success: true, file: file, reference: reference, hash: hash, filename: file.getName() };
 }
 
 function guardarPdfCertificadoPrivado(user, params) {
@@ -4637,6 +5279,133 @@ function guardarPdfCertificadoPrivado(user, params) {
       throw err;
     }
     return { success: true, reference: reference, hash: expectedHash, idempotent: false };
+  });
+}
+
+function migrarPdfCertificadoPrivado(user, params) {
+  const p = params || {};
+  const inscripcionId = String(p.inscripcionId || p.id || '').trim();
+  const certificateId = String(p.certificateId || '').trim();
+  const hash = String(p.pdfHash || '').trim().toLowerCase();
+  const templateVersion = String(p.templateVersion || '').trim();
+  const reason = String(p.motivo || '').trim();
+  requireCertificateAdmin(user, 'CERTIFICATE_PRIVATE_PDF_MIGRATE', { inscripcionId: inscripcionId, certificadoId: certificateId, canal: 'api' });
+  if (p.confirmacion !== 'MIGRAR_PDF_ORIGINAL') {
+    return { success: false, error: 'La migración requiere confirmación explícita del PDF original.' };
+  }
+  if (!inscripcionId || !certificateId || !/^[a-f0-9]{64}$/.test(hash)) {
+    return { success: false, error: 'Faltan el certificado, la inscripción o la huella SHA-256 válida.' };
+  }
+  if (!p.pdfBase64 || String(p.pdfBase64).length > PRIVATE_PDF_TRANSFER_MAX_BASE64) {
+    return { success: false, error: 'El PDF original falta o supera el máximo permitido de 12 MB.' };
+  }
+  if (!templateVersion || Number(p.certificateVersion) < 1 || !Number.isInteger(Number(p.certificateVersion))) {
+    return { success: false, error: 'La versión o la plantilla del certificado no son válidas.' };
+  }
+  if (reason.length < 10) return { success: false, error: 'Describa el motivo de la migración en al menos 10 caracteres.' };
+
+  let bytes;
+  try { bytes = Utilities.base64Decode(String(p.pdfBase64)); }
+  catch (error) { return { success: false, error: 'El PDF original no está codificado correctamente.' }; }
+  if (bytes.length < 5 || String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3], bytes[4]) !== '%PDF-') {
+    return { success: false, error: 'El archivo seleccionado no es un PDF válido.' };
+  }
+  if (sha256PdfCertificado_(bytes) !== hash) {
+    return { success: false, error: 'El PDF seleccionado no coincide con la huella SHA-256 oficial; no se cambió el certificado.' };
+  }
+
+  return conBloqueoCertificados(function() {
+    const resolved = resolverCertificadoVersionAdministrativo_(inscripcionId, certificateId);
+    if (!resolved) return { success: false, error: 'La versión solicitada no pertenece a la inscripción indicada.' };
+    const certificate = resolved.certificado;
+    const enrollment = resolved.inscripcion;
+    const status = estadoNormalizadoCertificado(certificate);
+    if (['emitido', 'enviado', 'reemitido', 'anulado'].indexOf(status) === -1) {
+      return { success: false, error: 'Solo se puede migrar un PDF de una versión emitida y registrada.' };
+    }
+    const version = Number(certificate.CertificateVersion) || 1;
+    if (Number(p.certificateVersion) !== version || String(certificate.TemplateVersion || 'legacy-v1') !== templateVersion) {
+      return { success: false, error: 'La versión o plantilla no corresponde al certificado oficial.' };
+    }
+    const officialHash = String(certificate.PdfHash || '').trim().toLowerCase();
+    if (!/^[a-f0-9]{64}$/.test(officialHash) || officialHash !== hash) {
+      return { success: false, error: 'La huella enviada no coincide con la huella oficial; el certificado se conservó sin cambios.' };
+    }
+    const oldReference = String(certificate.PdfStorageReference || '').trim();
+    if (oldReference.indexOf('certificate-drive:') === 0) {
+      const existing = DriveApp.getFileById(oldReference.slice('certificate-drive:'.length));
+      if (sha256PdfCertificado_(existing.getBlob().getBytes()) !== officialHash) {
+        throw new Error('El PDF central existente no coincide con su huella oficial; no se reemplazó.');
+      }
+      return { success: true, reference: oldReference, hash: officialHash, idempotent: true };
+    }
+    if (oldReference && oldReference.indexOf('browser-indexeddb:') !== 0) {
+      return { success: false, error: 'La referencia actual no es un artefacto local migrable; no se modificó.' };
+    }
+
+    const certificateSheet = getSheet('Certificados');
+    const storedCertificate = sheetToObjects(certificateSheet).find(function(row) {
+      return row.ID === certificate.ID && row.InscripcionID === enrollment.ID;
+    }) || null;
+    const targetSheet = storedCertificate ? certificateSheet : getSheet('Inscripciones');
+    const targetRow = storedCertificate || enrollment;
+    const enrollmentReference = String(enrollment.PdfStorageReference || '').trim();
+    const enrollmentHash = String(enrollment.PdfHash || '').trim().toLowerCase();
+    const isCurrentEnrollmentVersion = String(enrollment.ReissuedCertificateId || '') === String(certificate.ID)
+      || (!String(enrollment.ReissuedCertificateId || '').trim()
+        && String(enrollment.CodigoCertificado || '') === String(certificate.CodigoCertificado || '')
+        && (Number(enrollment.CertificateVersion) || 1) === version);
+    const syncEnrollmentReference = Boolean(storedCertificate && isCurrentEnrollmentVersion
+      && (!enrollmentHash || enrollmentHash === officialHash)
+      && (!enrollmentReference || enrollmentReference.indexOf('browser-indexeddb:') === 0));
+
+    const folder = carpetaCertificadosPrivados_();
+    const safeCode = String(certificate.CodigoCertificado || certificate.ID).replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 90);
+    const file = folder.createFile(Utilities.newBlob(bytes, 'application/pdf', 'CERT_' + safeCode + '_v' + version + '.pdf'));
+    try { file.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE); } catch (error) { /* Drive crea archivos privados. */ }
+    const newReference = 'certificate-drive:' + file.getId();
+    if (sha256PdfCertificado_(file.getBlob().getBytes()) !== officialHash) {
+      try { file.setTrashed(true); } catch (cleanupError) { Logger.log('No se pudo retirar un PDF cuya verificación poscarga falló: ' + String(cleanupError)); }
+      return { success: false, error: 'El PDF no superó la verificación posterior a la carga; no se cambió el registro.' };
+    }
+    const previousTargetReference = String(targetRow.PdfStorageReference || '');
+    const previousEnrollmentReference = String(enrollment.PdfStorageReference || '');
+    try {
+      updateRow(targetSheet, targetRow, { PdfStorageReference: newReference });
+      if (syncEnrollmentReference) updateRow(getSheet('Inscripciones'), enrollment, { PdfStorageReference: newReference });
+      registrarAuditoriaCertificado({
+        certificadoId: certificate.CodigoCertificado || certificate.ID,
+        inscripcionId: enrollment.ID,
+        usuario: user.Username,
+        rol: user.Rol,
+        accion: 'CERTIFICATE_ARTIFACT_MIGRATED_TO_DRIVE',
+        estadoAnterior: status,
+        estadoNuevo: status,
+        canal: 'api',
+        resultado: 'ok',
+        motivo: reason,
+        metadatos: {
+          fromReference: oldReference || 'sin-referencia',
+          toReference: newReference,
+          sha256: officialHash,
+          certificateVersion: version,
+          templateVersion: templateVersion,
+        },
+      });
+    } catch (error) {
+      let rollbackFailed = false;
+      try { updateRow(targetSheet, targetRow, { PdfStorageReference: previousTargetReference }); }
+      catch (rollbackError) { rollbackFailed = true; Logger.log('Falló la reversión de la referencia del certificado: ' + String(rollbackError)); }
+      if (syncEnrollmentReference) {
+        try { updateRow(getSheet('Inscripciones'), enrollment, { PdfStorageReference: previousEnrollmentReference }); }
+        catch (rollbackError) { rollbackFailed = true; Logger.log('Falló la reversión de la inscripción: ' + String(rollbackError)); }
+      }
+      try { file.setTrashed(true); }
+      catch (cleanupError) { rollbackFailed = true; Logger.log('No se pudo retirar el PDF tras un fallo de auditoría: ' + String(cleanupError)); }
+      if (rollbackFailed) throw new Error('La migración falló y requiere revisión administrativa: la reversión automática no pudo completarse.');
+      throw error;
+    }
+    return { success: true, reference: newReference, hash: officialHash, idempotent: false, migrated: true };
   });
 }
 
@@ -4783,9 +5552,15 @@ function registrarArtefactoCertificadoBajoBloqueo(user, {
   const certificado = resolved.certificado;
   const inscripcion = resolved.inscripcion;
   const estado = estadoNormalizadoCertificado(certificado);
-  const isPendingReissue = estado === 'pendiente_pdf' && String(certificado.ReplacesCertificateId || '').trim();
+  const isPendingReissue = esCertificadoPdfPendienteReemision_(certificado);
   if (estado !== 'emitido' && estado !== 'enviado' && !isPendingReissue) {
     return { success: false, error: 'Solo una versión vigente o una reemisión pendiente puede registrar un artefacto PDF.' };
+  }
+  const certificateVersions = sheetToObjects(getSheet('Certificados')).filter(function(item) {
+    return String(item.InscripcionID || '') === String(inscripcion.ID || '');
+  });
+  if (isPendingReissue && !puedeCompletarPdfPendiente_(certificado, inscripcion, certificateVersions)) {
+    return { success: false, error: 'La reemisión dejó de ser la pendiente más reciente o su certificado anterior ya no está vigente; no se archivó el PDF.' };
   }
   const expectedVersion = Number(certificado.CertificateVersion) || 1;
   if (Number(certificateVersion || expectedVersion) !== expectedVersion) {
@@ -6673,6 +7448,56 @@ function registrarAuditoriaCrm_(evento) {
   registrarAuditoriaCertificado(Object.assign({ canal: 'crm_service' }, evento));
 }
 
+function crmAuditEventExists_(action, metadataKey, metadataValue) {
+  const expected = String(metadataValue || '');
+  return sheetToObjects(getSheet('AuditoriaCertificados')).some(function (row) {
+    if (String(row.Accion || '') !== String(action || '')) return false;
+    try {
+      const metadata = JSON.parse(String(row.Metadatos || '{}'));
+      return String(metadata[metadataKey] || '') === expected;
+    } catch (err) { return false; }
+  });
+}
+
+function registrarAuditoriaCompraCrmUnaVez_(evento, metadataKey, metadataValue) {
+  if (crmAuditEventExists_(evento.accion, metadataKey, metadataValue)) return false;
+  registrarAuditoriaCrm_(evento);
+  return true;
+}
+
+function crmIncomeId_(crmOrderId) {
+  const digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(crmOrderId || ''));
+  const hex = digest.map(function (byte) { return ('0' + (byte & 0xFF).toString(16)).slice(-2); }).join('');
+  return 'INGCRM' + hex.slice(0, 24).toUpperCase();
+}
+
+function asegurarIngresoCompraCrm_(compra, user) {
+  const orderId = String(compra.CRMOrderID || '');
+  const ingresoId = crmIncomeId_(orderId);
+  const sheet = getSheet('Ingresos');
+  const existente = sheetToObjects(sheet).find(function (row) { return String(row.ID || '') === ingresoId; });
+  const inscripcion = sheetToObjects(getSheet('Inscripciones')).find(function (row) {
+    return String(row.ID || '') === String(compra.FinanceInscripcionID || '');
+  });
+  if (!inscripcion) throw new Error('No se encontró la inscripción de Finance asociada a la compra CRM.');
+  const concepto = compra.OfferType === 'AVAL_UPGRADE'
+    ? 'Upgrade de aval CRM (orden ' + orderId + ')'
+    : 'Compra CRM (' + compra.OfferType + ', orden ' + orderId + '): ' + inscripcion.ClienteNombre + ' — ' + inscripcion.ServicioNombre;
+  if (existente) {
+    if (String(existente.Concepto || '') !== concepto || Number(existente.Monto) !== Number(compra.Amount)) {
+      throw new Error('El ingreso idempotente de esta compra CRM existe con datos distintos; requiere conciliación administrativa.');
+    }
+    return { id: ingresoId, created: false };
+  }
+  const now = new Date().toISOString();
+  sheet.appendRow([
+    ingresoId, now.slice(0, 10), tipoIngresoPorModalidad(inscripcion.Modalidad), inscripcion.Modalidad || '',
+    concepto, inscripcion.ClienteNombre || '', '', Number(compra.Amount) || 0, '',
+    'pendiente_verificacion', '', user.Username, now, inscripcion.ClienteTelefono || '', '',
+  ]);
+  return { id: ingresoId, created: true };
+}
+
 function crmPaymentStatusLabel_(estadoPago) {
   const map = { pendiente: 'PAYMENT_PENDING', pagado: 'PAYMENT_REPORTED', verificado: 'PAYMENT_VERIFIED', cancelado: 'PAYMENT_CANCELLED' };
   return map[estadoPago] || 'PAYMENT_PENDING';
@@ -6734,7 +7559,7 @@ function obtenerOCrearInscripcionParaCompra_(p, user) {
   const modality = String(p.modality || service.Modalidad || '').trim();
 
   const id = generateId('INS');
-  const ingresoId = generateId('ING');
+  const ingresoId = crmIncomeId_(p.crmOrderId);
   const now = new Date().toISOString();
   appendInscripcionPorEncabezados(sheet, {
     ID: id, ClienteNombre: fullName, ClienteID: String(participant.identification || '').trim(),
@@ -6753,12 +7578,6 @@ function obtenerOCrearInscripcionParaCompra_(p, user) {
     CRMEnrollmentID: p.crmEnrollmentId, CRMContactID: p.crmContactId, CRMCourseID: p.crmCourseId, Origen: 'CRM',
     CRMOfferType: p.offerType, CRMParentOrderID: '', CRMCompletionStatus: '', CRMCompletedAt: '',
   });
-  getSheet('Ingresos').appendRow([
-    ingresoId, now.slice(0, 10), tipoIngresoPorModalidad(modality), modality,
-    'Compra CRM (' + p.offerType + '): ' + fullName + ' — ' + service.Nombre,
-    fullName, '', Number(p.amount) || 0, '', 'pendiente_verificacion', '', user.Username, now,
-    String(participant.phone || '').trim(), '',
-  ]);
   return { id: id, created: true };
 }
 
@@ -6770,7 +7589,12 @@ function obtenerOCrearInscripcionParaCompra_(p, user) {
  * el mismo alumno/curso.
  */
 function importCrmPurchase(user, params) {
-  const p = params || {};
+  const p = Object.assign({}, params || {});
+  p.crmOrderId = String(p.crmOrderId || '').trim();
+  p.crmEnrollmentId = String(p.crmEnrollmentId || '').trim();
+  p.crmContactId = String(p.crmContactId || '').trim();
+  p.crmCourseId = String(p.crmCourseId || '').trim();
+  p.parentCrmOrderId = String(p.parentCrmOrderId || '').trim();
   requireAdmin(user);
   if (!p.crmOrderId) throw new Error('crmOrderId es obligatorio.');
   if (!p.crmEnrollmentId) throw new Error('crmEnrollmentId es obligatorio.');
@@ -6789,7 +7613,19 @@ function importCrmPurchase(user, params) {
     const comprasSheet = getSheet('CRMCompras');
     const existente = sheetToObjects(comprasSheet).find(function (r) { return r.CRMOrderID === p.crmOrderId; });
     if (existente) {
-      registrarAuditoriaCrm_({ inscripcionId: existente.FinanceInscripcionID, usuario: user.Username, rol: user.Rol, accion: 'CRM_PURCHASE_REUSED', resultado: 'ok', metadatos: { crmOrderId: p.crmOrderId } });
+      const requestMatches = String(existente.CRMEnrollmentID || '') === String(p.crmEnrollmentId)
+        && String(existente.CRMContactID || '') === String(p.crmContactId)
+        && String(existente.CRMCourseID || '') === String(p.crmCourseId)
+        && String(existente.OfferType || '') === String(p.offerType)
+        && String(existente.ParentCRMOrderID || '') === String(p.parentCrmOrderId || '')
+        && Number(existente.Amount) === amount;
+      if (!requestMatches) throw new Error('crmOrderId ya existe asociado a datos distintos; no se modificó la compra registrada.');
+      registrarAuditoriaCompraCrmUnaVez_({
+        inscripcionId: existente.FinanceInscripcionID, usuario: user.Username, rol: user.Rol,
+        accion: 'CRM_PURCHASE_IMPORTED', resultado: 'ok',
+        metadatos: { crmOrderId: p.crmOrderId, offerType: p.offerType, crmEnrollmentId: p.crmEnrollmentId,
+          parentCrmOrderId: p.parentCrmOrderId || null, recuperadoEnRetry: true },
+      }, 'crmOrderId', p.crmOrderId);
       return { success: true, data: crmPurchaseParaCliente_(existente), idempotent: true };
     }
 
@@ -6817,17 +7653,19 @@ function importCrmPurchase(user, params) {
     if (p.offerType === 'AVAL_UPGRADE') {
       financeInscripcionId = parentCompra.FinanceInscripcionID; // SIEMPRE la del padre, nunca otra
       inscripcionCreada = false;
-      const ingresoId = generateId('ING');
-      const now0 = new Date().toISOString();
-      getSheet('Ingresos').appendRow([
-        ingresoId, now0.slice(0, 10), 'Curso', '', 'Upgrade de aval CRM: orden ' + p.crmOrderId,
-        '', '', amount, '', 'pendiente_verificacion', '', user.Username, now0, '', '',
-      ]);
     } else {
       const resultado = obtenerOCrearInscripcionParaCompra_(p, user);
       financeInscripcionId = resultado.id;
       inscripcionCreada = resultado.created;
     }
+
+    const stagedPurchase = {
+      CRMOrderID: p.crmOrderId, CRMEnrollmentID: p.crmEnrollmentId,
+      FinanceInscripcionID: financeInscripcionId, CRMContactID: p.crmContactId,
+      CRMCourseID: p.crmCourseId, OfferType: p.offerType,
+      ParentCRMOrderID: p.offerType === 'AVAL_UPGRADE' ? p.parentCrmOrderId : '', Amount: amount,
+    };
+    asegurarIngresoCompraCrm_(stagedPurchase, user);
 
     const id = generateId('CRC');
     const now = new Date().toISOString();
@@ -6844,11 +7682,11 @@ function importCrmPurchase(user, params) {
     }));
     const compraCreada = sheetToObjects(comprasSheet).find(function (r) { return r.ID === id; });
 
-    registrarAuditoriaCrm_({
+    registrarAuditoriaCompraCrmUnaVez_({
       inscripcionId: financeInscripcionId, usuario: user.Username, rol: user.Rol,
       accion: 'CRM_PURCHASE_IMPORTED', resultado: 'ok',
       metadatos: { crmOrderId: p.crmOrderId, offerType: p.offerType, crmEnrollmentId: p.crmEnrollmentId, parentCrmOrderId: p.parentCrmOrderId || null, inscripcionReutilizada: !inscripcionCreada },
-    });
+    }, 'crmOrderId', p.crmOrderId);
 
     return { success: true, data: crmPurchaseParaCliente_(compraCreada), idempotent: false };
   });
@@ -6863,48 +7701,68 @@ function importCrmPurchase(user, params) {
  * otorga el acceso base (FULL/INSTITUTIONAL), sincroniza Inscripciones.EstadoPago;
  * si es un AVAL_UPGRADE, habilita el aval en la compra/Inscripcion padre.
  */
-function verificarPagoCompraCrm(user, { crmOrderId, numeroComprobante, fechaPago } = {}) {
+function verificarPagoCompraCrm(user, params) {
+  const p = params || {};
+  const crmOrderId = String(p.crmOrderId || '').trim();
+  const numeroComprobante = p.numeroComprobante;
+  const fechaPago = p.fechaPago;
   requireAdmin(user);
   if (!crmOrderId) throw new Error('crmOrderId es obligatorio.');
   return conBloqueoCertificados(function () {
     const comprasSheet = getSheet('CRMCompras');
     const compra = sheetToObjects(comprasSheet).find(function (r) { return r.CRMOrderID === crmOrderId; });
     if (!compra) return { success: false, error: 'crmOrderId no encontrado.' };
-    if (compra.PaymentStatus === 'verificado') {
-      return { success: true, data: crmPurchaseParaCliente_(compra), alreadyVerified: true };
+    if (compra.PaymentStatus === 'cancelado') {
+      return { success: false, error: 'La compra está cancelada; Finance no permite reactivar su pago sin una transición de reapertura auditada.' };
     }
+    const alreadyVerified = compra.PaymentStatus === 'verificado';
     const now = new Date().toISOString();
-    updateRow(comprasSheet, compra, {
-      PaymentStatus: 'verificado',
-      NumeroComprobante: String(numeroComprobante || '').trim(),
-      FechaPago: fechaPago ? fechaSolo(fechaPago) : compra.FechaPago,
-      FechaVerificacionPago: now,
-      VerificadoPor: user.Username,
-      UpdatedAt: now,
-    });
-    registrarAuditoriaCrm_({
-      inscripcionId: compra.FinanceInscripcionID, usuario: user.Username, rol: user.Rol,
-      accion: 'PAYMENT_VERIFIED', estadoAnterior: compra.PaymentStatus || 'pendiente', estadoNuevo: 'verificado',
-      resultado: 'ok', metadatos: { crmOrderId: crmOrderId, offerType: compra.OfferType },
-    });
-
-    if (compra.OfferType === 'FULL' || compra.OfferType === 'INSTITUTIONAL') {
-      const insSheet = getSheet('Inscripciones');
-      const inscripcion = sheetToObjects(insSheet).find(function (r) { return r.ID === compra.FinanceInscripcionID; });
-      if (inscripcion && inscripcion.EstadoPago !== 'verificado') {
-        updateRow(insSheet, inscripcion, {
-          EstadoPago: 'verificado',
-          FechaVerificacionPago: inscripcion.FechaVerificacionPago || now,
-          VerificadoPor: inscripcion.VerificadoPor || user.Username,
-        });
-      }
-    } else if (compra.OfferType === 'AVAL_UPGRADE') {
-      aplicarAvalUpgradeAlPadre_(compra, user);
+    if (!alreadyVerified) {
+      updateRow(comprasSheet, compra, {
+        PaymentStatus: 'verificado',
+        NumeroComprobante: String(numeroComprobante || '').trim(),
+        FechaPago: fechaPago ? fechaSolo(fechaPago) : compra.FechaPago,
+        FechaVerificacionPago: now,
+        VerificadoPor: user.Username,
+        UpdatedAt: now,
+      });
     }
+    const verificada = sheetToObjects(comprasSheet).find(function (r) { return r.CRMOrderID === crmOrderId; });
+    sincronizarEfectosPagoCompraCrm_(verificada, user, now);
+    registrarAuditoriaCompraCrmUnaVez_({
+      inscripcionId: verificada.FinanceInscripcionID, usuario: user.Username, rol: user.Rol,
+      accion: 'PAYMENT_VERIFIED', estadoAnterior: compra.PaymentStatus || 'pendiente', estadoNuevo: 'verificado',
+      resultado: 'ok', metadatos: { crmOrderId: crmOrderId, offerType: verificada.OfferType },
+    }, 'crmOrderId', crmOrderId);
 
     const compraActualizada = sheetToObjects(comprasSheet).find(function (r) { return r.CRMOrderID === crmOrderId; });
-    return { success: true, data: crmPurchaseParaCliente_(compraActualizada), alreadyVerified: false };
+    return { success: true, data: crmPurchaseParaCliente_(compraActualizada), alreadyVerified: alreadyVerified };
   });
+}
+
+function sincronizarEfectosPagoCompraCrm_(compra, user, now) {
+  if (!compra || compra.PaymentStatus !== 'verificado') throw new Error('La compra CRM no está verificada; no se sincronizaron sus efectos.');
+  if (compra.OfferType === 'FULL' || compra.OfferType === 'INSTITUTIONAL') {
+    const insSheet = getSheet('Inscripciones');
+    const inscripcion = sheetToObjects(insSheet).find(function (r) { return r.ID === compra.FinanceInscripcionID; });
+    if (!inscripcion) throw new Error('No existe la inscripción Finance asociada a la compra verificada; reintente tras revisar la vinculación.');
+    if (inscripcion.EstadoPago !== 'verificado') {
+      updateRow(insSheet, inscripcion, {
+        EstadoPago: 'verificado',
+        FechaVerificacionPago: inscripcion.FechaVerificacionPago || now,
+        VerificadoPor: inscripcion.VerificadoPor || user.Username,
+      });
+    }
+  } else if (compra.OfferType === 'AVAL_UPGRADE') {
+    aplicarAvalUpgradeAlPadre_(compra, user);
+    registrarAuditoriaCompraCrmUnaVez_({
+      inscripcionId: compra.FinanceInscripcionID, usuario: user.Username, rol: user.Rol,
+      accion: 'AVAL_UPGRADE_APPLIED', estadoAnterior: 'sin_aval', estadoNuevo: 'aval_habilitado',
+      resultado: 'ok', metadatos: { crmOrderId: compra.ParentCRMOrderID, upgradeCrmOrderId: compra.CRMOrderID },
+    }, 'upgradeCrmOrderId', compra.CRMOrderID);
+  } else {
+    throw new Error('OfferType de la compra verificada no está soportado.');
+  }
 }
 
 /**
@@ -6915,17 +7773,12 @@ function verificarPagoCompraCrm(user, { crmOrderId, numeroComprobante, fechaPago
 function aplicarAvalUpgradeAlPadre_(compraUpgrade, user) {
   const insSheet = getSheet('Inscripciones');
   const padre = sheetToObjects(insSheet).find(function (r) { return r.ID === compraUpgrade.FinanceInscripcionID; });
-  if (!padre) return;
+  if (!padre) throw new Error('No existe la inscripción padre de la compra AVAL_UPGRADE.');
   if (esVerdadero(padre.RequiereAvalExterno)) return; // ya aplicado, idempotente
   updateRow(insSheet, padre, {
     RequiereAvalExterno: true,
     EstadoAval: padre.EstadoAval || 'pendiente',
     InstitucionAval: padre.InstitucionAval || '',
-  });
-  registrarAuditoriaCrm_({
-    inscripcionId: padre.ID, usuario: user.Username, rol: user.Rol,
-    accion: 'AVAL_UPGRADE_APPLIED', estadoAnterior: 'sin_aval', estadoNuevo: 'aval_habilitado',
-    resultado: 'ok', metadatos: { crmOrderId: compraUpgrade.ParentCRMOrderID, upgradeCrmOrderId: compraUpgrade.CRMOrderID },
   });
 }
 
@@ -7030,6 +7883,7 @@ function calcularEstadoComercialCrm_(crmEnrollmentId, indice) {
 
 function getCrmEnrollmentCommerceState(user, params) {
   const p = params || {};
+  p.crmEnrollmentId = String(p.crmEnrollmentId || '').trim();
   if (!p.crmEnrollmentId) throw new Error('crmEnrollmentId es obligatorio.');
   const indice = construirIndiceComercialCrm_();
   return { success: true, data: calcularEstadoComercialCrm_(p.crmEnrollmentId, indice) };
@@ -7042,14 +7896,17 @@ const CRM_ENROLLMENT_STATE_BATCH_LIMIT = 100;
 
 function getCrmEnrollmentCommerceStates(user, params) {
   const p = params || {};
-  const ids = Array.isArray(p.crmEnrollmentIds) ? p.crmEnrollmentIds.filter(Boolean).slice(0, CRM_ENROLLMENT_STATE_BATCH_LIMIT) : [];
-  if (ids.length === 0) throw new Error('crmEnrollmentIds debe ser un arreglo no vacío (máximo ' + CRM_ENROLLMENT_STATE_BATCH_LIMIT + ').');
+  const ids = Array.isArray(p.crmEnrollmentIds) ? p.crmEnrollmentIds.map(function (id) { return String(id || '').trim(); }).filter(Boolean) : [];
+  if (ids.length === 0 || ids.length > CRM_ENROLLMENT_STATE_BATCH_LIMIT) {
+    throw new Error('crmEnrollmentIds debe contener entre 1 y ' + CRM_ENROLLMENT_STATE_BATCH_LIMIT + ' identificadores; no se truncó el lote.');
+  }
   const indice = construirIndiceComercialCrm_();
   return { success: true, data: ids.map(function (id) { return calcularEstadoComercialCrm_(id, indice); }) };
 }
 
 function getCrmPurchaseStatus(user, params) {
   const p = params || {};
+  p.crmOrderId = String(p.crmOrderId || '').trim();
   if (!p.crmOrderId) throw new Error('crmOrderId es obligatorio.');
   const compra = sheetToObjects(getSheet('CRMCompras')).find(function (r) { return r.CRMOrderID === p.crmOrderId; });
   if (!compra) return { success: false, error: 'crmOrderId no encontrado.' };
@@ -7058,8 +7915,10 @@ function getCrmPurchaseStatus(user, params) {
 
 function getCrmPurchaseStatuses(user, params) {
   const p = params || {};
-  const ids = Array.isArray(p.crmOrderIds) ? p.crmOrderIds.filter(Boolean).slice(0, CRM_STATUS_BATCH_LIMIT) : [];
-  if (ids.length === 0) throw new Error('crmOrderIds debe ser un arreglo no vacío (máximo ' + CRM_STATUS_BATCH_LIMIT + ').');
+  const ids = Array.isArray(p.crmOrderIds) ? p.crmOrderIds.map(function (id) { return String(id || '').trim(); }).filter(Boolean) : [];
+  if (ids.length === 0 || ids.length > CRM_STATUS_BATCH_LIMIT) {
+    throw new Error('crmOrderIds debe contener entre 1 y ' + CRM_STATUS_BATCH_LIMIT + ' identificadores; no se truncó el lote.');
+  }
   const idsSet = {};
   ids.forEach(function (i) { idsSet[i] = true; });
   const compras = sheetToObjects(getSheet('CRMCompras')).filter(function (r) { return idsSet[r.CRMOrderID]; });
@@ -8324,6 +9183,12 @@ function getFlujosSemana(user, { username, semana } = {}) {
   return { success: true, data: result, semana: lunes };
 }
 
+function redondearHorasFlujo_(valor) {
+  var numero = Number(valor);
+  if (!isFinite(numero)) return 0;
+  return Math.round((numero + Number.EPSILON) * 100) / 100;
+}
+
 function addFlujoSemanal(user, { flujo } = {}) {
   requireAdmin(user);
   const lunes = getMondayOf(flujo.semana);
@@ -8339,7 +9204,7 @@ function addFlujoSemanal(user, { flujo } = {}) {
   sheet.appendRow([
     id, flujo.username, uRow ? uRow.Nombre : flujo.username, lunes,
     lunes, finD.toISOString().slice(0, 10),
-    Number(flujo.totalHorasPlan) || 40,
+    redondearHorasFlujo_(Number(flujo.totalHorasPlan) || 40),
     'activo', flujo.notas || '', user.Username, now,
   ]);
   return { success: true, id: id, semana: lunes };
@@ -8351,7 +9216,7 @@ function updateFlujoSemanal(user, { id, flujo } = {}) {
   const row   = sheetToObjects(sheet).find(function(f) { return f.ID === id; });
   if (!row) return { success: false, error: 'Flujo no encontrado.' };
   updateRow(sheet, row, {
-    TotalHorasPlan: Number(flujo.totalHorasPlan) || row.TotalHorasPlan,
+    TotalHorasPlan: redondearHorasFlujo_(Number(flujo.totalHorasPlan) || row.TotalHorasPlan),
     Estado: flujo.estado || row.Estado,
     Notas: flujo.notas !== undefined ? flujo.notas : row.Notas,
   });
@@ -8374,7 +9239,7 @@ function addActividadFlujo(user, { actividad } = {}) {
     Descripcion: actividad.descripcion || '',
     DescripcionFormato: actividad.descripcionFormato || 'texto_enriquecido_v1',
     DiaSemana: normalizarDiaSemanaFlujo_(actividad.diaSemana || 'Lunes'),
-    HorasEstimadas: Number(actividad.horasEstimadas) || 1,
+    HorasEstimadas: redondearHorasFlujo_(Number(actividad.horasEstimadas) || 1),
     Estado: 'pendiente',
     HorasReales: 0,
     Notas: '',
@@ -8545,7 +9410,7 @@ function updateActividadFlujo(user, { id, actividad } = {}) {
     if (actividad.descripcion   !== undefined) fields.Descripcion     = actividad.descripcion;
     if (actividad.descripcionFormato !== undefined) fields.DescripcionFormato = actividad.descripcionFormato;
     if (actividad.diaSemana     !== undefined) fields.DiaSemana       = normalizarDiaSemanaFlujo_(actividad.diaSemana);
-    if (actividad.horasEstimadas !== undefined) fields.HorasEstimadas = Number(actividad.horasEstimadas) || 0;
+    if (actividad.horasEstimadas !== undefined) fields.HorasEstimadas = redondearHorasFlujo_(Number(actividad.horasEstimadas) || 0);
     if (actividad.estadoRevision !== undefined) {
       var revision = String(actividad.estadoRevision || '').trim();
       if (['pendiente_revision','aprobado','rechazado'].indexOf(revision) === -1) {
@@ -8555,9 +9420,15 @@ function updateActividadFlujo(user, { id, actividad } = {}) {
         throw new Error('Para no aprobar una actividad se debe registrar una observación.');
       }
       fields.EstadoRevision = revision;
-      fields.HorasAprobadas = revision === 'aprobado'
-        ? (Number(actividad.horasAprobadas !== undefined ? actividad.horasAprobadas : row.HorasReales) || 0)
-        : 0;
+      if (revision === 'aprobado') {
+        var horasParaAprobar = Number(actividad.horasAprobadas !== undefined ? actividad.horasAprobadas : row.HorasReales);
+        if (!isFinite(horasParaAprobar) || horasParaAprobar < 0 || horasParaAprobar > 24) {
+          throw new Error('Las horas aprobadas deben ser un valor entre 0 y 24.');
+        }
+        fields.HorasAprobadas = redondearHorasFlujo_(horasParaAprobar);
+      } else {
+        fields.HorasAprobadas = 0;
+      }
       fields.FeedbackRevision = actividad.feedbackRevision !== undefined
         ? String(actividad.feedbackRevision || '')
         : row.FeedbackRevision || '';
@@ -8583,7 +9454,16 @@ function updateActividadFlujo(user, { id, actividad } = {}) {
     if (actividad.estado === 'completado' && !row.CompletadoEn)
       fields.CompletadoEn = new Date().toISOString();
   }
-  if (actividad.horasReales !== undefined) fields.HorasReales = Number(actividad.horasReales) || 0;
+  if (actividad.horasReales !== undefined) {
+    if (String(row.EstadoRevision || 'pendiente_revision') === 'aprobado') {
+      throw new Error('No se pueden editar las horas reportadas después de su aprobación. Solicita una corrección administrativa.');
+    }
+    var horasReportadas = Number(actividad.horasReales);
+    if (!isFinite(horasReportadas) || horasReportadas < 0 || horasReportadas > 24) {
+      throw new Error('Las horas reportadas deben ser un valor entre 0 y 24.');
+    }
+    fields.HorasReales = redondearHorasFlujo_(horasReportadas);
+  }
   if (actividad.notas       !== undefined) fields.Notas     = actividad.notas;
   if (actividad.checklist   !== undefined) {
     if (!isAdmin(user)) assertSoloMarcaChecklistAsignado_(row.Checklist, actividad.checklist);
