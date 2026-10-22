@@ -185,22 +185,13 @@ export async function readBulkEnrollmentFile(file) {
   return nonEmpty
 }
 
-export async function downloadBulkEnrollmentTemplate() {
-  const XLSX = await import('xlsx')
-  const workbook = XLSX.utils.book_new()
-  const participants = XLSX.utils.aoa_to_sheet([BULK_IMPORT_COLUMNS])
-  participants['!cols'] = [{ wch: 26 }, { wch: 22 }, { wch: 25 }, { wch: 25 }, { wch: 34 }, { wch: 20 }]
-  XLSX.utils.book_append_sheet(workbook, participants, 'Participantes')
-
-  const instructions = XLSX.utils.aoa_to_sheet([
-    ['Instrucciones para la carga masiva'],
-    ['Complete una fila por participante. No agregue datos de pago ni indique que un pago está verificado.'],
-    ['Identificación, nombres, apellidos, correo y celular son obligatorios.'],
-    ['Use CEDULA_EC, RUC_EC, PASAPORTE u OTRO como tipo. Puede dejarlo vacío solo para una cédula de 10 dígitos, que se inferirá automáticamente.'],
-    ['Antes de escribir identificaciones y celulares, configure esas columnas como Texto para conservar ceros iniciales.'],
-    ['El archivo se procesa en este navegador y no se almacena ni se adjunta al servidor.'],
-  ])
-  instructions['!cols'] = [{ wch: 112 }]
-  XLSX.utils.book_append_sheet(workbook, instructions, 'Instrucciones')
-  XLSX.writeFileXLSX(workbook, 'plantilla_participantes_ra_training.xlsx')
+export function downloadBulkEnrollmentTemplate() {
+  const link = document.createElement('a')
+  link.href = `${import.meta.env.BASE_URL}plantilla_participantes_ra_training.xlsx`
+  link.download = 'plantilla_participantes_ra_training.xlsx'
+  link.rel = 'noopener'
+  link.style.display = 'none'
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
 }
